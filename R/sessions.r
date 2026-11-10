@@ -85,7 +85,6 @@ api_init_session <- function (REQ) {
   project_id <- local({
     
     pid <- NULL
-    key <- NULL
     
     
     #________________________________________________________
@@ -102,30 +101,6 @@ api_init_session <- function (REQ) {
         pid <- db_query(DB, sql, "AISess5", list(access_key))
         
         return (pid)
-      })
-    
-    
-    #________________________________________________________
-    # Load the project specified in the URL (old style).
-    #________________________________________________________
-    old_p <- ARGS[['p']]
-    old_k <- ARGS[['k']]
-    if (!is.null(old_p) && nzchar(old_p))
-      pid <- local({
-        
-        project_id <- as.integer(old_p)
-        
-        access_key <- tryCatch(
-          error = function (e) NULL,
-          expr  = local({
-            stopifnot(is_scalar_character(old_k))
-            EncryptionKey <- base64_decode(old_k)
-            return (substr(md5(EncryptionKey), 1, 12)) }))
-        
-        if (!is_project_readable(DB, project_id, user_id, access_key))
-          return (NULL)
-        
-        return (project_id)
       })
     
     
@@ -295,8 +270,7 @@ get_session_data <- function (REQ) {
       user_id         = unbox(REQ[['SESSION']][['user_id']]),
       is_guest        = unbox(REQ[['SESSION']][['is_guest']]),
       is_admin        = unbox(REQ[['SESSION']][['is_admin']]),
-      migration_queue = list() # migration_queue(REQ)
-      ))
+      migration_queue = list() ))
   
   resp <- response(body, auth_cookie, sess_header)
   

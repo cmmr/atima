@@ -146,11 +146,8 @@ sanity_check <- function (..., assert = TRUE, simple = FALSE) {
         } else { NULL }
         
       } else if (key %in% c("password", "new_password")) {
-        #exclude <- system.file(package = "atima", "extdata/common_passwords.rds")
         if (trimlen < 6) {
           "Password must be at least 6 characters."
-          # } else if (val %in% readRDS(exclude)) {
-          #   "Password is too common."
         } else { NULL }
         
       } else if (key == "full_name") {

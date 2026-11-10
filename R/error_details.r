@@ -1,12 +1,4 @@
 
-call_stack <- function () {
-  calls <- sys.calls()
-  calls <- head(calls, length(calls) - 8)
-  calls <- head(calls, which(startsWith(calls, "call_stack"))[[1]] - 2)
-  paste(collapse = "\n", c("Call Stack:", calls))
-}
-
-
 #______________________________________________________________________________
 #' An HTML block for error_modal with error details .
 error_details <- function (err_obj, err_code = NULL, ...) {

@@ -2,7 +2,6 @@
 #______________________________________________________________________________
 #' User is registering for a new account.
 #' @return <response:session_data> or <response:swal>
-#' 
 api_create_account <- function (REQ, full_name, email, affiliation, password = NULL) {
   
   DB      <- REQ[['DB']]
@@ -220,7 +219,6 @@ api_reset_password <- function (REQ, email) {
 #______________________________________________________________________________
 #' User is signing in from the modal prompt.
 #' @return <response:session_data> or <response:swal>
-#' 
 api_sign_in <- function (REQ, email, password) {
   
   DB            <- REQ[['DB']]
@@ -286,7 +284,6 @@ api_sign_in <- function (REQ, email, password) {
 #______________________________________________________________________________
 #' User clicked on 'Log Out'.
 #' @return list(CONF, BIOM, jstree_data)
-#' 
 api_log_out <- function (REQ) {
   
   DB            <- REQ[['DB']]
@@ -415,61 +412,5 @@ authenticate_password <- function (DB, email, password) {
   }
   
   
-  # Migrate user's old rsa key the first time they log in.
-  # migrate_priv_key(DB, user[['user_id']], password)
-  
-  
   return (user[['user_id']])
-}
-
-
-#______________________________________________________________________________
-#' Delete a user_id from all tables.
-#' 
-delete_account <- function (DB, user_id) {
-  
-  stopifnot(is_scalar_integerish(user_id))
-  
-  
-  txn <- c(
-    "UPDATE sessions    SET         user_id=NULL WHERE         user_id = ?",
-    "UPDATE permissions SET grantor_user_id=NULL WHERE grantor_user_id = ?",
-    
-    "DELETE FROM resets      WHERE user_id = ?",
-    "DELETE FROM auth_tokens WHERE user_id = ?",
-    "DELETE FROM collections WHERE user_id = ?",
-    "DELETE FROM permissions WHERE user_id = ?",
-    "DELETE FROM users       WHERE user_id = ?" )
-  
-  tryCatch(
-    
-    expr = {
-      db_query(DB, "BEGIN", "DAcc1")
-      
-      for (sql in txn)
-        db_query(DB, sql, "DAcc2", list(user_id))
-      
-      db_query(DB, "COMMIT", "DAcc3")
-    }, 
-    
-    error = function (e) ({
-      try(silent = TRUE, db_query(DB, "ROLLBACK", "DAcc4"))
-      stop(e)
-    }) )
-  
-}
-
-
-
-#______________________________________________________________________________
-#' Convert a user_id into a full_name.
-#' @return a full_name.
-get_full_name <- function (DB, user_id) {
-  
-  if (is.null(user_id)) return (NULL)
-  
-  sql       <- "SELECT full_name FROM users WHERE user_id = ?"
-  full_name <- db_query(DB, sql, "GFName1", list(user_id))
-  
-  return (full_name)
 }

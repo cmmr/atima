@@ -3,7 +3,6 @@
 
 #______________________________________________________________________________
 #' Connect to the SQLite database file.
-#' 
 db_connect <- function (DATA_DIR) {
   
   DB <- try(silent = TRUE, dbConnect(
@@ -19,7 +18,6 @@ db_connect <- function (DATA_DIR) {
 
 #______________________________________________________________________________
 #' Close/Disconnect a database connection.
-#' 
 db_close <- function (DB) {
   stopifnot(is(DB, "SQLiteConnection"))
   try(silent = TRUE, dbDisconnect(DB))
@@ -28,7 +26,6 @@ db_close <- function (DB) {
 
 #______________________________________________________________________________
 #' Initialize the database if it's currently empty.
-#' 
 db_init <- function (config) {
   
   data_dir <- config[['data_dir']]
@@ -152,7 +149,6 @@ db_query <- function (DB, sql, err_code, params = NULL, simplify = TRUE, req1 = 
 
 #______________________________________________________________________________
 #' Create and run an INSERT statement.
-#' 
 db_insert <- function (DB, table, err_code, ..., defaults = list()) {
   
   
@@ -189,7 +185,6 @@ db_insert <- function (DB, table, err_code, ..., defaults = list()) {
 #______________________________________________________________________________
 #' Create and run an UPDATE statement.
 #' The `id` is the primary key for the row to be updated.
-#' 
 db_update <- function (DB, table, id, err_code, ...) {
   
   
@@ -224,7 +219,6 @@ db_update <- function (DB, table, id, err_code, ...) {
 
 #______________________________________________________________________________
 #' Check that a primary key exists in a table.
-#' 
 db_row_exists <- function (DB, table, id, assert=TRUE) {
   
   stopifnot(is_scalar_integerish(id))
@@ -246,7 +240,6 @@ db_row_exists <- function (DB, table, id, assert=TRUE) {
 
 #______________________________________________________________________________
 #' Initialize the SQL database tables.
-#' 
 init_db_structure <- function (DB) {
   
   stopifnot(is(DB, "SQLiteConnection"))
@@ -443,12 +436,6 @@ init_db_structure <- function (DB) {
 
 init_db_content <- function (db, config) {
   
-  # Copy content over from previous version of atima.
-  #________________________________________________________
-  # migration_init(db)
-  
-  
-  
   # Load some sample projects; make them public.
   #________________________________________________________
   
@@ -461,7 +448,7 @@ init_db_content <- function (db, config) {
   
   TEMP_DIR <- req[['CONFIG']][['temp_dir']]
   
-  for (i in c('hmp50', 'gems')) { #}, 'babies')) {
+  for (i in c('hmp50', 'gems')) {
     
     cat(file = stdout(), "  - ", i, "\n")
     
@@ -472,20 +459,6 @@ init_db_content <- function (db, config) {
         biom = base::getExportedValue('rbiom', i),
         file = tempfile(tmpdir = TEMP_DIR, fileext = ".json") ))
   }
-  
-  # hmp50_pid <- add_project(
-  #   DB                   = db, 
-  #   REQ                  = c(CONF, list(SESSION = list(user_id = 0L, full_name = "atima"))), 
-  #   infile               = infile, 
-  #   requested_access_key = "HMP50" )
-  
-  # sapply(
-  #   X = list.files(
-  #     full.names = TRUE,
-  #     system.file("extdata", "datasets", package = "atima", mustWork = TRUE) ),
-  #   FUN = function (infile) {
-  #     cat(file = stdout(), "  -", basename(infile), "\n")
-  #     add_project(DB, infile, user_id = NULL) })
   
 }
 

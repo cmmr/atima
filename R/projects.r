@@ -176,53 +176,6 @@ api_save_as <- function (REQ, title, access_key, description) {
 
 
 #______________________________________________________________________________
-#' Forward a user to a bookmarked project, or 
-#' fetch a biom object in various format.
-#' 
-#' Some example paths:
-#' \code{/HMP50}
-#' \code{/HMP50/full.json.gz}
-#' \code{/api/get/HMP50}
-#' \code{/api/get/HMP50/full.json.gz}
-#' \code{/api/get/HMP50/rare.json.gz}
-#' 
-#' @return the usual index.html webpage, or 
-#'         a response object with the biom object, intended for direct download
-api_get <- function (REQ) {
-  
-  DB         <- REQ[['DB']]
-  QUERY      <- REQ[['QUERY']]
-  PATH       <- REQ[['PATH']]
-  IP         <- REQ[['CLIENT']][['ip_address']]
-  auth_token <- REQ[['CLIENT']][['auth_token']]
-  
-  
-  
-  #________________________________________________________
-  # Split path into words and remove any /api/get/ prefix.
-  #________________________________________________________
-  p <- strsplit(PATH, '/', fixed = TRUE)[[1]]
-  p <- p[nchar(p) > 0]
-  
-  if (startsWith(PATH, "/api/get/"))
-    p <- p[-c(1:2)]
-  
-  
-  
-  #________________________________________________________
-  # User wants to open this project in the browser.
-  # For example, http://localhost/HMP50 => p = c('HMP50')
-  # Return index.html, let javascript load the project.
-  #________________________________________________________
-  if (length(p) <= 1) {
-    access_key <- if (length(p) > 0) p[[1]] else NULL
-    return (init_session(DB, IP, QUERY, auth_token, access_key))
-  }
-  
-}
-
-
-#______________________________________________________________________________
 #' Changes the project associated with the current session. 
 #' @return invisible(NULL)
 select_project <- function (REQ, project_id = NULL, access_key = NULL) {
@@ -402,25 +355,7 @@ create_access_key <- function (DB, requested_access_key = NULL) {
 
 
 #______________________________________________________________________________
-#' Check if this project has unsaved changes.
-#' 
-is_draft_saved <- function (DB, draft_id) {
-  
-  sql     <- "SELECT project_id, rare_bf_id FROM drafts WHERE draft_id = ?"
-  draft   <- db_query(DB, sql, "DSaved1", list(draft_id), req1 = TRUE)
-  
-  sql     <- "SELECT project_id, rare_bf_id FROM projects WHERE project_id = ?"
-  project <- db_query(DB, sql, "DSaved2", list(draft[['project_id']]), req1 = TRUE)
-  
-  is_saved <- identical(draft[['rare_bf_id']], project[['rare_bf_id']])
-  
-  return (is_saved)
-}
-
-
-#______________________________________________________________________________
 #' Check if this user is allowed to view this project.
-#' 
 is_project_readable <- function (DB, project_id, user_id, access_key=NULL, assert=FALSE) {
   
   if (!sanity_check(access_key, assert = assert))
