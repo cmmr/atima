@@ -4,6 +4,7 @@
 #' 
 #' @return list(draw, recordsTotal, recordsFiltered, data)
 #'         as per https://datatables.net/manual/server-side .
+#' @noRd
 api_metadata_dt <- function (
     REQ, columns=NULL, draw=1L, start=0L, length=10L, 
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {
@@ -22,6 +23,7 @@ api_metadata_dt <- function (
 #' 
 #' @return list(draw, recordsTotal, recordsFiltered, data)
 #'         as per https://datatables.net/manual/server-side .
+#' @noRd
 api_taxonomy_dt <- function (
     REQ, columns=NULL, draw=1L, start=0L, length=10L, 
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {
@@ -40,6 +42,7 @@ api_taxonomy_dt <- function (
 #' METADATA DataTable. Two header rows: Column Name and Column Class.
 #' 
 #' @return A <thead/> html string.
+#' @noRd
 api_metadata_thead <- function (REQ) {
   
   full_bf_id <- REQ[['SESSION']][['full_bf_id']]
@@ -83,6 +86,7 @@ api_metadata_thead <- function (REQ) {
 #' TAXONOMY DataTable.
 #' 
 #' @return A <thead/> html string.
+#' @noRd
 api_taxonomy_thead <- function (REQ) {
   
   full_bf_id <- REQ[['SESSION']][['full_bf_id']]
@@ -101,6 +105,7 @@ api_taxonomy_thead <- function (REQ) {
 #______________________________________________________________________________
 #' User wants to change numeric <=> categorical.
 #' @return list(BIOM)
+#' @noRd
 api_metadata_change_class <- function (REQ, col_num) {
   
   stopifnot(is_scalar_integer(col_num <- int(col_num)))
@@ -148,6 +153,7 @@ api_metadata_change_class <- function (REQ, col_num) {
 #' 
 #' @return list(draw, recordsTotal, recordsFiltered, data)
 #'         as per https://datatables.net/manual/server-side .
+#' @noRd
 dt_page <- function (
     df, draw=1L, start=0L, length=10L, 
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {

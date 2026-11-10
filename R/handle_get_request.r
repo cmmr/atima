@@ -7,6 +7,7 @@
 #' /unsaved/KADFq33aW2/full.json
 #' 
 #' @return list(headers, status, body)
+#' @noRd
 handle_get_request <- function (REQ) {
   
   DB       <- REQ[['DB']]

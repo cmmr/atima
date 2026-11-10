@@ -3,6 +3,7 @@
 #______________________________________________________________________________
 #' Accept a new biom file from the user; switch to that project.
 #' @return list(BIOM, jstree_node)
+#' @noRd
 api_upload_biom <- function (REQ, biom_file) {
   
   DB          <- REQ[['DB']]
@@ -59,6 +60,7 @@ api_upload_biom <- function (REQ, biom_file) {
 #______________________________________________________________________________
 #' Import a metadata csv, taxonomy csv, or newick tree file
 #' @return list(BIOM)
+#' @noRd
 api_upload_component <- function (REQ, component, component_file) {
   
   DB         <- REQ[['DB']]
@@ -135,6 +137,7 @@ api_upload_component <- function (REQ, component, component_file) {
 #' api/export/beta/<method>/{w|u}    (implies rarefied)
 #' api/export/taxa/<rank>/{rare|full}
 #' @return list(download_url)
+#' @noRd
 api_export <- function (REQ) {
   
   DB          <- REQ[['DB']]
@@ -265,6 +268,7 @@ api_export <- function (REQ) {
 #______________________________________________________________________________
 #' Save BIOM objects as BIOM files in atima's data directory.
 #' @return biom_file_id
+#' @noRd
 store_biom <- function (REQ, biom) {
   
   TEMP_DIR <- REQ[['CONFIG']][['temp_dir']]
@@ -295,6 +299,7 @@ store_biom <- function (REQ, biom) {
 #______________________________________________________________________________
 #' Renames and saves a file to atima's data directory.
 #' @return biom_file_id
+#' @noRd
 store_file <- function (REQ, file) {
   
   DB        <- REQ[['DB']]
@@ -351,6 +356,7 @@ store_file <- function (REQ, file) {
 #' @return a BIOM object
 #' @examples
 #' get_biom(REQ, biom_file_id = 100)
+#' @noRd
 get_biom <- function (REQ, biom_file_id) {
   
   biom <- with_cache(
@@ -371,6 +377,7 @@ get_biom <- function (REQ, biom_file_id) {
 #' Values for front-end's `BIOM` variable.
 #' 
 #' @return list()
+#' @noRd
 get_biom_data <- function (REQ) {
   
   DB            <- REQ[['DB']]
@@ -504,6 +511,7 @@ get_biom_data <- function (REQ) {
 #' @return a string
 #' @examples
 #' get_biom_file(REQ, biom_file_id = 100)
+#' @noRd
 get_biom_file <- function (REQ, biom_file_id) {
   
   DB        <- REQ[['DB']]
@@ -529,6 +537,7 @@ get_biom_file <- function (REQ, biom_file_id) {
 #' @return The rbiom function's output.
 #' @examples
 #' get_biom_component(REQ, biom_file_id = 100, rbiom_fn = "metadata")
+#' @noRd
 get_biom_component <- function (REQ, biom_file_id, rbiom_fn) {
   
   stopifnot(is_one_of(rbiom_fn, c(
@@ -549,6 +558,7 @@ get_biom_component <- function (REQ, biom_file_id, rbiom_fn) {
 #______________________________________________________________________________
 #' The entire contents of a file as a raw vector.
 #' @return a raw vector; `raw(0)` if the file does not exist.
+#' @noRd
 read_file_raw <- function (file) {
   if (!file.exists(file)) return (raw(0))
   readBin(file, what = 'raw', n = file.size(file))
@@ -558,6 +568,7 @@ read_file_raw <- function (file) {
 
 #______________________________________________________________________________
 #' General purpose cache localized to a given directory.
+#' @noRd
 with_cache <- function (REQ, key, expr) {
   
   CACHE_DIR  <- file.path(REQ[['CONFIG']][['data_dir']], 'cache')

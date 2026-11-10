@@ -3,6 +3,7 @@
 #' Find users matching a user-entered query string.
 #' For a server-side selectize drop-down.
 #' @return list(users = list(user_id, full_name, affiliation, email))
+#' @noRd
 api_sharing_user_search <- function (REQ, query) {
   
   DB <- REQ[['DB']]
@@ -41,6 +42,7 @@ api_sharing_user_search <- function (REQ, query) {
 #______________________________________________________________________________
 #' Fetch the list of current editors for the active project.
 #' @return list(users = list(user_id, full_name, affiliation, email))
+#' @noRd
 api_get_editors <- function (REQ) {
   
   DB         <- REQ[['DB']]
@@ -66,6 +68,7 @@ api_get_editors <- function (REQ) {
 #______________________________________________________________________________
 #' Look up who has read-only and/or editor access to this project.
 #' @return list(dt_data = list(c(user_id, full_name, affiliation, is_editor), ...))
+#' @noRd
 api_sharing_with <- function (REQ) {
   
   DB         <- REQ[['DB']]
@@ -91,6 +94,7 @@ api_sharing_with <- function (REQ) {
 #______________________________________________________________________________
 #' Allow a user to modify another user's project permissions.
 #' @return list()
+#' @noRd
 api_update_permissions <- function (REQ, user_id, permissions) {
   
   DB              <- REQ[['DB']]
@@ -126,6 +130,7 @@ api_update_permissions <- function (REQ, user_id, permissions) {
 #______________________________________________________________________________
 #' Modify a user's access to a project.
 #' @return permission_id
+#' @noRd
 update_permissions <- function (DB, user_id, project_id, permissions, grantor_user_id = NULL) {
   
   stopifnot(isTRUE(user_id > 0L)) # Use make_public() instead.
@@ -192,6 +197,7 @@ update_permissions <- function (DB, user_id, project_id, permissions, grantor_us
 #______________________________________________________________________________
 #' Check if a user is allowed to alter another user's project permissions.
 #' @return redacted_email
+#' @noRd
 can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, assert = FALSE) {
   
   stopifnot(is_scalar_integer(user_id))
@@ -320,6 +326,7 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
 #______________________________________________________________________________
 #' Partially redact the username of email addresses with asterisks.
 #' @return redacted_email
+#' @noRd
 redact_emails <- function (emails) {
   sapply(emails, function (email) {
   

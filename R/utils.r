@@ -4,6 +4,7 @@
 #' Unlike `rlang::is_string(x, string)`, a `NULL` or empty `choices` matches
 #' nothing, so a missing allow-list can never let a value through.
 #' @return TRUE or FALSE
+#' @noRd
 is_one_of <- function (x, choices) {
   if (!is.character(x) || length(x) != 1 || is.na(x)) return (FALSE)
   if (!is.character(choices))                         return (FALSE)
@@ -17,6 +18,7 @@ is_one_of <- function (x, choices) {
 #______________________________________________________________________________
 #' Make sure this is a length-one integer or NULL.
 #' @return an integer, or NULL.
+#' @noRd
 int <- function (val, assert = TRUE) {
   
   if (is.null(val))
@@ -54,6 +56,7 @@ int <- function (val, assert = TRUE) {
 #______________________________________________________________________________
 #' AJAX response that will trigger a sweetalert pop up.
 #' @return <response:swal>
+#' @noRd
 swal <- function (
     ..., icon = 'warning', title = NA, 
     success = NULL, error = NULL, warning = NULL, info = NULL ) {
@@ -78,6 +81,7 @@ swal <- function (
 
 #______________________________________________________________________________
 #' Shorthand for replacing NAs with something else.
+#' @noRd
 if.na <- function (x, replacement) {
   if (!is.na(x))                 return (x)
   if (!is.function(replacement)) return (replacement)
@@ -86,6 +90,7 @@ if.na <- function (x, replacement) {
 
 #______________________________________________________________________________
 #' Shorthand for replacing NULLs with something else.
+#' @noRd
 if.null <- function (x, replacement) {
   if (!is.null(x))               return (x)
   if (!is.function(replacement)) return (replacement)
@@ -94,6 +99,7 @@ if.null <- function (x, replacement) {
 
 #______________________________________________________________________________
 #' Shorthand for replacing empty character strings with something else.
+#' @noRd
 if.blank <- function (x, replacement) {
   if (identical(nzchar(x), TRUE)) return (x)
   if (!is.function(replacement))  return (replacement)
@@ -102,6 +108,7 @@ if.blank <- function (x, replacement) {
 
 #______________________________________________________________________________
 #' Convert (x, y = 4) to list(x = x, y = 4)
+#' @noRd
 named_dots <- function (...) {
   
   values <- list(...)
@@ -119,6 +126,7 @@ named_dots <- function (...) {
 #' 
 #' First character is a-zA-Z
 #' Remaining characters are a-zA-Z0-9
+#' @noRd
 random_string <- function (len) {
   
   rnd_i <- ceiling(c(

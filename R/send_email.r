@@ -1,6 +1,7 @@
 
 #______________________________________________________________________________
 #' Send an email for email verifications, password resets, etc.
+#' @noRd
 send_email <- function (REQ, to, subject, message) {
   tryCatch(
     error = function (e) stop("Unable to send email.", e),

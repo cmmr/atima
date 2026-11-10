@@ -3,6 +3,7 @@
 #______________________________________________________________________________
 #' Generate a plot for the active project
 #' @return list(image_url, r_code, stats_df, BIOM (optional), ...)
+#' @noRd
 api_plot <- function (
     REQ, plot_fn, plot_args, depth, 
     save_args = list(), subset_args = list(), attrs = FALSE) {
@@ -247,6 +248,7 @@ api_plot <- function (
 #' The file is created (empty) to reserve the name, so two requests in the
 #' same session can never be handed the same one.
 #' @return a file name (not a path) inside `dir`.
+#' @noRd
 plot_filename <- function (dir, device) {
   for (i in 1:10) {
     filename <- sprintf("plot_%s.%s", random_string(10), device)

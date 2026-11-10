@@ -2,6 +2,7 @@
 #______________________________________________________________________________
 #' User is registering for a new account.
 #' @return <response:session_data> or <response:swal>
+#' @noRd
 api_create_account <- function (REQ, full_name, email, affiliation, password = NULL) {
   
   DB      <- REQ[['DB']]
@@ -93,6 +94,7 @@ api_create_account <- function (REQ, full_name, email, affiliation, password = N
 #______________________________________________________________________________
 #' User is changing their account details.
 #' @return list(swal)
+#' @noRd
 api_update_account <- function (REQ, full_name, affiliation, new_password, password) {
   
   DB      <- REQ[['DB']]
@@ -139,6 +141,7 @@ api_update_account <- function (REQ, full_name, affiliation, new_password, passw
 #______________________________________________________________________________
 #' Information needed when opening 'My Account' modal.
 #' @return list(full_name, affiliation, email)
+#' @noRd
 api_account_details <- function (REQ) {
   DB  <- REQ[['DB']]
   sql <- "SELECT full_name, affiliation, email FROM users WHERE user_id = ?"
@@ -151,6 +154,7 @@ api_account_details <- function (REQ) {
 #______________________________________________________________________________
 #' The user wants us to reset their password. Email them their new one.
 #' @return swal()
+#' @noRd
 api_reset_password <- function (REQ, email) {
   
   DB   <- REQ[['DB']]
@@ -219,6 +223,7 @@ api_reset_password <- function (REQ, email) {
 #______________________________________________________________________________
 #' User is signing in from the modal prompt.
 #' @return <response:session_data> or <response:swal>
+#' @noRd
 api_sign_in <- function (REQ, email, password) {
   
   DB            <- REQ[['DB']]
@@ -284,6 +289,7 @@ api_sign_in <- function (REQ, email, password) {
 #______________________________________________________________________________
 #' User clicked on 'Log Out'.
 #' @return list(CONF, BIOM, jstree_data)
+#' @noRd
 api_log_out <- function (REQ) {
   
   DB            <- REQ[['DB']]
@@ -331,6 +337,7 @@ api_log_out <- function (REQ) {
 #______________________________________________________________________________
 #' Try to log in using an email address and password. Tracks attempts/lockouts.
 #' @return user_id on success or a <response:swal> otherwise.
+#' @noRd
 authenticate_password <- function (DB, email, password) {
   
   email    <- trimws(email)

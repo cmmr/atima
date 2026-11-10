@@ -1,6 +1,7 @@
 #______________________________________________________________________________
 #' Check that the values pass basic sanity checks.
 #' @return TRUE/FALSE, with attr('failures')
+#' @noRd
 sanity_check <- function (..., assert = TRUE, simple = FALSE) {
   
   

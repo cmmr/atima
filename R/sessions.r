@@ -3,6 +3,7 @@
 #______________________________________________________________________________
 #' Client asking us to not garbage collect their session.
 #' @return list()
+#' @noRd
 api_heartbeat <- function (REQ) {
   
   DB         <- REQ[['DB']]
@@ -22,6 +23,7 @@ api_heartbeat <- function (REQ) {
 #______________________________________________________________________________
 #' Loading client-side data for the first time.
 #' @return <response:session_data>
+#' @noRd
 api_init_session <- function (REQ) {
   
   DB   <- REQ[['DB']]
@@ -165,6 +167,7 @@ api_init_session <- function (REQ) {
 #______________________________________________________________________________
 #' Sessions track the current state of a single browser tab.
 #' @return list(session_id, user_id, project_id, auth_token_id, server_temp, client_temp) or NULL
+#' @noRd
 resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   
   DB       <- REQ[['DB']]
@@ -255,6 +258,7 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
 #______________________________________________________________________________
 #' Client-side data.
 #' @return <response:session_data>
+#' @noRd
 get_session_data <- function (REQ) {
   
   auth_token  <- REQ[['SESSION']][['auth_token']]

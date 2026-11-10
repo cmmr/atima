@@ -3,6 +3,7 @@
 #______________________________________________________________________________
 #' Names of metadata fields
 #' @return list(default, options)
+#' @noRd
 api_metadata_fields <- function (REQ, mode="all") {
   
   rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
@@ -40,6 +41,7 @@ api_metadata_fields <- function (REQ, mode="all") {
 #______________________________________________________________________________
 #' Return options for a categorical metadata column
 #' @return list(default, options)
+#' @noRd
 api_metadata_levels <- function (REQ, field) {
   
   rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
@@ -72,6 +74,7 @@ api_metadata_levels <- function (REQ, field) {
 #______________________________________________________________________________
 #' Return options for a numeric metadata column
 #' @return list(min, max)
+#' @noRd
 api_metadata_minmax <- function (REQ, field) {
   
   rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]

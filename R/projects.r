@@ -1,6 +1,7 @@
 #______________________________________________________________________________
 #' Update the rarefaction level.
 #' @return list(BIOM) or list()
+#' @noRd
 api_rarefy <- function (REQ, depth) {
   
   if (rarefy_if_needed(REQ, depth)) {
@@ -21,6 +22,7 @@ api_rarefy <- function (REQ, depth) {
 #______________________________________________________________________________
 #' Overwrites the original project with the working draft.
 #' @return list(BIOM)
+#' @noRd
 api_save <- function (REQ, title, access_key, description) {
   
   sanity_check(title, access_key, description)
@@ -84,6 +86,7 @@ api_save <- function (REQ, title, access_key, description) {
 #' Copy this draft to a new project_id.
 #' 
 #' @return list(BIOM, jstree_node)
+#' @noRd
 api_save_as <- function (REQ, title, access_key, description) {
   
   DB         <- REQ[['DB']]
@@ -178,6 +181,7 @@ api_save_as <- function (REQ, title, access_key, description) {
 #______________________________________________________________________________
 #' Changes the project associated with the current session. 
 #' @return invisible(NULL)
+#' @noRd
 select_project <- function (REQ, project_id = NULL, access_key = NULL) {
   
   DB         <- REQ[['DB']]
@@ -214,6 +218,7 @@ select_project <- function (REQ, project_id = NULL, access_key = NULL) {
 #______________________________________________________________________________
 #' Parse out summary information from a biom file to go into `projects`. 
 #' @return list(title, description, n_samples, ...)
+#' @noRd
 biom_to_details <- function (biom) {
   
   list(
@@ -231,6 +236,7 @@ biom_to_details <- function (biom) {
 #______________________________________________________________________________
 #' Insert a new project into the SQL tables. 
 #' @return a project_id.
+#' @noRd
 add_project <- function (REQ, infile, title = NULL, collection_id = NULL, requested_access_key = NULL) {
   
   DB        <- REQ[['DB']]
@@ -286,6 +292,7 @@ add_project <- function (REQ, infile, title = NULL, collection_id = NULL, reques
 #' Copy an existing project to a working draft.
 #' 
 #' @return draft_id
+#' @noRd
 create_draft <- function (DB, project_id) {
   
   
@@ -322,6 +329,7 @@ create_draft <- function (DB, project_id) {
 #______________________________________________________________________________
 #' Generate a new random string starting with a letter, unique in DB. 
 #' @return an access_key
+#' @noRd
 create_access_key <- function (DB, requested_access_key = NULL) {
   
   
@@ -356,6 +364,7 @@ create_access_key <- function (DB, requested_access_key = NULL) {
 
 #______________________________________________________________________________
 #' Check if this user is allowed to view this project.
+#' @noRd
 is_project_readable <- function (DB, project_id, user_id, access_key=NULL, assert=FALSE) {
   
   if (!sanity_check(access_key, assert = assert))
@@ -384,6 +393,7 @@ is_project_readable <- function (DB, project_id, user_id, access_key=NULL, asser
 #' Check if this user has editor permission on a given project_id.
 #' 
 #' @return TRUE/FALSE
+#' @noRd
 is_project_writable <- function (DB, project_id, user_id, assert=FALSE) {
   
   sql <- "SELECT COUNT(*) FROM permissions WHERE project_id = ? AND user_id = ? AND is_editor = 1"
@@ -402,6 +412,7 @@ is_project_writable <- function (DB, project_id, user_id, assert=FALSE) {
 #' Keeps back-end and front-end in sync, in case of api_rarefy abort.
 #' 
 #' @return TRUE if depth was updated, FALSE otherwise.
+#' @noRd
 rarefy_if_needed <- function (REQ, depth) {
   
   DB         <- REQ[['DB']]

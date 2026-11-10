@@ -3,6 +3,7 @@
 
 #______________________________________________________________________________
 #' Connect to the SQLite database file.
+#' @noRd
 db_connect <- function (DATA_DIR) {
   
   DB <- try(silent = TRUE, dbConnect(
@@ -18,6 +19,7 @@ db_connect <- function (DATA_DIR) {
 
 #______________________________________________________________________________
 #' Close/Disconnect a database connection.
+#' @noRd
 db_close <- function (DB) {
   stopifnot(is(DB, "SQLiteConnection"))
   try(silent = TRUE, dbDisconnect(DB))
@@ -26,6 +28,7 @@ db_close <- function (DB) {
 
 #______________________________________________________________________________
 #' Initialize the database if it's currently empty.
+#' @noRd
 db_init <- function (config) {
   
   data_dir <- config[['data_dir']]
@@ -61,6 +64,7 @@ db_init <- function (config) {
 #' @return A data.frame of the SELECT result, potentially simplified if 
 #'         \code{simplify=TRUE}. For an INSERT, the new rowid. For SQL statements
 #'         other than SELECT/INSERT, the value returned by \code{dbExecute()}.
+#' @noRd
 db_query <- function (DB, sql, err_code, params = NULL, simplify = TRUE, req1 = FALSE) {
   
   tryCatch(
@@ -149,6 +153,7 @@ db_query <- function (DB, sql, err_code, params = NULL, simplify = TRUE, req1 = 
 
 #______________________________________________________________________________
 #' Create and run an INSERT statement.
+#' @noRd
 db_insert <- function (DB, table, err_code, ..., defaults = list()) {
   
   
@@ -185,6 +190,7 @@ db_insert <- function (DB, table, err_code, ..., defaults = list()) {
 #______________________________________________________________________________
 #' Create and run an UPDATE statement.
 #' The `id` is the primary key for the row to be updated.
+#' @noRd
 db_update <- function (DB, table, id, err_code, ...) {
   
   
@@ -219,6 +225,7 @@ db_update <- function (DB, table, id, err_code, ...) {
 
 #______________________________________________________________________________
 #' Check that a primary key exists in a table.
+#' @noRd
 db_row_exists <- function (DB, table, id, assert=TRUE) {
   
   stopifnot(is_scalar_integerish(id))
@@ -240,6 +247,7 @@ db_row_exists <- function (DB, table, id, assert=TRUE) {
 
 #______________________________________________________________________________
 #' Initialize the SQL database tables.
+#' @noRd
 init_db_structure <- function (DB) {
   
   stopifnot(is(DB, "SQLiteConnection"))

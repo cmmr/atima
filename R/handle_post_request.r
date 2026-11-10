@@ -1,6 +1,7 @@
 #______________________________________________________________________________
 #' Process /api requests. Always needs authenticated sessions.
 #' @return list(headers, status, body)
+#' @noRd
 handle_post_request <- function (REQ) {
   
   

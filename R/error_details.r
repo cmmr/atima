@@ -1,6 +1,7 @@
 
 #______________________________________________________________________________
 #' An HTML block for error_modal with error details .
+#' @noRd
 error_details <- function (err_obj, err_code = NULL, ...) {
   
   

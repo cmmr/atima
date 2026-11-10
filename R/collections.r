@@ -2,6 +2,7 @@
 #______________________________________________________________________________
 #' Open the project that the user selected.
 #' @return list(BIOM)
+#' @noRd
 api_jstree_select <- function (REQ, node_id) {
   
   DB <- REQ[['DB']]
@@ -26,6 +27,7 @@ api_jstree_select <- function (REQ, node_id) {
 #' Generate the tree data for the public and private jsTree collections.
 #' 
 #' @return an array of node definitions, already unboxed.
+#' @noRd
 compile_jstree_data <- function (REQ) {
   
   DB      <- REQ[['DB']]
@@ -84,6 +86,7 @@ compile_jstree_data <- function (REQ) {
 #______________________________________________________________________________
 #' Add a new folder to the jsTree via the jsTree context menu.
 #' @return list(parent_id, node = list(id, text, children))
+#' @noRd
 api_jstree_create <- function (REQ, node_id) {
   
   sanity_check(node_id)
@@ -149,6 +152,7 @@ api_jstree_create <- function (REQ, node_id) {
 #______________________________________________________________________________
 #' Rename a project or collection via the jsTree context menu.
 #' @return list()
+#' @noRd
 api_jstree_rename <- function (REQ, node_id, jstree_text) {
   
   DB         <- REQ[['DB']]
@@ -211,6 +215,7 @@ api_jstree_rename <- function (REQ, node_id, jstree_text) {
 #______________________________________________________________________________
 #' Leave a project via the jsTree context menu. Delete our permissions to it.
 #' @return list()
+#' @noRd
 api_jstree_leave <- function (REQ, node_id) {
   
   DB      <- REQ[['DB']]
@@ -241,6 +246,7 @@ api_jstree_leave <- function (REQ, node_id) {
 #______________________________________________________________________________
 #' Delete a project or empty collection via the jsTree context menu.
 #' @return list(node_id)
+#' @noRd
 api_jstree_delete <- function (REQ, node_id) {
   
   DB      <- REQ[['DB']]
@@ -314,6 +320,7 @@ api_jstree_delete <- function (REQ, node_id) {
 #______________________________________________________________________________
 #' Move a node in the jsTree via drag and drop.
 #' @return list()
+#' @noRd
 api_jstree_move <- function (REQ, node_id, parent_node_id) {
   
   DB      <- REQ[['DB']]
@@ -372,6 +379,7 @@ api_jstree_move <- function (REQ, node_id, parent_node_id) {
 #' When user_id = NULL, it's public.
 #' When parent_collection_id = NULL, it's a top level directory.
 #' @return a collection_id.
+#' @noRd
 create_collection <- function (DB, user_id, parent_collection_id, jstree_text) {
   
   sanity_check(user_id, parent_collection_id, jstree_text)
@@ -405,6 +413,7 @@ create_collection <- function (DB, user_id, parent_collection_id, jstree_text) {
 #______________________________________________________________________________
 #' Format an SQL result row for use by jstree.
 #' @return node
+#' @noRd
 compile_jstree_node <- function (DB, row) {
   
   if (hasName(row, 'project_id')) {
@@ -468,6 +477,7 @@ compile_jstree_node <- function (DB, row) {
 #' Find / Create a collection_id for sharing
 #' projects from grantor_user_id to user_id.
 #' @return collection_id or NULL
+#' @noRd
 get_shared_collection <- function (DB, user_id, grantor_user_id, create = TRUE) {
   
   # Use the user's top-level collection.
@@ -496,6 +506,7 @@ get_shared_collection <- function (DB, user_id, grantor_user_id, create = TRUE) 
 
 #______________________________________________________________________________
 #' Delete the shared collection if it's empty.
+#' @noRd
 cleanup_shared_collection <- function (DB, user_id, grantor_user_id) {
   
   collection_id <- get_shared_collection(DB, user_id, grantor_user_id, create = FALSE)

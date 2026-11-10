@@ -23,32 +23,31 @@ URL: https://github.com/cmmr/atima, https://cmmr.github.io/atima/index.html
 BugReports: https://github.com/cmmr/atima/issues
 License: MIT + file LICENSE
 Encoding: UTF-8
-RoxygenNote: 7.3.3
+Roxygen: list(markdown = TRUE)
 Config/Needs/website: rmarkdown
 Config/testthat/edition: 3
 Depends:
     R (>= 4.3.0)
 Imports:
-    callr,
     DBI,
     httpuv,
     jsonlite,
-    mirai,
     methods,
     openssl,
     pandoc,
     parallelly,
-    promises,
-    rbiom (>= 3.0.0),
+    rbiom (>= 4.0.0),
     rlang,
     RSQLite,
     sodium,
+    stats,
     tools,
     utils,
     webutils
 Suggests:
     blastula,
-    Cairo,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Remotes:
     cmmr/rbiom
+Config/roxygen2/version: 8.1.1
