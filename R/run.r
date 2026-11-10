@@ -1,31 +1,50 @@
 #______________________________________________________________________________
-#' Run the Atima Server
+#' Run the atima server
 #'
-#' Starts the web server with fair scheduling, process sandboxing, and self-healing 
-#' capabilities.
+#' Starts a web server that lets users upload BIOM files and explore them
+#' with 'rbiom' plots in their browser. Projects are stored in an SQLite
+#' database and a set of files under `data_dir`.
 #' 
-#' Arguments can be provided via:
-#' 1. Direct arguments: `run(port = 8080)`
-#' 2. Environment variables: `ATIMA_PORT=8080`
-#' 3. R Options: `options(atima.port = 8080)`
+#' Every argument can also be set with an environment variable or an R
+#' option. The first of these that is set is used:
+#' \enumerate{
+#'   \item the argument itself, e.g. `run(port = 8080)`
+#'   \item the environment variable `ATIMA_<NAME>`, e.g. `ATIMA_PORT=8080`
+#'   \item the R option `atima.<name>`, e.g. `options(atima.port = 8080)`
+#'   \item the default shown below
+#' }
 #'
-#' @param port        Integer. Port to listen on (default 8080).
-#' @param host        String. IP address to listen on. The default,
-#'                    "127.0.0.1", only accepts connections from this
-#'                    computer. Use "0.0.0.0" to listen on all interfaces.
-#' @param data_dir    String. Storage location for database and persistent files.
-#' @param temp_dir    String. Storage location for temporary files.
-#' @param workers     Integer. Maximum concurrent jobs.
-#' @param max_cpus    Integer. Max CPU cores for a single job.
-#' @param time_limit  Numeric. Max job runtime in seconds (default 3600).
-#' @param cache_size_mb  Numeric. Max cache size in MB (default 100).
-#' @param max_upload_mb  Numeric. Max upload size in MB (default 50).
-#' @param smtp        List. SMTP settings (`server`, `port`, `username`, etc.) 
-#'                    for emails.
-#' @param open        Logical. Open browser on start?
+#' @param port        Port to listen on.
+#' @param host        IP address to listen on. The default, `"127.0.0.1"`,
+#'                    only accepts connections from this computer. Use
+#'                    `"0.0.0.0"` to listen on all interfaces.
+#' @param data_dir    Directory for the database and stored BIOM files. It
+#'                    is created, and filled with two example projects, the
+#'                    first time the server starts.
+#' @param temp_dir    Directory for temporary files, including the figures
+#'                    and exports that browsers download.
+#' @param workers,max_cpus,time_limit  Reserved for the worker pool: the
+#'                    number of worker processes, the CPU cores one job may
+#'                    use, and the longest a job may run, in seconds. They
+#'                    are checked but not used yet; all requests currently
+#'                    run one at a time in the main R process.
+#' @param cache_size_mb  Upper limit, in megabytes, for the cache of
+#'                    computed results kept in `data_dir`.
+#' @param max_upload_mb  Largest upload to accept, in megabytes.
+#' @param smtp        A list of SMTP settings (`server`, `port`, `username`,
+#'                    `password`, `fromaddr`, `ssl`) for account emails.
+#'                    Accepted but not used yet: no email is sent, and new
+#'                    accounts are created without email verification.
+#' @param open        Open the app in a web browser once the server is up?
 #' 
-#' @return This function blocks the R session until interrupted.
+#' @return Does not return; the server runs until the R session is
+#'         interrupted.
 #' @export
+#' @examples
+#' if (interactive()) {
+#'   # Serve on http://127.0.0.1:8080 and keep data in a temporary directory.
+#'   atima::run(data_dir = tempfile("atima_data_"))
+#' }
 run <- function(
     port          = 8080,
     host          = '127.0.0.1',
@@ -33,9 +52,9 @@ run <- function(
     temp_dir      = tempfile(pattern = 'atima_'),
     workers       = parallelly::availableCores(),
     max_cpus      = parallelly::availableCores(),
-    time_limit    = 60,    # 1 minute    // 3600,  # 1 hour
-    cache_size_mb = 100,   # 100 MB
-    max_upload_mb = 50,    # 50 MB
+    time_limit    = 60,
+    cache_size_mb = 100,
+    max_upload_mb = 50,
     smtp          = NULL,
     open          = interactive() ) {
   
@@ -119,94 +138,11 @@ run <- function(
     smtp       = smtp
   )
   
-  # Initialize DB (Internal function)
   db_init(config)
   
-  job_registry <- new.env(parent = emptyenv())
-  
-  n_fast  <- 1
-  n_heavy <- max(1, workers - 1)
-  
-  message(sprintf(" - Workers: %d Fast (Auth/DB) | %d Heavy (Compute)", n_fast, n_heavy))
-  
-  mirai::daemons(n = n_fast,  .compute = "fast_lane", dispatcher = FALSE)
-  mirai::daemons(n = n_heavy, .compute = "heavy_lane")
-  
-  fast_paths <- paste0('/api/', c(
-    'init_session', 'heartbeat', 'save', 'save_as',
-    'change_metadata_class', 'account_details', 'abort',
-    'jstree_select', 'jstree_rename', 'jstree_move', 
-    'jstree_create', 'jstree_delete', 'jstree_leave', 
-    'sharing_with', 'sharing_user_search',
-    'update_permissions'
-  ))
-  
   
   #______________________________________________
-  # 3. Request Launchers
-  #
-  
-  fast_launcher <- function(req) {
-    promises::then(
-      promise = mirai::mirai(
-        .expr    = atima:::simple_handler(req), 
-        req      = req,
-        .compute = "fast_lane"
-      ),
-      onFulfilled = function(res) {
-        if (mirai::is_mirai_error(res)) {
-          message("[!]  Fast Lane Worker Crash Detected - Restarting...")
-          mirai::launch_local(n = 1, .compute = "fast_lane")
-          return(response("System Service Restarted - Please Retry", 503L))
-        }
-        return(res)
-      }
-    )
-  }
-  
-  heavy_launcher <- function(req) {
-    
-    session_key <- unname(req[['HEADERS']]['x-session-key'])
-    if (!isTRUE(grepl("^[a-zA-Z0-9_]+$", session_key))) session_key <- NULL
-    
-    # 1. Cancel existing job
-    if (!is.null(session_key) && exists(session_key, envir = job_registry)) {
-      mirai::stop_mirai(job_registry[[session_key]])
-    }
-    
-    # 2. Submit new job
-    m <- mirai::mirai(
-      .expr    = atima:::heavy_handler(req), 
-      req      = req,
-      .compute = "heavy_lane"
-    )
-    
-    # 3. Register
-    if (!is.null(session_key)) job_registry[[session_key]] <- m
-    
-    # 4. Handle Result
-    promises::then(
-      m,
-      onFulfilled = function(res) {
-        if (mirai::is_mirai_error(res)) {
-          message("[!]  Heavy Lane Worker Crash Detected - Restarting...")
-          mirai::launch_local(n = 1, .compute = "heavy_lane")
-          return(response("Worker Process Crashed", 500L))
-        }
-        return(res)
-      },
-      onRejected = function(err) {
-        return(response("Internal Server Error", 500L))
-      }
-    ) |> promises::finally(function() {
-      if (!is.null(session_key) && exists(session_key, envir = job_registry)) {
-        rm(list = session_key, envir = job_registry)
-      }
-    })
-  }
-  
-  #______________________________________________
-  # 4. HTTP Application Definition
+  # 3. HTTP Application Definition
   #
   
   app <- list(
@@ -246,7 +182,6 @@ run <- function(
       
       tryCatch(
         error = function (e) { response(as.character(e), 500L) },
-        # error = function (e) { response(e$message, 500L) },
         expr  = {
           
           path <- req[['PATH_INFO']]
@@ -261,9 +196,6 @@ run <- function(
           req <- c(as.list(req), list(CONFIG = config))
           
           simple_handler(req)
-          
-          # if (path %in% fast_paths) { return(fast_launcher(req))  }
-          # else                      { return(heavy_launcher(req)) }
         }
       )
       
@@ -278,7 +210,7 @@ run <- function(
   )
   
   #______________________________________________
-  # 5. Start Server
+  # 4. Start Server
   #
   url <- local_url(host, port)
   message("Server listening on ", host, " port ", port, ". Open ", url)
@@ -336,7 +268,7 @@ static_index_html <- local({
 
 
 #______________________________________________________________________________
-#' Internal: Worker Process Handler
+#' Internal: Parse one HTTP request and pass it to the GET or POST handler.
 #' @noRd
 simple_handler <- function(request) {
   
@@ -378,7 +310,6 @@ simple_handler <- function(request) {
     )
   ))
   
-  # Internal functions need triple colon when running in worker
   REQ[['DB']] <- db_connect(REQ[['CONFIG']][['data_dir']])
   on.exit(db_close(REQ[['DB']]), add = TRUE)
   
@@ -393,40 +324,4 @@ simple_handler <- function(request) {
     resp <- response(resp)
   
   return (resp)
-}
-
-
-#______________________________________________________________________________
-#' Internal: Sandbox Supervisor
-#' @noRd
-heavy_handler <- function(request) {
-  
-  p <- callr::r_bg(
-    func    = atima:::simple_handler,
-    args    = list(request = request),
-    package = "atima"
-  )
-  
-  end_time <- Sys.time() + request[['CONFIG']][['time_limit']]
-  
-  tryCatch({
-    
-    while (p$is_alive()) {
-      p$wait(timeout = 500)
-      
-      if (Sys.time() > end_time) {
-        p$kill()
-        return(response("Job timed out (Server enforced)", 500L))
-      }
-    }
-    return(p$get_result())
-    
-  }, interrupt = function(i) {
-    p$kill()
-    return(response("Superseded by new request", 409L))
-    
-  }, error = function(e) {
-    p$kill()
-    return(response(e$message, 500L))
-  })
 }
