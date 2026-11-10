@@ -26,7 +26,7 @@ int <- function (val, assert = TRUE) {
   
   if (length(val) != 1) {
     if (isTRUE(assert))
-      stop(error_details("value is not length 1"))
+      stop_user("Expected a single whole number.")
     return (NULL)
   }
   
@@ -36,7 +36,7 @@ int <- function (val, assert = TRUE) {
     
     if (!is.integer(val) || is.na(val)) {
       if (isTRUE(assert))
-        stop(error_details("Can't convert '", val, "' to int."))
+        stop_user("Expected a whole number.")
       return (NULL)
     }
   }
@@ -44,7 +44,7 @@ int <- function (val, assert = TRUE) {
   
   if (val < 1) {
     if (isTRUE(assert))
-      stop(error_details("Integer is non-positive."))
+      stop_user("Expected a positive whole number.")
     return (NULL)
   }
   

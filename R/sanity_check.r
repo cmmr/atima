@@ -100,7 +100,7 @@ sanity_check <- function (..., assert = TRUE, simple = FALSE) {
           sprintf("%s can only contain alphanumerics and hyphens : '%s'.", key, val)
         } else if (startsWith(val, '-') || endsWith(val, '-')) {
           sprintf("%s cannot start or end with a hyphen : '%s'.", key, val)
-        } else if (identical(tolower(trimval), "unsaved")) {
+        } else if (tolower(trimval) %in% c("unsaved", "api", "www", "tmp")) {
           sprintf("%s cannot be : '%s'.", key, val)
         } else { NULL }
         
@@ -123,8 +123,8 @@ sanity_check <- function (..., assert = TRUE, simple = FALSE) {
           sprintf("Invalid node_id of class '%s' instead of character", val_class)
         } else if (identical("#", val)) {
           NULL
-        } else if (!grepl("^[PC]\\d+$", val)) {
-          sprintf("node_id '%s' doesn't match ^[PC]\\d+$", val)
+        } else if (!grepl("^[PCG]\\d+$", val)) {
+          sprintf("node_id '%s' doesn't match ^[PCG]\\d+$", val)
         } else if (key == "parent_node_id" && !startsWith(val, 'C')) {
           sprintf("Invalid parent_node_id '%s'. Not a collection.", val)
         } else { NULL }
@@ -194,7 +194,7 @@ sanity_check <- function (..., assert = TRUE, simple = FALSE) {
   attr(is_sane, 'failures') <- failed
   
   if (!is_sane && assert)
-    stop(error_details(paste(collapse = "; ", unlist(failed))))
+    stop_user(paste(collapse = "; ", unlist(failed)))
   
   return (is_sane)
 }
