@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>ATIMA | Agile Toolkit for Incisive Microbial Analyses</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+  
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "error": "#ba1a1a", "primary-fixed": "#d5e3ff", "primary-container": "#003366", "outline-variant": "#c3c6d1",
+            "on-tertiary-fixed": "#341100", "primary-fixed-dim": "#a7c8ff", "outline": "#737780", "on-surface": "#191c1e",
+            "surface-container": "#eceef0", "surface-variant": "#e0e3e5", "on-tertiary-fixed-variant": "#723610",
+            "on-secondary-fixed": "#111d23", "on-secondary-container": "#5a666d", "background": "#f8f9fb",
+            "tertiary-fixed": "#ffdbca", "on-primary-fixed": "#001b3c", "surface-container-low": "#f2f4f6",
+            "on-error-container": "#93000a", "on-primary-fixed-variant": "#1f477b", "on-error": "#ffffff",
+            "error-container": "#ffdad6", "secondary-fixed": "#d7e4ec", "tertiary-fixed-dim": "#ffb690",
+            "surface-tint": "#3a5f94", "surface-container-lowest": "#ffffff", "inverse-on-surface": "#eff1f3",
+            "secondary-container": "#d7e4ec", "on-tertiary-container": "#d8885c", "surface-dim": "#d8dadc",
+            "on-tertiary": "#ffffff", "primary": "#001e40", "on-secondary": "#ffffff", "inverse-surface": "#2d3133",
+            "tertiary": "#381300", "surface-container-high": "#e6e8ea", "on-primary": "#ffffff", "on-background": "#191c1e",
+            "tertiary-container": "#592300", "surface-bright": "#f8f9fb", "on-primary-container": "#799dd6", "surface": "#f8f9fb",
+            "on-secondary-fixed-variant": "#3c494f", "on-surface-variant": "#43474f", "inverse-primary": "#a7c8ff",
+            "secondary-fixed-dim": "#bbc8d0", "surface-container-highest": "#e0e3e5", "secondary": "#546067"
+          },
+          fontFamily: { "headline": ["Inter"], "body": ["Inter"], "label": ["Inter"] },
+          borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+        },
+      },
+    }
+  </script>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <style type="text/tailwindcss">
+    [x-cloak] { display: none !important; }
+    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+    /* --- Navigation --- */
+    .nav-link {
+      @apply flex items-center gap-3 px-4 py-2.5 text-on-primary/70 hover:bg-white/10 rounded-lg transition-all duration-200;
+    }
+    
+    /* Highlight parent if it is active, or if it contains an active sub-link */
+    .nav-link.active,
+    .nav-group:has(.sub-nav-link.active) .nav-link {
+      @apply bg-primary-container text-on-primary shadow-sm font-semibold hover:bg-primary-container;
+    }
+
+    .sub-nav-link {
+      @apply block py-2 pl-4 ml-12 border-l-2 border-white/10 text-[0.875rem] text-on-primary/60 hover:text-on-primary hover:border-white/30 transition-colors;
+    }
+    
+    .sub-nav-link.active {
+      @apply border-primary-fixed-dim text-white font-bold hover:border-primary-fixed-dim;
+    }
+
+    /* --- Buttons --- */
+    .btn {
+      @apply px-8 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 shadow-xl transition-all;
+    }
+    .btn-primary { @apply bg-white text-primary-container hover:bg-primary-fixed-dim; }
+    .btn-secondary { @apply bg-primary/20 backdrop-blur-md border border-white/20 text-white hover:bg-white/10; }
+    .btn-sm { @apply bg-primary-container text-on-primary px-5 py-2 rounded-full text-sm font-bold flex items-center gap-2 hover:opacity-90 shadow-lg; }
+
+    /* --- Layout Components --- */
+    .feature-item { @apply flex gap-5; }
+    .feature-icon-wrapper { @apply flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center; }
+    .feature-title { @apply font-bold text-on-surface; }
+    .feature-desc { @apply text-sm text-on-surface-variant; }
+
+    .output-card { @apply space-y-4; }
+    .output-image-wrapper { @apply bg-surface-container-lowest p-8 rounded-3xl shadow-sm border border-outline-variant/10 h-80 overflow-hidden; }
+    .output-image-inner { @apply w-full h-full rounded-xl bg-surface-container overflow-hidden; }
+    .output-title { @apply font-bold text-on-surface; }
+    .output-subtitle { @apply text-xs text-on-surface-variant uppercase tracking-wider font-semibold; }
+  </style>
+</head>
+
+<body x-data="{ activePage: 'home' }" class="bg-background text-on-surface font-body selection:bg-primary-fixed selection:text-on-primary-fixed">
+  
+  <aside class="fixed left-0 top-0 h-screen w-64 z-50 bg-primary flex flex-col py-6 px-4 space-y-2">
+    
+    <div class="mb-8 px-4 flex self-center">
+      <a href='https://www.bcm.edu/'><img src='/www/img/BCM_120px.png'></a>
+    </div>
+    
+    <nav class="pt-6 border-t border-white/10 flex-1 space-y-1 overflow-y-auto">
+
+      <div class="nav-group" x-data="{ expanded: false }" x-init="$nextTick(() => { if ($el.querySelector('.active')) expanded = true })">
+        <a class="nav-link" href="#" @click.prevent="expanded = !expanded">
+          <span class="material-symbols-outlined text-[20px]">dataset</span>
+          <span class="font-medium text-[0.875rem] flex-1">Dataset</span>
+          <span class="material-symbols-outlined text-[18px] transition-transform duration-200" :class="expanded ? 'rotate-180' : ''">expand_more</span>
+        </a>
+        <div class="pb-2 mt-1" x-show="expanded" x-collapse x-cloak>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'dataset-summary'"     :class="activePage === 'dataset-summary'     ? 'active' : ''">Summary</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'dataset-metadata'"    :class="activePage === 'dataset-metadata'    ? 'active' : ''">Metadata</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'dataset-rarefaction'" :class="activePage === 'dataset-rarefaction' ? 'active' : ''">Rarefaction</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'dataset-taxonomy'"    :class="activePage === 'dataset-taxonomy'    ? 'active' : ''">Taxonomy</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'dataset-phylogeny'"   :class="activePage === 'dataset-phylogeny'   ? 'active' : ''">Phylogeny</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'dataset-sharing'"     :class="activePage === 'dataset-sharing'     ? 'active' : ''">Sharing</a>
+        </div>
+      </div>
+      
+      <div class="nav-group" x-data="{ expanded: false }" x-init="$nextTick(() => { if ($el.querySelector('.active')) expanded = true })">
+        <a class="nav-link" href="#" @click.prevent="expanded = !expanded">
+          <span class="material-symbols-outlined text-[20px]">biotech</span>
+          <span class="font-medium text-[0.875rem] flex-1">Alpha Diversity</span>
+          <span class="material-symbols-outlined text-[18px] transition-transform duration-200" :class="expanded ? 'rotate-180' : ''">expand_more</span>
+        </a>
+        <div class="pb-2 mt-1" x-show="expanded" x-collapse x-cloak>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'alpha-box'" :class="activePage === 'alpha-box' ? 'active' : ''">Box Plots</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'alpha-regression'" :class="activePage === 'alpha-regression' ? 'active' : ''">Regression</a>
+        </div>
+      </div>
+
+      <div class="nav-group" x-data="{ expanded: false }" x-init="$nextTick(() => { if ($el.querySelector('.active')) expanded = true })">
+        <a class="nav-link" href="#" @click.prevent="expanded = !expanded">
+          <span class="material-symbols-outlined text-[20px]">hub</span>
+          <span class="font-medium text-[0.875rem] flex-1">Beta Diversity</span>
+          <span class="material-symbols-outlined text-[18px] transition-transform duration-200" :class="expanded ? 'rotate-180' : ''">expand_more</span>
+        </a>
+        <div class="pb-2 mt-1" x-show="expanded" x-collapse x-cloak>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'beta-ordination'" :class="activePage === 'beta-ordination' ? 'active' : ''">Ordination</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'beta-heatmap'" :class="activePage === 'beta-heatmap' ? 'active' : ''">Heatmap</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'beta-box'" :class="activePage === 'beta-box' ? 'active' : ''">Box Plot</a>
+        </div>
+      </div>
+
+      <div class="nav-group" x-data="{ expanded: false }" x-init="$nextTick(() => { if ($el.querySelector('.active')) expanded = true })">
+        <a class="nav-link" href="#" @click.prevent="expanded = !expanded">
+          <span class="material-symbols-outlined text-[20px]">bar_chart</span>
+          <span class="font-medium text-[0.875rem] flex-1">Taxa Abundance</span>
+          <span class="material-symbols-outlined text-[18px] transition-transform duration-200" :class="expanded ? 'rotate-180' : ''">expand_more</span>
+        </a>
+        <div class="pb-2 mt-1" x-show="expanded" x-collapse x-cloak>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'taxa-box'" :class="activePage === 'taxa-box' ? 'active' : ''">Box Plot</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'taxa-regression'" :class="activePage === 'taxa-regression' ? 'active' : ''">Regression</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'taxa-heatmap'" :class="activePage === 'taxa-heatmap' ? 'active' : ''">Heatmap</a>
+          <a class="sub-nav-link" href="#" @click.prevent="activePage = 'taxa-stacked'" :class="activePage === 'taxa-stacked' ? 'active' : ''">Stacked Bar Plot</a>
+        </div>
+      </div>
+    </nav>
+    
+    <div class="pt-6 border-t border-white/10 space-y-1">
+      <a class="nav-link" href="#" @click.prevent="activePage = 'home'" :class="activePage === 'home' ? 'active' : ''">
+        <span class="material-symbols-outlined text-[20px]">home</span>
+        <span class="font-medium text-[0.875rem]">Home</span>
+      </a>
+      <a class="nav-link" href="#" @click.prevent="activePage = 'support'" :class="activePage === 'support' ? 'active' : ''">
+        <span class="material-symbols-outlined text-[20px]">help</span>
+        <span class="font-medium text-[0.875rem]">Support</span>
+      </a>
+    </div>
+
+  </aside>
+
+  <header class="fixed top-0 right-0 w-[calc(100%-16rem)] flex justify-between items-center px-8 h-16 bg-primary z-40 border-b border-white/5">
+    <div class="flex items-center flex-1 gap-4">
+      <div class="relative w-full max-w-md">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-primary/50 text-sm">search</span>
+        <input class="w-full bg-inverse-surface border-none rounded-full py-2 pl-10 pr-4 text-sm text-on-primary placeholder:text-on-primary/40 focus:ring-1 focus:ring-primary-container" placeholder="Search analyses, datasets, or documentation..." type="text">
+      </div>
+      <button class="btn-sm">
+      <span class="material-symbols-outlined text-[20px]">home_storage</span>Browse</button>
+    </div>
+    <div class="flex items-center gap-4">
+      <button class="btn-sm">
+        <span class="material-symbols-outlined text-sm">add</span>
+        New Project
+      </button>
+      <button class="p-2 text-on-primary/70 hover:bg-white/10 rounded-full">
+        <span class="material-symbols-outlined">account_circle</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="ml-64 pt-16 min-h-screen">
+    <div x-html="await (await fetch(`/www/pages/${activePage}.html`)).text()"></div>
+
+    <footer class="mt-20 py-12 px-8 border-t border-outline-variant/10">
+      <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+        <div class="flex items-center gap-3">
+          <img alt="BCM Logo Placeholder" class="h-10 grayscale opacity-70" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBhRHjJmlqdn2KfVz-E66gSBoEWOBJ9KAflc1W0wzuxj50H-8Lc37o4Sub_jVO0FFFTl2DINVD_Ae6tOlVL9uBxKYL0NzQ_HRM2fQ8hq8WsfJek2e6xTTL9BkiKEVHq8OcfL23HlJFIbh_iu2fbs_HPqM0_ytEMA4-1C9uxXbghf63l8rKyjrip5do0dRhE5XCI9uGSrOPTLH5UjQOzosrFbBnjpRT6mU1q9fgXS8iuUmKPTzRo5o7rPQx0_w22FZNfJE0C7psYDE7a" />
+          <span class="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Alkek Center for Metagenomics and Microbiome Research</span>
+        </div>
+        <div class="flex gap-8 text-sm font-medium text-on-surface-variant">
+          <a class="hover:text-primary" href="#">Documentation</a>
+          <a class="hover:text-primary" href="#">Methods</a>
+          <a class="hover:text-primary" href="#">Privacy Policy</a>
+          <a class="hover:text-primary" href="#">Citation Guide</a>
+        </div>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

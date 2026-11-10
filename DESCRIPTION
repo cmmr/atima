@@ -1,0 +1,54 @@
+Package: atima
+Type: Package
+Title: Visually Analyze Microbiome Data Sets
+Version: 5.0.1
+Authors@R: c(
+    person(
+      "Daniel P.", "Smith",
+      email   = "dansmith01@gmail.com",
+      role    = c("aut", "cre"),
+      comment = c(ORCID = "0000-0002-2479-2044")),
+    person(
+      "Alkek Center for Metagenomics and Microbiome Research", 
+      role = c("cph", "fnd") ))
+Description:
+    Provides a web interface for uploading 'BIOM' files and generating
+    interactive plots visualizing trends in alpha diversity, beta diversity, 
+    and taxa abundances through customizable box plots, PCoA ordinations, and 
+    heatmaps. Statistical annotations are added to denote significant 
+    correlations with metadata, enabling quick assessment of many variables. 
+    Generated data and figures can be exported as Excel-compatible spreadsheets
+    and publication quality PDFs.
+URL: https://github.com/cmmr/atima, https://cmmr.github.io/atima/index.html
+BugReports: https://github.com/cmmr/atima/issues
+License: MIT + file LICENSE
+Encoding: UTF-8
+RoxygenNote: 7.3.3
+Config/Needs/website: rmarkdown
+Config/testthat/edition: 3
+Depends:
+    R (>= 4.3.0)
+Imports:
+    callr,
+    DBI,
+    httpuv,
+    jsonlite,
+    mirai,
+    methods,
+    openssl,
+    pandoc,
+    parallelly,
+    promises,
+    rbiom (>= 3.0.0),
+    rlang,
+    RSQLite,
+    sodium,
+    tools,
+    utils,
+    webutils
+Suggests:
+    blastula,
+    Cairo,
+    testthat (>= 3.0.0)
+Remotes:
+    cmmr/rbiom

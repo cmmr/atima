@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.aignore
+atima.Rproj
+install.sh
+archive
+scripts
+docker

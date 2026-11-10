@@ -1,0 +1,30 @@
+<form>
+  
+  <link rel="stylesheet" href="/www/modals/modal.css">
+  
+  <header>My Account</header>
+  
+  <div>
+    <i class="fa-solid fa-user"></i>
+    <input type="text" style="width:100%" name="full_name" autocomplete="name" placeholder="Full Name">
+  </div><div>
+    <i class="fa-solid fa-building-columns"></i>
+    <input type="text" style="width:100%" name="affiliation" autocomplete="organization" placeholder="Affiliation">
+  </div><div>
+    <i class="fa-solid fa-envelope"></i>
+    <input type="email" style="width:100%" name="email" autocomplete="email" readonly disabled>
+  </div><div>
+    <i class="fa-solid fa-key"></i>
+    <input type="password" style="width:100%" name="new_password" autocomplete="new-password" placeholder="New Password">
+  </div>
+
+  <hr>
+  <div>
+    <i class="fa-solid fa-lock"></i>
+    <input type="password" style="width:100%" name="password" autocomplete="current-password" placeholder="Current Password">
+  </div>
+  
+  <button type="button" class="serialize-submit" data-api="update_account">Save Changes</button>
+  
+  <script type="text/javascript" src="/www/modals/my_account.js"></script>
+</form>
