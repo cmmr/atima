@@ -1,7 +1,6 @@
 
 #______________________________________________________________________________
 #' Send an email for email verifications, password resets, etc.
-#' 
 send_email <- function (REQ, to, subject, message) {
   tryCatch(
     error = function (e) stop("Unable to send email.", e),
@@ -14,7 +13,7 @@ send_email <- function (REQ, to, subject, message) {
       # Coerce SSL value into 'true' or 'false'.
       #________________________________________________________
       if (!isTRUE(SMTP[['ssl']] %in% c('true', 'false'))) {
-        SMTP[['ssl']] <- tolower(ssl) %in% c("1", "true", "yes", "on", "enabled")
+        SMTP[['ssl']] <- tolower(SMTP[['ssl']]) %in% c("1", "true", "yes", "on", "enabled")
         SMTP[['ssl']] <- ifelse(isTRUE(SMTP[['ssl']]), 'true', 'false')
       }
       

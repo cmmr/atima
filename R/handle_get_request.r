@@ -7,7 +7,6 @@
 #' /unsaved/KADFq33aW2/full.json
 #' 
 #' @return list(headers, status, body)
-#' 
 handle_get_request <- function (REQ) {
   
   DB       <- REQ[['DB']]
@@ -76,9 +75,8 @@ handle_get_request <- function (REQ) {
   #________________________________________________________
   biom         <- get_biom(REQ, biom_file_id)
   biom$id      <- project[['title']]
-  biom$comment <- project[['description']] %>%
-    pandoc_convert(text = ., from = 'html', to = 'markdown') %>%
-    paste0(collapse = '\n')
+  biom$comment <- paste0(collapse = '\n', pandoc_convert(
+    text = project[['description']], from = 'html', to = 'markdown' ))
   
   
   

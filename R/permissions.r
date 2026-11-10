@@ -198,7 +198,7 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
   stopifnot(is_scalar_integer(grantor_user_id))
   stopifnot(is_scalar_integer(project_id))
   stopifnot(is_one_of(permissions, c("none", "view", "edit", "any")))
-  stopifnot(is_scalar_logical(assert))
+  stopifnot(is_bool(assert))
   
   
   
@@ -312,40 +312,6 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
     return (FALSE)
   }
   
-}
-
-
-
-
-#______________________________________________________________________________
-#' Find the current permissions for a user on a project.
-#' @return "none", "view", or "edit" with attr(grantor_user_id, permission_id)
-get_permissions <- function (DB, user_id, project_id) {
-  
-  
-  # When looking up a grantor_user_id of NULL
-  if (is.null(user_id)) return ("edit")
-  
-  
-  sql <- "SELECT permission_id FROM permissions WHERE user_id = ? AND project_id = ?"
-  permission_id <- db_query(DB, sql, "GPerm1", list(user_id, project_id))
-  
-  if (is.null(permission_id))
-    return ("none")
-  
-  if (!identical(length(permission_id), 1L))
-    stop(error_details("Multiple permission entries found.", SQL = sql))
-  
-  sql <- "SELECT is_editor, grantor_user_id FROM permissions WHERE permission_id = ?"
-  res <- db_query(DB, sql, "GPerm2", list(permission_id))
-  
-  stopifnot(is.logical(res[['is_editor']]))
-  
-  perm <- ifelse(res[['is_editor']], "edit", "view")
-  attr(perm, 'grantor_user_id') <- res[['grantor_user_id']]
-  attr(perm, 'permission_id')   <- res[['permission_id']]
-  
-  return (perm)
 }
 
 

@@ -18,9 +18,9 @@ api_upload_biom <- function (REQ, biom_file) {
   on.exit(unlink(infile), add = TRUE)
   writeBin(object = biom_file[['value']], con = infile)
   
-  title <- basename(biom_file[['filename']]) %>%
-    sub("\\.(biom|txt|tab)\\.*(gz|bz2|)$", "", .) %>%
-    substr(0, 100)
+  title <- basename(biom_file[['filename']])
+  title <- sub("\\.(biom|txt|tab)\\.*(gz|bz2|)$", "", title)
+  title <- substr(title, 0, 100)
   
   project_id <- add_project(REQ, infile, title = title)
   
@@ -181,7 +181,7 @@ api_export <- function (REQ) {
     
     drop_terms <- c("api", "export", "biom", "beta", "taxa", "hdf5", "json", "tab")
     key_terms  <- setdiff(p, drop_terms)
-    bad_terms  <- grep("^[a-zA-Z0-1\\-]{1,20}$", key_terms, value = TRUE, invert = TRUE)
+    bad_terms  <- grep("^[a-zA-Z0-9\\-]{1,20}$", key_terms, value = TRUE, invert = TRUE)
     if (length(bad_terms) > 0)
       stop("Invalid export term(s): ", paste(collapse = ", ", bad_terms))
     
@@ -228,9 +228,8 @@ api_export <- function (REQ) {
   } else if (identical(p[[1]], 'biom')) {
     
     biom$id      <- project[['title']]
-    biom$comment <- project[['description']] %>%
-      pandoc_convert(text = ., from = 'html', to = 'markdown') %>%
-      paste0(collapse = '\n')
+    biom$comment <- paste0(collapse = '\n', pandoc_convert(
+      text = project[['description']], from = 'html', to = 'markdown' ))
     
     write_biom(biom, server_uri, format = p[[3]])
     
@@ -242,7 +241,6 @@ api_export <- function (REQ) {
     
   } else if (identical(p[[1]], 'beta')) {
     method   <- if.null(p[[2]], "bray")
-    setThreadOptions(numThreads = 1)
     bdiv     <- bdiv_distmat(biom, method)
     write.csv(as.matrix(bdiv), server_uri)
     
@@ -316,9 +314,9 @@ store_file <- function (REQ, file) {
       res  <- db_query(DB, sql, "SFile1", list(hash), simplify = FALSE)
       
       if (nrow(res) > 0) {
-        curr <- readBin(file, 'raw')
+        curr <- read_file_raw(file)
         for (i in seq_len(nrow(res)))
-          if (identical(curr, readBin(paste0(FILES_DIR, "/", res[i, 'file']), 'raw')))
+          if (identical(curr, read_file_raw(paste0(FILES_DIR, "/", res[i, 'file']))))
             return (res[i, 'biom_file_id'])
       }
       
@@ -549,56 +547,17 @@ get_biom_component <- function (REQ, biom_file_id, rbiom_fn) {
 
 
 #______________________________________________________________________________
-#' Craft a file path from an integer. Max 100 files per directory.
-#' 
-#' @param id         The id to split apart into a path. Usually a biom_file_id.
-#' @param dir        A base directory to prepend to the numeric-based path.
-#' @param filename   Whether to append "<id>.rds" to the end of the path. Default: TRUE
-#' 
-#' @return The file path, either partial or complete depending on the optional parameters.
-#' 
-#' @examples
-#' int_to_path(91812, "/mnt/db/objects") # /mnt/db/objects/5/09/18/91812.rds
-int_to_path <- function (id, dir = NULL, filename = TRUE) {
-  
-  stopifnot(is_scalar_integerish(id))
-  
-  subdirs <- function (x) ({
-    if (x < 1) return (NULL)
-    subdir <- sprintf("%02i", floor(x) %% 100)
-    return (c(subdirs(x / 100), subdir))
-  })
-  
-  full_path <- c(ceiling(log10(id)), subdirs(id / 100))
-  full_path <- do.call(file.path, as.list(full_path))
-  
-  if (isTRUE(filename)) {
-    full_path <- file.path(full_path, paste0(id, ".rds"))
-    
-  } else if (is_scalar_character(filename)) {
-    full_path <- file.path(full_path, paste0(id, filename))
-  }
-  
-  if (!is.null(dir)) {
-    full_path <- file.path(dir, full_path)
-    full_path <- normalizePath(full_path, mustWork = FALSE, winslash = "/")
-    if (!dir.exists(dirname(full_path)))
-      dir.create(dirname(full_path), recursive = TRUE)
-  }
-  
-  
-  return (full_path)
+#' The entire contents of a file as a raw vector.
+#' @return a raw vector; `raw(0)` if the file does not exist.
+read_file_raw <- function (file) {
+  if (!file.exists(file)) return (raw(0))
+  readBin(file, what = 'raw', n = file.size(file))
 }
-
-
-
-
 
 
 
 #______________________________________________________________________________
 #' General purpose cache localized to a given directory.
-#' 
 with_cache <- function (REQ, key, expr) {
   
   CACHE_DIR  <- file.path(REQ[['CONFIG']][['data_dir']], 'cache')
@@ -629,7 +588,7 @@ with_cache <- function (REQ, key, expr) {
   files <- list.files(CACHE_DIR, full.names = TRUE, recursive = TRUE)
   files <- file.info(files)[,c('size', 'mtime'),drop=FALSE]
   files <- files[rev(order(files[['mtime']])),,drop=FALSE]
-  files <- subset(files, cumsum(size) + value_size > CACHE_SIZE)
+  files <- files[cumsum(files[['size']]) + value_size > CACHE_SIZE,,drop=FALSE]
   if (nrow(files) > 0) file.remove(rownames(files))
   
   

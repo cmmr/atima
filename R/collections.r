@@ -32,16 +32,6 @@ compile_jstree_data <- function (REQ) {
   user_id <- REQ[['SESSION']][['user_id']]
   
   
-  # $('#public_collections').jstree({ 'core' : {
-  #   'data' : [
-  #     { "id" : "C1", "parent" : "#",  "text" : "Collection 1" },
-  #     { "id" : "C2", "parent" : "#",  "text" : "Collection 2" },
-  #     { "id" : "P1", "parent" : "C2", "text" : "Project 1" },
-  #     { "id" : "P2", "parent" : "C2", "text" : "Project 2" },
-  #   ]
-  # } });
-  
-  
   user_collections <- function (user_id) {
     
     #________________________________________________________
@@ -186,11 +176,13 @@ api_jstree_rename <- function (REQ, node_id, jstree_text) {
       stop("You do not have permission to rename this project.")
     
     
-    # Update the draft's title too.
-    if (identical(pid, project_id)) {
-      resp <- api_update_title(REQ, title = jstree_text)
-      return (list('title' = unbox(resp[['title']])))
-    }
+    title <- trimws(jstree_text)
+    sanity_check(title)
+    db_update(DB, "projects", pid, "AJRena4", title = title)
+    
+    # Tell the client when it was the open project that got renamed.
+    if (identical(pid, project_id))
+      return (list('title' = unbox(title)))
   }
   
   
@@ -306,7 +298,7 @@ api_jstree_delete <- function (REQ, node_id) {
     
     # Are there projects in this collection that need to be removed first?
     sql <- "SELECT COUNT(*) FROM permissions WHERE collection_id = ?"
-    if (db_query(DB, collection_id, "AJDel6", list(collection_id)) > 0)
+    if (db_query(DB, sql, "AJDel6", list(collection_id)) > 0)
       stop("Unable to delete non-empty collections.")
     
     sql <- "DELETE FROM collections WHERE collection_id = ?"
@@ -392,7 +384,7 @@ create_collection <- function (DB, user_id, parent_collection_id, jstree_text) {
     
     if (!((is.null(user_id) && is.na(pc_user_id)) || identical(pc_user_id, user_id))) {
       errmsg <- "user_id %i does not own parent_collection_id %i"
-      errmsg <- sprintf(sql, user_id, parent_collection_id)
+      errmsg <- sprintf(errmsg, user_id, parent_collection_id)
       stop(error_details(errmsg, "CColl2"))
     }
   }
@@ -504,7 +496,6 @@ get_shared_collection <- function (DB, user_id, grantor_user_id, create = TRUE) 
 
 #______________________________________________________________________________
 #' Delete the shared collection if it's empty.
-#' 
 cleanup_shared_collection <- function (DB, user_id, grantor_user_id) {
   
   collection_id <- get_shared_collection(DB, user_id, grantor_user_id, create = FALSE)

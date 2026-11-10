@@ -1,7 +1,6 @@
 #______________________________________________________________________________
 #' Process /api requests. Always needs authenticated sessions.
 #' @return list(headers, status, body)
-#' 
 handle_post_request <- function (REQ) {
   
   
@@ -39,10 +38,12 @@ handle_post_request <- function (REQ) {
     
     x <- REQ[['PATH']]
     
-    if (!is_scalar_character(x)) return ("api_get")
-    if (!startsWith(x, "/api/")) return ("api_get")
+    if (!is_scalar_character(x) || !startsWith(x, "/api/"))
+      stop("Not an API path.")
     
-    x <- strsplit(x, '/', fixed = TRUE)[[1]][[3]]
+    x <- strsplit(x, '/', fixed = TRUE)[[1]]
+    if (length(x) < 3) stop("Not an API path.")
+    x <- x[[3]]
     return (paste0("api_", x))
   })
   

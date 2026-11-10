@@ -2,7 +2,7 @@
 
 #______________________________________________________________________________
 #' Generate a plot for the active project
-#' @return list(image_url, r_code, stats_df, [BIOM], ...)
+#' @return list(image_url, r_code, stats_df, BIOM (optional), ...)
 api_plot <- function (
     REQ, plot_fn, plot_args, depth, 
     save_args = list(), subset_args = list(), attrs = FALSE) {
@@ -90,9 +90,9 @@ api_plot <- function (
   
   
   #________________________________________________________
-  # Write to <client_temp>/<seconds modulo>.<suffix>
+  # Write to <client_temp>/plot_<random>.<suffix>
   #________________________________________________________
-  outfile <- sprintf("%04i.%s", as.integer(Sys.time()) %% 10000, save_args[['device']])
+  outfile <- plot_filename(server_temp, save_args[['device']])
   save_args[['filename']] <- outfile
   save_args[['path']]     <- server_temp
   
@@ -208,8 +208,10 @@ api_plot <- function (
     
     if (!is.null(attr(p, 'stats', exact = TRUE))) {
       resp[['stats_table']] <- attr(p, 'stats')
-      colnames(resp[['stats_table']]) %<>% gsub("^\\.", "", .)
-      colnames(resp[['stats_table']]) %<>% gsub(".", "_", ., fixed = TRUE)
+      stats_cols <- colnames(resp[['stats_table']])
+      stats_cols <- sub("^\\.", "", stats_cols)
+      stats_cols <- gsub(".", "_", stats_cols, fixed = TRUE)
+      colnames(resp[['stats_table']]) <- stats_cols
     }
     
     sample_set <- ifelse(plot_fn == "rare_multiplot", "full", "rare")
@@ -238,3 +240,18 @@ api_plot <- function (
 }
 
 
+
+#______________________________________________________________________________
+#' A file name for a new figure that no other request is using.
+#' 
+#' The file is created (empty) to reserve the name, so two requests in the
+#' same session can never be handed the same one.
+#' @return a file name (not a path) inside `dir`.
+plot_filename <- function (dir, device) {
+  for (i in 1:10) {
+    filename <- sprintf("plot_%s.%s", random_string(10), device)
+    if (file.create(file.path(dir, filename), showWarnings = FALSE))
+      return (filename)
+  }
+  stop("Unable to create a file for the figure.")
+}
