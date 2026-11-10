@@ -28,7 +28,7 @@ it to that step's list instead of fixing it now.
 |---|------|--------|
 | 1 | Baseline and safety fixes | done (2026-11-10) |
 | 2 | Dead code and package hygiene | done (2026-11-10) |
-| 3 | Request pipeline and database layer | not started |
+| 3 | Request pipeline and database layer | done (2026-11-10) |
 | 4 | Worker pool, jobs, storage, cleanup | not started |
 | 5 | Auth modes, sessions, permissions | not started |
 | 6 | rbiom 4 schema (R side) | not started |
@@ -73,6 +73,39 @@ it to that step's list instead of fixing it now.
   mirai daemons and defined launchers that no request used; these and the
   `callr`, `mirai` and `promises` Imports were removed as dead code. Step 4
   adds back what its design needs.
+- **API paths (step 3).** Daniel chose grouped POST actions over full REST
+  and over keeping the old names: `POST /api/<area>/<action>` with a JSON
+  body (multipart for uploads) and the session key in the `x-session-key`
+  header. The open project stays in the server-side session. BIOM downloads
+  stay `GET /<access_key>/<file>` and `GET /unsaved/<session_key>/<file>`.
+- **Public projects (step 3).** Daniel chose a column on the project:
+  `projects.is_public`, plus `projects.public_collection_id` for the
+  project's place in the public tree. Public collections are collections
+  whose `user_id` is NULL. Everyone can read a public project; it can be
+  changed by users with an editor grant and by administrators
+  (`users.is_admin`). `permissions` only ever holds real users.
+- **Dropping `migration_*` on upgrade (step 3).** Daniel chose: back up,
+  then drop. Before any schema upgrade the database is copied to
+  `sqlite.db.v<N>.<UTC stamp>.bak` in the data directory; that backup of a
+  5.0.x database is the "saved copy" step 8 imports from.
+- **BIOM download permission (step 3).** Daniel chose: the key in the URL
+  grants read (a project's access key, or the session key of an unsaved
+  draft), the same rule `api_init_session()` applies to a browser. Step 5
+  decides whether share links stay.
+- **Publish route (step 3).** Daniel chose to add the admin-only
+  `POST /api/project/publish` (sets `is_public` and the public collection
+  of the open project). There is no UI for it yet.
+- **Step 3 choices not put to Daniel.** (a) The router runs every handler
+  inside one database transaction, so a handler that fails changes nothing.
+  (b) Error responses are `{"error": {"message", "id"}}` with status 400,
+  401, 403, 404, 405 or 500; the log is JSON lines on stderr, or a file via
+  `options(atima.log = <path>)`. (c) rbiom's own error message is shown to
+  the user when a plot fails (it names the bad option and the valid
+  choices); a file that cannot be parsed gets a fixed message and the
+  detail is only logged. (d) `api_export()` takes its target as arguments
+  (`what`, `sample_set`, `format`, `method`, `rank`) instead of extra path
+  segments. (e) The auth cookie is set with `Path=/`. (f) Password and
+  lockout columns stay in `users` until step 5 removes that code.
 
 ## Conventions (apply from step 2 onward)
 
@@ -233,6 +266,82 @@ Replace "URL path becomes a function name" with an explicit design.
 Decisions for Daniel: REST-style paths vs. keeping `/api/<verb>`; how public
 projects are represented once "user 0" goes away.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- Where things are. `R/router.R`: `handle_request()` (the only entry point
+  from httpuv), `route()`, the `arg_*()` argument types, `match_route()`,
+  `validate_args()`, `check_permission()`. `R/routes.R`: `route_table()`,
+  the one list of every route. `R/db.R`: `db_open()`, `db_migrate()`,
+  `db_transaction()`, `db_query()` and friends, `db_seed()`. `R/errors.R`:
+  `stop_user()` (400), `stop_unauthorized()` (401), `stop_forbidden()`
+  (403), `stop_not_found()` (404), `stop_http()`, `with_user_errors()`,
+  `error_response()`. `R/log.R`: `log_event()`. `R/downloads.R`: the two
+  BIOM download handlers. `inst/sql/NNN_name.sql`: migrations.
+- Order of work for a request: match route (404/405), load session unless
+  the route is `public` (401), check permission (403), validate arguments
+  (400), run the handler in a transaction. A handler is called as
+  `handler(REQ, <declared args>)`; `REQ` has `DB`, `CONFIG`, `SESSION`,
+  `CLIENT`, `ROUTE`, `METHOD`, `PATH`. `REQ$SESSION$access` is `"editor"`,
+  `"viewer"` or `"none"` for the open project and comes from
+  `project_access()` in `R/projects.r`, the single place the rule lives.
+- To add a route: add a `route()` line to `route_table()` and a handler
+  whose arguments are `REQ` plus exactly the declared ones. Tests in
+  `tests/testthat/test-router.R` fail until the handler matches and, if it
+  has required arguments, until `valid_args` in that file has an entry;
+  permission and validation tests then cover it automatically.
+- Raising errors: use the `stop_*()` helpers for anything the user should
+  read. A plain `stop()` or `stopifnot()` becomes "Internal error" plus an
+  id in the browser, with the message, SQL, parameters and call stack in
+  the log under that id.
+- To change the schema: add `inst/sql/003_<name>.sql` (statements end with
+  `;` at end of line, comments are whole lines starting `--`). Never edit
+  001 or 002. Tables with foreign keys must be rebuilt as 002 does. The
+  runner turns foreign keys off, runs the script in one transaction, runs
+  `PRAGMA foreign_key_check`, then sets `user_version`.
+  `tests/testthat/test-db.R` checks that a 5.0.x fixture
+  (`tests/testthat/fixtures/atima-5.0.sql`) upgrades to the same schema as
+  a fresh install; extend its data assertions when a migration moves data.
+- Schema now (version 2): `migration_*` tables, users 0 and 1000, project
+  10000 and biom file 0 are gone. Every foreign key has an `ON DELETE`
+  rule: cascade from users and projects to permissions, last_access,
+  drafts, auth_tokens, collections; set null for `sessions.user_id`,
+  `sessions.draft_id`, `sessions.auth_token_id`,
+  `permissions.collection_id`, `permissions.grantor_user_id`,
+  `projects.public_collection_id`; restrict from projects and drafts to
+  biom_files. The default project for a new visitor is the oldest public
+  project; with none, `/api/session/init` answers 404.
+- Tree node ids: `C<collection_id>`, `P<permission_id>` (a project in the
+  user's own tree), and new `G<project_id>` (a project in the public tree).
+  `/api/tree/move` accepts `"#"` as the parent (top level) and refuses to
+  move a collection into itself or a descendant.
+- Old name to new path (handler function names are unchanged):
+
+  | Old `/api/<name>` | New path |
+  |---|---|
+  | `init_session`, `heartbeat` | `/api/session/init`, `/api/session/heartbeat` |
+  | `create_account`, `update_account`, `account_details`, `reset_password`, `sign_in`, `log_out` | `/api/account/create`, `update`, `details`, `reset_password`, `sign_in`, `sign_out` |
+  | `upload_biom`, `upload_component`, `rarefy`, `save`, `save_as` | `/api/project/upload`, `upload_component`, `rarefy`, `save`, `save_as` |
+  | `export/<what>/...` | `/api/project/export` with `what`, `sample_set`, `format`, `method`, `rank` |
+  | (new) | `/api/project/publish` with `is_public`, `collection_id` |
+  | `jstree_select`, `jstree_create`, `jstree_rename`, `jstree_leave`, `jstree_delete`, `jstree_move` | `/api/tree/select`, `create`, `rename` (argument `text`, was `jstree_text`), `leave`, `delete`, `move` |
+  | `sharing_user_search`, `get_editors`, `sharing_with`, `update_permissions` | `/api/sharing/user_search`, `editors`, `list`, `update` |
+  | `metadata_dt`, `metadata_thead`, `metadata_change_class`, `metadata_fields`, `metadata_levels`, `metadata_minmax` | `/api/metadata/table`, `thead`, `change_class`, `fields`, `levels`, `minmax` |
+  | `taxonomy_dt`, `taxonomy_thead` | `/api/taxonomy/table`, `thead` |
+  | `plot` | `/api/plot` |
+
+- Bugs fixed on the way because they sat in code this step rewrote: GET
+  downloads returned 500; the
+  DataTables pager returned one row too many and failed without an `order`
+  argument; `INSERT OR REPLACE` on `last_access` cleared `is_starred` on
+  every request; `run()` deleted `files/` and `cache/` when it found an
+  empty database.
+- Verified by hand with curl against a running server (fresh data
+  directory): index pages, static files, session init, heartbeat, plot,
+  export, metadata table, save_as, tree create, multipart upload, all four
+  download forms, and the 400/401/403/404/405 answers. Not verified: a
+  real 5.0.x production database (only the fixture), and nothing was
+  tested in a browser because the front end is not wired.
+
 ## Step 4: Worker pool, jobs, storage, cleanup
 
 - Main process never computes. Compute routes go to a persistent `mirai` pool
@@ -254,6 +363,36 @@ projects are represented once "user 0" goes away.
   both when they take effect. `mirai`, `promises` and `callr` are no longer
   in `DESCRIPTION`. `R/garbage.r` was deleted; nothing cleans up temp files,
   sessions, drafts or guests.
+
+- From step 3: every route has a `lane`. `compute` marks any handler that
+  may read a BIOM file or call rbiom, which today includes
+  `/api/session/init`, sign-in, sign-out and `/api/tree/select` because
+  they end by building the `BIOM` data for the browser
+  (`get_biom_data()`). The lane is recorded but not used: everything still
+  runs in the main process inside `handle_request()`.
+- From step 3: `handle_request()` wraps the whole handler in
+  `db_transaction()`. That cannot stay as it is for `compute` routes once
+  they go to workers, since a transaction must not be held open across an
+  asynchronous job. Split those handlers into "prepare" (main process,
+  transaction), "compute" (worker, no database) and "finish" (main
+  process, transaction). `db_transaction()` nests (savepoints), so the
+  pieces can call it themselves.
+- From step 3: `with_rbiom_cache()` in `R/router.R` sets the rbiom cache
+  options per request in the main process; workers will need the same.
+- From step 3: the database connection is opened once in `run()` and
+  closed by `on.exit()`. Graceful shutdown should also checkpoint the WAL.
+  The old JavaScript calls `api({method: "abort"})` on page unload; there
+  has never been an R handler for it, and job cancelling is this step.
+- From step 3: cleanup can now rely on the foreign keys. Deleting a user
+  removes their permissions, last_access rows, auth tokens and collections
+  and leaves their sessions without a user; deleting a project removes its
+  permissions and drafts; a BIOM file cannot be deleted while a project or
+  draft points at it. Projects with no permissions and `is_public = 0` are
+  the orphans left by "delete project" in the tree. `sessions` has an
+  index on `heartbeat_utc`. The failed-upload and failed-plot paths can
+  leave files in `data_dir/files` with no `biom_files` row, because the
+  database rolls back and the file copy does not. Upgrade backups
+  (`sqlite.db.v*.bak`) are never deleted.
 
 Decisions for Daniel: retention periods (guest data, idle sessions, unsaved
 drafts); default worker count and per-job CPU and time limits.
@@ -277,6 +416,33 @@ drafts); default worker count and per-job CPU and time limits.
   exist), so there is no way to delete an account. `blastula` is still in
   Suggests and `sodium` in Imports for this code.
 
+- From step 3: the route table is where permissions are declared, and
+  `check_permission()` in `R/router.R` enforces them. Three things are
+  still checked inside handlers and should move or be written down here:
+  (1) the tree routes are `session` level and check node ownership with
+  `own_permission()` / `own_collection()` in `R/collections.r`;
+  (2) `/api/sharing/update` is `viewer` level and applies the finer
+  `can_grant()` rules; (3) the two download routes are `public` and treat
+  the key in the URL as the permission (Daniel's interim choice).
+- From step 3: opening a project by access key still gives the visitor a
+  permanent `view` grant (`api_init_session()`), so every project is in
+  effect link-shared. Public projects no longer create a grant.
+- From step 3: there is no route to make someone an administrator;
+  `users.is_admin` can only be set in the database. Administrators can
+  publish, unpublish and edit public projects, and have no access to other
+  users' private projects. `auth = "none"` needs to decide whether its one
+  owner is an administrator.
+- From step 3: the account routes (`/api/account/*`) are declared with
+  loose string arguments and keep their own checks and `swal` responses,
+  because this step replaces them. `users` still has `password`,
+  `alt_password`, `n_attempts` and `locked_utc`; drop them in a new
+  migration script. `R/sanity_check.r` is now only used by
+  `create_collection()`, `create_access_key()`, `api_update_account()`
+  and `api_init_session()` and can probably go.
+- From step 3: the auth cookie is `HttpOnly`, `Path=/`, no `Secure`, and
+  the log records user ids, route patterns and error details (which can
+  include SQL parameters such as email addresses), never request bodies.
+
 Decisions for Daniel: can anonymous guests upload data on the public server,
 or only explore public projects; do "anyone with the link" share URLs stay,
 and if so random keys only; which identity attributes are shown to other users
@@ -296,6 +462,18 @@ when sharing (name, email, ORCID iD).
   `unc`, `lineage`, `inflate`.
 - Replace hard-coded option lists in `R/files.r` with values from rbiom.
 - Remove rbiom 2/3-era argument handling in `R/plot.r`.
+
+- From step 3: `/api/plot` declares `plot_fn` as a fixed list in
+  `route_table()` (a test checks each name is exported by rbiom), but
+  `plot_args`, `save_args` and `subset_args` are `arg_json()`, meaning
+  "any JSON, the handler checks it". The schema should replace those with
+  real validation; `arg_spec()` in `R/router.R` is the extension point for
+  a new argument type. Until then a bad plot option reaches rbiom, and
+  rbiom's error message is shown to the user through
+  `with_user_errors()`.
+- From step 3: `/api/project/export` validates `method` and `rank` only
+  as short alphanumeric strings; the real lists should come from rbiom
+  and the open project.
 
 Decisions for Daniel: which functions/parameters are in scope for the first
 release; "basic" vs. "advanced" grouping of controls.
@@ -328,6 +506,20 @@ release; "basic" vs. "advanced" grouping of controls.
   the old UI code in this repository. `guess_param()` in `js/page_plot.js`
   is marked "phase out" but still has callers in `modules/`.
 
+- From step 3: no front-end file was changed. The old code under
+  `inst/www/js/` still uses the old paths and response shapes; the table
+  under step 3 maps old names to new paths. What the new front end must
+  expect: errors are `{"error": {"message", "id"}}` with a 4xx/5xx status
+  (the old `raise_error()` in `js/api.js` expected `message`, `errcode`
+  and `dumps`); 401 means "start a new session"; `CONF.migration_queue`
+  is no longer sent; `BIOM.node_id` and public tree nodes use
+  `G<project_id>`; `/api/project/export` takes arguments instead of a
+  path; `/api/tree/rename` takes `text`; uploads are multipart forms with
+  the fields named in the route table. Handler names and some response
+  fields still say `jstree_`; rename them if jsTree is replaced.
+  `projects.editors` and `projects.jstree_icon` are denormalised display
+  columns that the new UI may not need.
+
 Decisions for Daniel: review of the control layout once a first version runs.
 
 ## Step 8: Legacy data import
@@ -348,6 +540,15 @@ Decisions for Daniel: review of the control layout once a first version runs.
   The `migration_*` tables are still created by `init_db_structure()`, and
   the session data still sends an empty `CONF.migration_queue`, which
   `inst/www/js/migration.js` reads.
+
+- From step 3: the `migration_*` tables no longer exist in a current
+  database, and `CONF.migration_queue` is gone. A pre-renovation 5.0.x
+  database upgrades in place when the server starts, so "import from
+  5.x" is only needed for the unclaimed atima 2 objects those tables
+  held. They survive in the automatic backup,
+  `sqlite.db.v0.<UTC stamp>.bak`, which is an untouched copy of the old
+  database (schema in `tests/testthat/fixtures/atima-5.0.sql`). Old ids
+  are not reserved any more: imported projects get new ids.
 
 Decisions for Daniel: how old MariaDB data is supplied (offline conversion to
 SQLite vs. live connection); whether shared-project permissions are imported
@@ -375,6 +576,17 @@ version, plus a test account for each.
   seeding a public server are in the local `archive/datasets/`, not in git.
   `todo.txt` and `logo.pptx` at the repo root are tracked but not part of
   the package.
+
+- From step 3: the server log is JSON lines on stderr (one `request` line
+  per request, one `error` line per failure, with a shared error `id`),
+  so a container can collect it as is; `options(atima.log = <path>)`
+  writes to a file instead and there is no rotation. The database runs in
+  WAL mode: back up with `VACUUM INTO` or the SQLite backup API, not by
+  copying `sqlite.db` alone. Schema upgrades write
+  `sqlite.db.v<N>.<stamp>.bak` next to the database and never remove it.
+  A reverse proxy should pass `/api/`, `/www/`, `/tmp/` and the root-level
+  project paths; access keys `api`, `www`, `tmp` and `unsaved` are
+  reserved.
 
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
