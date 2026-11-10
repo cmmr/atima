@@ -10,7 +10,7 @@
 #' @importFrom rbiom adiv_matrix as_rbiom bdiv_distmat ggsave list_metrics
 #'   rarefy sample_sums taxa_matrix taxa_means write_biom write_tree
 #'   %>% %<>%
-#' @importFrom rlang %||% exprs_auto_name hash hash_file is_raw
+#' @importFrom rlang %||% exprs_auto_name hash hash_file
 #'   is_scalar_character is_scalar_integer is_scalar_integerish is_string
 #' @importFrom RSQLite SQLite
 #' @importFrom sodium password_store password_verify

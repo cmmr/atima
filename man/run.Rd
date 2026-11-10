@@ -69,6 +69,22 @@ option. The first of these that is set is used:
 \item the default shown below
 }
 }
+\section{Database}{
+
+The database is the file \code{sqlite.db} in \code{data_dir}. When a newer version
+of atima needs to change its structure, the server first saves a copy as
+\verb{sqlite.db.v<N>.<date>.bak} in the same directory, then upgrades the
+database in place.
+}
+
+\section{Server log}{
+
+The server writes one line of JSON per request and per error to standard
+error. An error shown in the browser carries a short id; the log line with
+the same \code{id} has the details. To write the log to a file instead, set
+\code{options(atima.log = "path/to/atima.log")} before calling \code{run()}.
+}
+
 \examples{
 if (interactive()) {
   # Serve on http://127.0.0.1:8080 and keep data in a temporary directory.

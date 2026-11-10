@@ -36,6 +36,18 @@
 #'                    Accepted but not used yet: no email is sent, and new
 #'                    accounts are created without email verification.
 #' @param open        Open the app in a web browser once the server is up?
+#'
+#' @section Database:
+#' The database is the file `sqlite.db` in `data_dir`. When a newer version
+#' of atima needs to change its structure, the server first saves a copy as
+#' `sqlite.db.v<N>.<date>.bak` in the same directory, then upgrades the
+#' database in place.
+#'
+#' @section Server log:
+#' The server writes one line of JSON per request and per error to standard
+#' error. An error shown in the browser carries a short id; the log line with
+#' the same `id` has the details. To write the log to a file instead, set
+#' `options(atima.log = "path/to/atima.log")` before calling `run()`.
 #' 
 #' @return Does not return; the server runs until the R session is
 #'         interrupted.
@@ -138,7 +150,18 @@ run <- function(
     smtp       = smtp
   )
   
-  db_init(config)
+  for (subdir in file.path(data_dir, c('files', 'cache')))
+    if (!dir.exists(subdir)) dir.create(subdir, recursive = TRUE)
+
+  db <- db_open(data_dir)
+  on.exit(db_close(db), add = TRUE)
+
+  if (db_is_empty(db)) {
+    message(' - Loading example projects')
+    db_seed(db, config)
+  }
+
+  app_state <- list(db = db, config = config)
   
   
   #______________________________________________
@@ -179,26 +202,7 @@ run <- function(
     },
     
     'call' = function(req) {
-      
-      tryCatch(
-        error = function (e) { response(as.character(e), 500L) },
-        expr  = {
-          
-          path <- req[['PATH_INFO']]
-          
-          # Matches '/', '/hmp50', and '/hmp50/', but NOT '/hmp50/biom.gz'
-          if (length(strsplit(path, '/', fixed = TRUE)[[1]]) <= 2)
-            return(static_index_html)
-          
-          if (is.function(req[['rook.input']]$read))
-            req$RAW_ARGS <- req[['rook.input']]$read()
-          
-          req <- c(as.list(req), list(CONFIG = config))
-          
-          simple_handler(req)
-        }
-      )
-      
+      handle_request(req, app_state)
     },
     
     'staticPaths' = list(
@@ -268,60 +272,8 @@ static_index_html <- local({
 
 
 #______________________________________________________________________________
-#' Internal: Parse one HTTP request and pass it to the GET or POST handler.
+#' Internal: route handler for the pages that load the single-page app.
 #' @noRd
-simple_handler <- function(request) {
-  
-  args <- list()
-  if (!is.null(request[['RAW_ARGS']])) {
-    args <- webutils::parse_http(request[['RAW_ARGS']], request[['CONTENT_TYPE']]) 
-  }
-  if (isTRUE(nzchar(request[['QUERY_STRING']]))) {
-    args <- c(args, webutils::parse_query(request[['QUERY_STRING']])) 
-  }
-  
-  cookies <- list()
-  if (isTRUE(nzchar(request[['HTTP_COOKIE']]))) {
-    raw_cookies <- strsplit(request[['HTTP_COOKIE']], ";", fixed = TRUE)[[1]]
-    for (cookie in raw_cookies) {
-      parts <- trimws(strsplit(cookie, "=", fixed = TRUE)[[1]])
-      if (length(parts) >= 2) {
-        val <- if (length(parts) > 2) paste(parts[-1], collapse = '=') else parts[2]
-        cookies[[parts[1]]] <- val
-      }
-    }
-  }
-  
-  auth_token  <- cookies[['auth_token']]
-  session_key <- unname(request[['HEADERS']]['x-session-key'])
-  
-  if (is.null(auth_token) || nchar(auth_token) != 64L) auth_token  <- NULL
-  if (!isTRUE(grepl("^[a-zA-Z0-9]+$", session_key)))   session_key <- NULL
-  
-  REQ <- as.environment(list(
-    ARGS   = args,
-    PATH   = request[['PATH_INFO']],
-    CONFIG = request[['CONFIG']],
-    URL    = paste0("http://", request[['HTTP_HOST']]),
-    CLIENT = list(
-      auth_token  = auth_token, 
-      session_key = session_key,
-      ip_address  = request[['REMOTE_ADDR']] 
-    )
-  ))
-  
-  REQ[['DB']] <- db_connect(REQ[['CONFIG']][['data_dir']])
-  on.exit(db_close(REQ[['DB']]), add = TRUE)
-  
-  resp <- switch(
-    EXPR = request[['REQUEST_METHOD']],
-    POST = handle_post_request(REQ),
-    GET  = handle_get_request(REQ),
-    response('Method Not Allowed', 405L)
-  )
-  
-  if (!inherits(resp, "response"))
-    resp <- response(resp)
-  
-  return (resp)
+serve_index <- function (REQ, access_key = NULL) {
+  static_index_html
 }
