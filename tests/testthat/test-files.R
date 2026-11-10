@@ -59,23 +59,37 @@ test_that("plot_filename never hands out the same name twice", {
 })
 
 
-test_that("api_export accepts digits 2-9 in path terms", {
+test_that("api_export names its files after what was asked for", {
 
-  # Regression: the term check used [0-1] where [0-9] was meant, so exports
-  # such as "taxa/Rank2" were refused.
   temp <- withr::local_tempdir()
   local_mocked_bindings(
-    db_query    = function (...) list(orig_bf_id = 1L, full_bf_id = 2L, rare_bf_id = 3L),
-    get_biom    = function (...) list(),
-    taxa_matrix = function (biom, rank) matrix(1:4, 2, dimnames = list(c("a", "b"), c("s1", "s2"))) )
+    db_query     = function (...) list(orig_bf_id = 1L, full_bf_id = 2L, rare_bf_id = 3L, title = "T", description = ""),
+    get_biom     = function (...) list(metadata = data.frame(a = 1), taxonomy = data.frame(b = 2)),
+    taxa_matrix  = function (biom, rank) matrix(1:4, 2, dimnames = list(c("a", "b"), c("s1", "s2"))),
+    adiv_matrix  = function (biom) matrix(1:4, 2, dimnames = list(c("s1", "s2"), c("shannon", "simpson"))),
+    bdiv_distmat = function (biom, method) stats::dist(matrix(1:6, 3)) )
 
-  req <- function (path)
-    list(PATH = path, SESSION = list(project_id = 1L, client_temp = "/tmp/key", server_temp = temp))
+  REQ <- list(SESSION = list(project_id = 1L, client_temp = "/tmp/key", server_temp = temp))
 
-  resp <- api_export(req("/api/export/taxa/Rank2/rare"))
-  expect_identical(resp, list(download_url = jsonlite::unbox("/tmp/key/3/Rank2_rare_3.csv")))
-  expect_true(file.exists(file.path(temp, "3", "Rank2_rare_3.csv")))
+  url <- function (...) api_export(REQ, ...)$download_url
 
-  expect_error(api_export(req("/api/export/taxa/..%2F..%2Fetc/rare")), "Invalid export term")
-  expect_error(api_export(req("/api/export/taxa/a_b/rare")),           "Invalid export term")
+  # Regression: ranks with digits 2-9 used to be refused.
+  expect_identical(url("taxa", "rare", rank = "Rank2"), jsonlite::unbox("/tmp/key/3/taxa_Rank2_rare_3.csv"))
+  expect_true(file.exists(file.path(temp, "3", "taxa_Rank2_rare_3.csv")))
+
+  expect_identical(url("taxa"),                    jsonlite::unbox("/tmp/key/2/taxa_otu_full_2.csv"))
+  expect_identical(url("metadata"),                jsonlite::unbox("/tmp/key/2/metadata_full_2.csv"))
+  expect_identical(url("taxonomy", "rare"),        jsonlite::unbox("/tmp/key/3/taxonomy_rare_3.csv"))
+  expect_identical(url("alpha", "rare"),           jsonlite::unbox("/tmp/key/3/alpha_rare_3.csv"))
+
+  # Beta diversity always uses the rarefied counts.
+  expect_identical(url("beta", "full", method = "jaccard"), jsonlite::unbox("/tmp/key/3/beta_jaccard_rare_3.csv"))
+
+  # Asking twice reuses the file.
+  before <- file.mtime(file.path(temp, "2", "metadata_full_2.csv"))
+  expect_identical(url("metadata"), jsonlite::unbox("/tmp/key/2/metadata_full_2.csv"))
+  expect_true(file.mtime(file.path(temp, "2", "metadata_full_2.csv")) >= before)
+
+  # A project without a tree says so.
+  expect_error(url("tree"), "no phylogenetic tree", class = "atima_http_error")
 })

@@ -24,23 +24,13 @@ api_rarefy <- function (REQ, depth) {
 #' @return list(BIOM)
 #' @noRd
 api_save <- function (REQ, title, access_key, description) {
-  
-  sanity_check(title, access_key, description)
-  
+
   DB         <- REQ[['DB']]
-  user_id    <- REQ[['SESSION']][['user_id']]
-  draft_id   <- REQ[['SESSION']][['draft_id']]
   project_id <- REQ[['SESSION']][['project_id']]
   full_bf_id <- REQ[['SESSION']][['full_bf_id']]
   rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
-  
-  
-  #________________________________________________________
-  # Verify editor permissions on the parent.
-  #________________________________________________________
-  is_project_writable(DB, project_id, user_id, assert = TRUE)
-  
-  
+
+
   #________________________________________________________
   # Check that new custom access_key is valid and available.
   #________________________________________________________
@@ -96,10 +86,8 @@ api_save_as <- function (REQ, title, access_key, description) {
   full_name  <- REQ[['SESSION']][['full_name']]
   full_bf_id <- REQ[['SESSION']][['full_bf_id']]
   rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
-  
-  sanity_check(title, access_key, description)
-  
-  
+
+
   #________________________________________________________
   # Get a new unique access_key.
   #________________________________________________________
@@ -136,7 +124,9 @@ api_save_as <- function (REQ, title, access_key, description) {
     median_depth  = details[['median_depth']],
     meta_colnames = details[['meta_colnames']] %>% toJSON(),
     editors       = toJSON(full_name),
-    n_views       = 1L )
+    n_views       = 1L,
+    is_public     = FALSE,
+    public_collection_id = NULL )
   
   
   #________________________________________________________
@@ -164,7 +154,7 @@ api_save_as <- function (REQ, title, access_key, description) {
     " LEFT JOIN projects USING (project_id)",
     " WHERE permission_id = ?" )
   row         <- db_query(DB, sql, "ASAs7", list(permission_id))
-  jstree_node <- compile_jstree_node(DB, row)
+  jstree_node <- compile_jstree_node(row)
   
   
   #________________________________________________________
@@ -192,13 +182,11 @@ select_project <- function (REQ, project_id = NULL, access_key = NULL) {
   if (!is.null(access_key)) {
     sql <- 'SELECT project_id FROM projects WHERE access_key = ?'
     project_id <- db_query(DB, sql, "SProj1", list(access_key))
-    if (is.null(project_id)) stop('Project Not Found')
+    if (is.null(project_id)) stop_not_found("Project not found.")
   }
-  
-  
-  
-  # Confirms that the user is allowed to access this project
-  is_project_readable(DB, project_id, user_id, assert=TRUE)
+
+  if (!is_project_readable(DB, project_id, user_id))
+    stop_forbidden("You do not have access to that project.")
   
   # Create a new draft for this project.
   db_update(
@@ -234,10 +222,17 @@ biom_to_details <- function (biom) {
 
 
 #______________________________________________________________________________
-#' Insert a new project into the SQL tables. 
+#' Insert a new project into the SQL tables.
+#'
+#' The session's user becomes the project's first editor. With no user in
+#' the session (first-run seeding) the project has no editors.
+#'
+#' @param is_public  Make the project readable by everyone.
 #' @return a project_id.
 #' @noRd
-add_project <- function (REQ, infile, title = NULL, collection_id = NULL, requested_access_key = NULL) {
+add_project <- function (
+    REQ, infile, title = NULL, collection_id = NULL,
+    requested_access_key = NULL, is_public = FALSE ) {
   
   DB        <- REQ[['DB']]
   user_id   <- REQ[['SESSION']][['user_id']]
@@ -247,7 +242,10 @@ add_project <- function (REQ, infile, title = NULL, collection_id = NULL, reques
   #________________________________________________________
   # Parse the BIOM data into full and rarefied objects
   #________________________________________________________
-  full_biom <- as_rbiom(infile)
+  full_biom <- with_user_errors(
+    message = "That file could not be read as a BIOM file.",
+    detail  = FALSE,
+    code    = as_rbiom(infile) )
   
   full_biom$sequences <- NULL
   if (!is.null(title)) full_biom$id <- title
@@ -274,13 +272,15 @@ add_project <- function (REQ, infile, title = NULL, collection_id = NULL, reques
     has_tree      = details[['has_tree']],
     median_depth  = details[['median_depth']],
     meta_colnames = details[['meta_colnames']] %>% toJSON(),
-    editors       = toJSON(full_name) )
-  
-  
+    editors       = toJSON(full_name),
+    is_public     = is_public )
+
+
   #________________________________________________________
   # Put into the user's top level collection by default.
   #________________________________________________________
-  db_insert(DB, "permissions", "AProj2", project_id, user_id, collection_id)
+  if (!is.null(user_id))
+    db_insert(DB, "permissions", "AProj2", project_id, user_id, collection_id)
   
   
   return (project_id)
@@ -336,7 +336,7 @@ create_access_key <- function (DB, requested_access_key = NULL) {
   #________________________________________________________
   # Ignore malformed requested_access_keys
   #________________________________________________________
-  if (sanity_check(requested_access_key, assert = FALSE)) {
+  if (!is.null(requested_access_key) && sanity_check(requested_access_key, assert = FALSE)) {
     access_key <- requested_access_key
   } else {
     access_key <- random_string(12)
@@ -363,46 +363,111 @@ create_access_key <- function (DB, requested_access_key = NULL) {
 
 
 #______________________________________________________________________________
-#' Check if this user is allowed to view this project.
+#' What a user may do with a project.
+#'
+#' A user can read a project they have been granted, and any public project.
+#' A user can change a project they have been granted as an editor.
+#' Administrators can change public projects.
+#'
+#' @param user_id  May be `NULL` for a visitor with no account.
+#' @return `"editor"`, `"viewer"` or `"none"`.
 #' @noRd
-is_project_readable <- function (DB, project_id, user_id, access_key=NULL, assert=FALSE) {
-  
-  if (!sanity_check(access_key, assert = assert))
-    return (FALSE)
-  
-  sql <- paste0(
-    "SELECT COUNT(*) FROM permissions",
-    " WHERE project_id = ? AND (user_id = ? OR user_id = 0)" )
-  res <- db_query(DB, sql, "PRead1", list(project_id, user_id))
-  if (res > 0) return (TRUE)
-  
-  if (!is.null(access_key)) {
+project_access <- function (DB, project_id, user_id = NULL) {
+
+  if (is.null(project_id) || is.na(project_id)) return ("none")
+
+  sql <- "SELECT is_public FROM projects WHERE project_id = ?"
+  is_public <- db_query(DB, sql, "PAcc1", list(project_id))
+  if (is.null(is_public)) return ("none")
+
+  is_editor <- NULL
+  is_admin  <- FALSE
+
+  if (!is.null(user_id)) {
+    sql <- "SELECT is_editor FROM permissions WHERE project_id = ? AND user_id = ?"
+    is_editor <- db_query(DB, sql, "PAcc2", list(project_id, user_id))
+
+    sql <- "SELECT is_admin FROM users WHERE user_id = ?"
+    is_admin <- isTRUE(db_query(DB, sql, "PAcc3", list(user_id)))
+  }
+
+  if (isTRUE(is_editor))        return ("editor")
+  if (is_public && is_admin)    return ("editor")
+  if (!is.null(is_editor))      return ("viewer")
+  if (is_public)                return ("viewer")
+
+  return ("none")
+}
+
+
+
+#______________________________________________________________________________
+#' Check if this user is allowed to view this project.
+#'
+#' @param access_key  If this is the project's access key, the project is
+#'        readable whoever is asking: the key works as a share link.
+#' @return TRUE/FALSE
+#' @noRd
+is_project_readable <- function (DB, project_id, user_id, access_key = NULL) {
+
+  if (project_access(DB, project_id, user_id) != "none")
+    return (TRUE)
+
+  if (is_scalar_character(access_key)) {
     sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND access_key = ?"
     res <- db_query(DB, sql, "PRead2", list(project_id, access_key))
     if (res > 0) return (TRUE)
   }
-  
-  if (isTRUE(assert))
-    stop("Insufficient permissions. Please select a different project.", call. = FALSE)
-  
+
   return (FALSE)
 }
 
 
 #______________________________________________________________________________
-#' Check if this user has editor permission on a given project_id.
-#' 
+#' Check if this user may change a given project_id.
+#'
 #' @return TRUE/FALSE
 #' @noRd
-is_project_writable <- function (DB, project_id, user_id, assert=FALSE) {
-  
-  sql <- "SELECT COUNT(*) FROM permissions WHERE project_id = ? AND user_id = ? AND is_editor = 1"
-  res <- db_query(DB, sql, "PWrit1", list(project_id, user_id))
-  if (res != 1 && isTRUE(assert))
-    stop("Insufficient permissions. Please use 'Save As' instead.", call. = FALSE)
-  return (res > 0)
+is_project_writable <- function (DB, project_id, user_id) {
+  identical(project_access(DB, project_id, user_id), "editor")
 }
 
+
+#______________________________________________________________________________
+#' Make the open project public or private. Administrators only.
+#'
+#' @param is_public      Should everyone be able to read the project?
+#' @param collection_id  The public collection to list it under, or `NULL`
+#'                       for the top of the public tree.
+#' @return list(BIOM, jstree_data)
+#' @noRd
+api_publish <- function (REQ, is_public, collection_id = NULL) {
+
+  DB         <- REQ[['DB']]
+  project_id <- REQ[['SESSION']][['project_id']]
+
+  if (!is_public) collection_id <- NULL
+
+  if (!is.null(collection_id)) {
+    sql <- "SELECT COUNT(*) FROM collections WHERE collection_id = ? AND user_id IS NULL"
+    if (db_query(DB, sql, "APub1", list(collection_id)) == 0)
+      stop_user("That is not a public collection.")
+  }
+
+  db_update(
+    DB                   = DB,
+    table                = "projects",
+    id                   = project_id,
+    err_code             = "APub2",
+    is_public            = is_public,
+    public_collection_id = collection_id )
+
+  resume_session(REQ)
+
+  return (list(
+    BIOM        = get_biom_data(REQ),
+    jstree_data = compile_jstree_data(REQ) ))
+}
 
 
 

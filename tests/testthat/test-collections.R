@@ -28,7 +28,7 @@ test_that("a collection can only be deleted by its owner", {
   coll  <- create_collection(DB, owner, NULL, "Private collection")
 
   REQ$SESSION <- list(user_id = other)
-  expect_error(api_jstree_delete(REQ, paste0("C", coll)))
+  expect_error(api_jstree_delete(REQ, paste0("C", coll)), "not yours", class = "atima_http_error")
   expect_true(db_row_exists(DB, "collections", coll, assert = FALSE))
 })
 
@@ -47,7 +47,7 @@ test_that("an editor can rename a project from the tree", {
   title <- function (project_id)
     db_query(DB, "SELECT title FROM projects WHERE project_id = ?", "Test1", list(project_id))
 
-  resp <- api_jstree_rename(REQ, paste0("P", open$permission_id), "  Renamed open project ")
+  resp <- api_jstree_rename(REQ, paste0("P", open$permission_id), "Renamed open project")
   expect_identical(resp, list(title = jsonlite::unbox("Renamed open project")))
   expect_identical(title(open$project_id), "Renamed open project")
 
@@ -55,9 +55,11 @@ test_that("an editor can rename a project from the tree", {
   expect_identical(resp, list())
   expect_identical(title(closed$project_id), "Renamed closed project")
 
-  # Titles go through the usual checks.
-  expect_error(api_jstree_rename(REQ, paste0("P", open$permission_id), "x"))
-  expect_identical(title(open$project_id), "Renamed open project")
+  # The router trims names and refuses ones that are too short or too long.
+  rename <- match_route("POST", "/api/tree/rename")$route
+  expect_identical(validate_args(rename, list(node_id = "P1", text = "  Padded name "))$text, "Padded name")
+  expect_error(validate_args(rename, list(node_id = "P1", text = "x")), class = "atima_http_error")
+  expect_error(validate_args(rename, list(node_id = "P1", text = strrep("x", 101))), class = "atima_http_error")
 })
 
 

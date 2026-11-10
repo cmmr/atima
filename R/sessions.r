@@ -24,10 +24,9 @@ api_heartbeat <- function (REQ) {
 #' Loading client-side data for the first time.
 #' @return <response:session_data>
 #' @noRd
-api_init_session <- function (REQ) {
+api_init_session <- function (REQ, access_key = NULL) {
   
-  DB   <- REQ[['DB']]
-  ARGS <- REQ[['ARGS']]
+  DB <- REQ[['DB']]
   
   
   
@@ -90,9 +89,8 @@ api_init_session <- function (REQ) {
     
     
     #________________________________________________________
-    # Load the project specified in the URL: /api/get/HMP50
+    # Load the project named in the page's URL, e.g. /hmp50
     #________________________________________________________
-    access_key <- ARGS[['access_key']]
     if (!is.null(access_key) && nzchar(access_key))
       pid <- local({
         
@@ -120,10 +118,17 @@ api_init_session <- function (REQ) {
     
     
     #________________________________________________________
-    # HMP50 hard-coded.
+    # Otherwise the oldest public project.
     #________________________________________________________
     if (is.null(pid))
-      pid <- 10001L
+      pid <- local({
+        sql <- "SELECT project_id FROM projects WHERE is_public = 1 ORDER BY project_id LIMIT 1"
+        pid <- db_query(DB, sql, "AISess9")
+        return (pid)
+      })
+    
+    if (is.null(pid))
+      stop_not_found("There is no project to open yet.")
     
     
     return (pid)
@@ -177,7 +182,7 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   if (is.null(session_key)) session_key <- REQ[['CLIENT']][['session_key']]
   
   if (!isTRUE(nzchar(auth_token)) || !isTRUE(nzchar((session_key))))
-    stop("Invalid session headers. Please reload the page.")
+    stop_unauthorized("This session has expired. Please reload the page.")
   
   session <- local({
     
@@ -192,6 +197,7 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
       "  project_id,",
       "    orig_bf_id, title, description, access_key,",
       "    projects.rare_bf_id as proj_rare_bf_id,",
+      "    projects.is_public  as is_public,",
       "  permission_id, is_editor",
       " FROM sessions",
       "  LEFT JOIN auth_tokens USING (auth_token_id, user_id)",
@@ -207,7 +213,7 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   })
   
   if (!is.list(session))
-    stop("This session has expired. Please reload the page.")
+    stop_unauthorized("This session has expired. Please reload the page.")
   
   
   
@@ -223,8 +229,16 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
     test = session[['is_saved']], 
     yes  = session[['access_key']], 
     no   = sprintf("unsaved/%s", session[['session_key']]) )
-  session[['is_public']] <- is.na(session[['is_editor']])
-  session[['is_editor']] <- ifelse(isTRUE(session[['is_editor']]), TRUE, FALSE)
+  
+  
+  #________________________________________________________
+  # What this session may do with its open project. The
+  # router compares `access` with each route's permission.
+  #________________________________________________________
+  session[['is_public']] <- isTRUE(session[['is_public']])
+  session[['is_admin']]  <- isTRUE(session[['is_admin']])
+  session[['access']]    <- project_access(DB, session[['project_id']], session[['user_id']])
+  session[['is_editor']] <- identical(session[['access']], "editor")
   
   
   
@@ -241,11 +255,13 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   #________________________________________________________
   user_id    <- session[['user_id']]
   project_id <- session[['project_id']]
-  sql <- paste0(
-    "INSERT or REPLACE into last_access",
-    " (user_id, project_id, viewed_utc)",
-    " VALUES (?, ?, CURRENT_TIMESTAMP)" )
-  db_query(DB, sql, "RSess2", list(user_id, project_id))
+  if (!is.na(project_id)) {
+    sql <- paste0(
+      "INSERT INTO last_access (user_id, project_id) VALUES (?, ?)",
+      " ON CONFLICT (user_id, project_id)",
+      " DO UPDATE SET viewed_utc = CURRENT_TIMESTAMP" )
+    db_query(DB, sql, "RSess2", list(user_id, project_id))
+  }
   
   
   REQ[['SESSION']] <- session
@@ -264,7 +280,9 @@ get_session_data <- function (REQ) {
   auth_token  <- REQ[['SESSION']][['auth_token']]
   session_key <- REQ[['SESSION']][['session_key']]
   
-  auth_cookie <- cookie(auth_token, max_age = Inf, http_only = TRUE)
+  # Without a path, browsers would only send the cookie back to URLs
+  # under the one that set it (/api/session/).
+  auth_cookie <- cookie(auth_token, max_age = Inf, http_only = TRUE, path = "/")
   sess_header <- header('x-session-key' = session_key, expose = TRUE)
   
   body <- list(
@@ -273,8 +291,7 @@ get_session_data <- function (REQ) {
     CONF        = list(
       user_id         = unbox(REQ[['SESSION']][['user_id']]),
       is_guest        = unbox(REQ[['SESSION']][['is_guest']]),
-      is_admin        = unbox(REQ[['SESSION']][['is_admin']]),
-      migration_queue = list() ))
+      is_admin        = unbox(REQ[['SESSION']][['is_admin']]) ))
   
   resp <- response(body, auth_cookie, sess_header)
   

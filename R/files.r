@@ -49,7 +49,7 @@ api_upload_biom <- function (REQ, biom_file) {
     " LEFT JOIN projects USING (project_id)",
     " WHERE user_id = ? AND project_id = ?" )
   row         <- db_query(DB, sql, "AUBiom2", list(user_id, project_id))
-  jstree_node <- compile_jstree_node(DB, row)
+  jstree_node <- compile_jstree_node(row)
   
   
   return (list(BIOM = BIOM, jstree_node = jstree_node))
@@ -70,17 +70,7 @@ api_upload_component <- function (REQ, component, component_file) {
   rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
   
   
-  #________________________________________________________
-  # Multipart uploads have raw-encoded values
-  #________________________________________________________
-  component      <- rawToChar(component[['value']])
-  component_file <- component_file[['value']]
-  
-  stopifnot(is_one_of(component, c('metadata', 'taxonomy', 'tree')))
-  stopifnot(is_raw(component_file))
-  
-  
-  
+
   #________________________________________________________
   # Add the new component data to full_biom.
   #________________________________________________________
@@ -88,13 +78,16 @@ api_upload_component <- function (REQ, component, component_file) {
   
   infile <- tempfile(tmpdir = TEMP_DIR)
   on.exit(unlink(infile), add = TRUE)
-  writeBin(object = component_file, con = infile)
+  writeBin(object = component_file[['value']], con = infile)
   
   
   #________________________________________________________
   # Load the new metadata/taxonomy/tree into the rbiom obj.
   #________________________________________________________
-  full_biom[[component]] <- infile
+  with_user_errors(
+    message = paste0("That file could not be read as ", component, "."),
+    detail  = FALSE,
+    code    = full_biom[[component]] <- infile )
   
   
   
@@ -131,74 +124,51 @@ api_upload_component <- function (REQ, component, component_file) {
 
 
 #______________________________________________________________________________
-#' api/export/{original|metadata|taxonomy|phylogeny}
-#' api/export/biom/{rare|full}/{hdf5|json|tab}
-#' api/export/alpha/{rare|full}
-#' api/export/beta/<method>/{w|u}    (implies rarefied)
-#' api/export/taxa/<rank>/{rare|full}
+#' Write part of the open project to a file the browser can download.
+#'
+#' @param what        `original` (the file as uploaded), `metadata`,
+#'                    `taxonomy`, `tree`, `biom`, `alpha` (diversity),
+#'                    `beta` (distance matrix) or `taxa` (abundances).
+#' @param sample_set  `full` or `rare` (rarefied). `beta` is always
+#'                    rarefied and `original` never is.
+#' @param format      For `biom`: `json`, `hdf5` or `tab`.
+#' @param method      For `beta`: the distance metric.
+#' @param rank        For `taxa`: the taxonomic rank.
 #' @return list(download_url)
 #' @noRd
-api_export <- function (REQ) {
-  
+api_export <- function (REQ, what, sample_set = "full", format = "json", method = "bray", rank = "otu") {
+
   DB          <- REQ[['DB']]
-  PATH        <- REQ[['PATH']]
   project_id  <- REQ[['SESSION']][['project_id']]
   client_temp <- REQ[['SESSION']][['client_temp']]
   server_temp <- REQ[['SESSION']][['server_temp']]
-  
-  
-  
+
   sql     <- "SELECT * FROM projects WHERE project_id = ?"
   project <- db_query(DB, sql, "AExpo1", list(project_id), req1 = TRUE)
-  
-  
+
+  if (what == "beta")     sample_set <- "rare"
+  if (what == "original") sample_set <- "orig"
+
+  biom_file_id <- project[[paste0(sample_set, '_bf_id')]]
+
+
   #________________________________________________________
-  # Split path into words and drop /api/export/ prefix.
+  # A file name that says what is inside.
   #________________________________________________________
-  p <- strsplit(PATH, '/', fixed = TRUE)[[1]]
-  p <- p[nchar(p) > 0][-c(1:2)]
-  
-  
-  #________________________________________________________
-  # Use the full biom unless otherwise specified in path.
-  #________________________________________________________
-  biom <- ifelse("rare" %in% p, "rare", "full")
-  if (identical(p[[1]], "beta"))     biom <- "rare"
-  if (identical(p[[1]], "original")) biom <- "orig"
-  
-  biom_file_id <- project[[paste0(biom, '_bf_id')]]
-  biom         <- get_biom(REQ, biom_file_id)
-  
-  
-  
-  #________________________________________________________
-  # Convert the request path to a filename for saving to.
-  #________________________________________________________
-  filepath <- local({
-    
-    file_ext <- ifelse(identical(p[[1]], "biom"), p[[3]], "csv")
-    if (identical(p[[1]], "original")) file_ext <- "biom"
-    if (identical(p[[1]], "tree"))     file_ext <- "tre"
-    if (!is_one_of(file_ext, c("csv", "biom", "tre", "tab", "json", "hdf5")))
-      stop("Invalid file extension:", file_ext)
-    
-    drop_terms <- c("api", "export", "biom", "beta", "taxa", "hdf5", "json", "tab")
-    key_terms  <- setdiff(p, drop_terms)
-    bad_terms  <- grep("^[a-zA-Z0-9\\-]{1,20}$", key_terms, value = TRUE, invert = TRUE)
-    if (length(bad_terms) > 0)
-      stop("Invalid export term(s): ", paste(collapse = ", ", bad_terms))
-    
-    filename <- paste(collapse = "_", c(key_terms, biom_file_id))
-    
-    return (sprintf("%i/%s.%s", biom_file_id, filename, file_ext))
-  })
-  
+  file_ext <- switch(what, original = "biom", tree = "tre", biom = format, "csv")
+
+  terms <- c(
+    what,
+    if (what == "beta") method,
+    if (what == "taxa") rank,
+    if (sample_set != "orig") sample_set )
+
+  filepath   <- sprintf("%i/%s_%i.%s", biom_file_id, paste(terms, collapse = "_"), biom_file_id, file_ext)
   client_uri <- paste0(client_temp, "/", filepath)
   server_uri <- paste0(server_temp, "/", filepath)
-  dir.create(dirname(server_uri), recursive = TRUE)
-  
-  
-  
+  dir.create(dirname(server_uri), recursive = TRUE, showWarnings = FALSE)
+
+
   #________________________________________________________
   # Check if the file already exists.
   #________________________________________________________
@@ -206,61 +176,50 @@ api_export <- function (REQ) {
     Sys.setFileTime(server_uri, Sys.time())
     return (list('download_url' = unbox(client_uri)))
   }
-  
-  
-  
+
+
   #________________________________________________________
   # Write requested object to the output file.
   #________________________________________________________
-  if (identical(p[[1]], "metadata")) {
-    write.csv(biom$metadata, server_uri, row.names = FALSE)
-    
-    
-  } else if (identical(p[[1]], "taxonomy")) {
-    write.csv(biom$taxonomy, server_uri, row.names = FALSE)
-    
-    
-  } else if (identical(p[[1]], "tree")) {
-    write_tree(biom$tree, server_uri)
-    
-    
-  } else if (identical(p[[1]], 'original')) {
+  if (what == "original") {
     file.copy(get_biom_file(REQ, biom_file_id), server_uri)
-    
-    
-  } else if (identical(p[[1]], 'biom')) {
-    
+    return (list('download_url' = unbox(client_uri)))
+  }
+
+  biom <- get_biom(REQ, biom_file_id)
+
+  if (what == "metadata") {
+    write.csv(biom$metadata, server_uri, row.names = FALSE)
+
+  } else if (what == "taxonomy") {
+    write.csv(biom$taxonomy, server_uri, row.names = FALSE)
+
+  } else if (what == "tree") {
+    if (is.null(biom$tree)) stop_user("This project has no phylogenetic tree.")
+    write_tree(biom$tree, server_uri)
+
+  } else if (what == "biom") {
+
     biom$id      <- project[['title']]
     biom$comment <- paste0(collapse = '\n', pandoc_convert(
       text = project[['description']], from = 'html', to = 'markdown' ))
-    
-    write_biom(biom, server_uri, format = p[[3]])
-    
-    
-  } else if (identical(p[[1]], 'alpha')) {
-    adiv <- adiv_matrix(biom)
-    write.csv(adiv, server_uri)
-    
-    
-  } else if (identical(p[[1]], 'beta')) {
-    method   <- if.null(p[[2]], "bray")
-    bdiv     <- bdiv_distmat(biom, method)
-    write.csv(as.matrix(bdiv), server_uri)
-    
-    
-  } else if (identical(p[[1]], 'taxa')) {
-    rank <- if.null(p[[2]], "otu")
-    taxa <- taxa_matrix(biom, rank)
-    write.csv(taxa, server_uri)
-    
-    
-  } else {
-    stop('Invalid export request.')
+
+    write_biom(biom, server_uri, format = format)
+
+  } else if (what == "alpha") {
+    write.csv(adiv_matrix(biom), server_uri)
+
+  } else if (what == "beta") {
+    write.csv(as.matrix(bdiv_distmat(biom, method)), server_uri)
+
+  } else if (what == "taxa") {
+    write.csv(taxa_matrix(biom, rank), server_uri)
   }
-  
-  
+
+
   return (list('download_url' = unbox(client_uri)))
 }
+
 
 
 
@@ -380,7 +339,6 @@ get_biom <- function (REQ, biom_file_id) {
 #' @noRd
 get_biom_data <- function (REQ) {
   
-  DB            <- REQ[['DB']]
   project_id    <- REQ[['SESSION']][['project_id']]
   rare_bf_id    <- REQ[['SESSION']][['rare_bf_id']]
   full_bf_id    <- REQ[['SESSION']][['full_bf_id']]
@@ -398,13 +356,13 @@ get_biom_data <- function (REQ) {
   
   
   #________________________________________________________
-  # jsTree node ID = "P" + permission id.
+  # The project's node in the tree: its place in the user's
+  # own collections if they have one, else the public tree.
   #________________________________________________________
-  if (is.na(permission_id)) {
-    sql <- "SELECT permission_id FROM permissions WHERE project_id = ? AND user_id = 0"
-    permission_id <- db_query(DB, sql, "GBData1", list(project_id), req1 = TRUE)
-  }
-  BIOM[['node_id']] <- unbox(paste0("P", permission_id))
+  BIOM[['node_id']] <- unbox(ifelse(
+    test = is.na(permission_id),
+    yes  = paste0("G", project_id),
+    no   = paste0("P", permission_id) ))
   
   
   #________________________________________________________

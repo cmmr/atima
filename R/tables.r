@@ -108,9 +108,7 @@ api_taxonomy_thead <- function (REQ) {
 #' @noRd
 api_metadata_change_class <- function (REQ, col_num) {
   
-  stopifnot(is_scalar_integer(col_num <- int(col_num)))
-  stopifnot(isTRUE(col_num > 0))
-  
+
   DB         <- REQ[['DB']]
   draft_id   <- REQ[['SESSION']][['draft_id']]
   full_bf_id <- REQ[['SESSION']][['full_bf_id']]
@@ -121,7 +119,8 @@ api_metadata_change_class <- function (REQ, col_num) {
   md         <- full_biom$metadata
   depth      <- rare_biom$depth
   
-  stopifnot(isTRUE(col_num > 1 && col_num <= ncol(md)))
+  if (col_num > ncol(md))
+    stop_user("There is no metadata column ", col_num, ".")
   
   if (is.numeric(md[[col_num]])) {
     md[[col_num]] <- as.character(md[[col_num]])
@@ -175,16 +174,19 @@ dt_page <- function (
   }
   recordsFiltered <- nrow(df)
   
-  # Sort by the `order` arguments
+  # Sort by the `order` arguments: one row per sort column.
+  order <- as.data.frame(order, stringsAsFactors = FALSE)
   for (i in seq_len(nrow(order))) {
     column     <- head(as.integer(order[i,'column']), 1) + 1
     decreasing <- identical(order[i,'dir'], "desc")
+    if (is.na(column) || column < 1 || column > ncol(df))
+      stop_user("There is no column ", column, " to sort by.")
     df <- df[base::order(df[,column], decreasing = decreasing),,drop=FALSE]
   }
   
   # Hand back just a page's worth of rows.
-  if (nrow(df) > length)
-    df <- df[start:min(start+length, nrow(df)),,drop=FALSE]
+  rows <- seq_len(nrow(df))
+  df   <- df[rows >= start & rows < start + length,,drop=FALSE]
   
   return (list(
     draw            = unbox(as.integer(draw)),

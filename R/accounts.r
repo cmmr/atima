@@ -169,7 +169,6 @@ api_reset_password <- function (REQ, email) {
   #________________________________________________________
   # Sanity check the email address.
   #________________________________________________________
-  stopifnot(is_scalar_character(email))
   email <- tolower(trimws(email))
   if (!isTRUE(nchar(email) >= 5L && nchar(email) <= 60L))
     return (swal("Email address must be between 5 and 60 characters long."))
@@ -342,9 +341,6 @@ authenticate_password <- function (DB, email, password) {
   
   email    <- trimws(email)
   password <- trimws(password)
-  
-  stopifnot(is_scalar_character(email))
-  stopifnot(is_scalar_character(password))
 
   if (!isTRUE(nchar(email) > 3))    return (swal("Email address too short."))
   if (!isTRUE(nchar(password) > 3)) return (swal("Password too short."))

@@ -48,8 +48,8 @@ api_metadata_levels <- function (REQ, field) {
   
   md <- get_biom_component(REQ, rare_bf_id, "metadata")
   
-  stopifnot(is_one_of(field, colnames(md)))
-  stopifnot(is.factor(md[[field]]))
+  if (!is_one_of(field, colnames(md))) stop_user("Unknown metadata field.")
+  if (!is.factor(md[[field]]))         stop_user("That metadata field is not categorical.")
   
   
   #________________________________________________________
@@ -81,8 +81,8 @@ api_metadata_minmax <- function (REQ, field) {
   
   md <- get_biom_component(REQ, rare_bf_id, "metadata")
   
-  stopifnot(is_one_of(field, colnames(md)))
-  stopifnot(is.numeric(md[[field]]))
+  if (!is_one_of(field, colnames(md))) stop_user("Unknown metadata field.")
+  if (!is.numeric(md[[field]]))        stop_user("That metadata field is not numeric.")
   
   
   colvals <- md[[field]]

@@ -7,18 +7,12 @@
 api_sharing_user_search <- function (REQ, query) {
   
   DB <- REQ[['DB']]
-  
-  # Sanity check the query string.
-  stopifnot(is_scalar_character(query))
-  stopifnot(nchar(query) > 0 && nchar(query) < 100)
-  stopifnot(grepl("^[A-Za-z0-9@_ \\.\\-]+$", query))
-  
-  
+
   # Pull all the users from the database table.
   sql <- paste0(
-    "SELECT user_id, full_name, affiliation, email", 
-    " FROM users WHERE is_guest = 0 AND user_id > 0" )
-  res <- db_query(DB, sql, "ASUS1")
+    "SELECT user_id, full_name, affiliation, email",
+    " FROM users WHERE is_guest = 0" )
+  res <- db_query(DB, sql, "ASUS1", simplify = FALSE)
   
   
   # Fuzzy matching using Levenshtein string distance.
@@ -54,7 +48,7 @@ api_get_editors <- function (REQ) {
     " FROM permissions",
     "   LEFT JOIN users USING (user_id)", 
     " WHERE project_id = ? AND is_editor = 1" )
-  res <- db_query(DB, sql, "AGEdit1", list(project_id))
+  res <- db_query(DB, sql, "AGEdit1", list(project_id), simplify = FALSE)
   
   # Redact email addresses a little.
   res[['email']] <- redact_emails(res[['email']])
@@ -81,9 +75,9 @@ api_sharing_with <- function (REQ) {
     "   LEFT JOIN users USING (user_id)",
     " WHERE project_id = ? AND is_guest = 0" )
   res <- db_query(DB, sql, "ASWith1", list(project_id), simplify = FALSE)
-  
-  public <- any(res[['user_id']] == 0)
-  if (public)
+
+  # Everyone can already view a public project, so only list its editors.
+  if (REQ[['SESSION']][['is_public']])
     res <- res[res[['is_editor']],,drop=FALSE]
   
   return (list(dt_data = as.matrix(res)))
@@ -133,7 +127,6 @@ api_update_permissions <- function (REQ, user_id, permissions) {
 #' @noRd
 update_permissions <- function (DB, user_id, project_id, permissions, grantor_user_id = NULL) {
   
-  stopifnot(isTRUE(user_id > 0L)) # Use make_public() instead.
   stopifnot(is_one_of(permissions, c("none", "view", "edit", "any")))
   
   
@@ -149,7 +142,7 @@ update_permissions <- function (DB, user_id, project_id, permissions, grantor_us
   if (identical(permissions, "none")) { # Revoke
     
     if (is.null(permission_id))
-      stop("No permission entry found.")
+      stop_user("That user has no access to this project.")
     
     sql <- "DELETE FROM permissions WHERE permission_id = ?"
     db_query(DB, sql, "UPerm2", list(permission_id))
@@ -213,14 +206,14 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
   #________________________________________________________
   
   sql <- "SELECT is_guest FROM users WHERE user_id = ?"
-  
-  if (db_query(DB, sql, "VGran1", list(user_id), req1 = TRUE)) {
-    if (assert) stop("Cannot grant permissions to a guest account.")
+
+  if (!isFALSE(db_query(DB, sql, "VGran1", list(user_id)))) {
+    if (assert) stop_user("Cannot grant permissions to a guest account.")
     return (FALSE)
   }
-  
-  if (db_query(DB, sql, "VGran2", list(grantor_user_id), req1 = TRUE)) {
-    if (assert) stop("Cannot grant permissions from a guest account.")
+
+  if (!isFALSE(db_query(DB, sql, "VGran2", list(grantor_user_id)))) {
+    if (assert) stop_user("Cannot grant permissions from a guest account.")
     return (FALSE)
   }
   
@@ -232,11 +225,9 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
   
   if (permissions %in% c("view", "any")) {
     
-    sql <- paste0(
-      "SELECT permission_id FROM permissions",
-      " WHERE user_id = 0 AND project_id = ?" )
-    if (!is.null(db_query(DB, sql, "VGran3", list(project_id)))) {
-      if (assert) stop("Public projects are already viewable by everyone.")
+    sql <- "SELECT is_public FROM projects WHERE project_id = ?"
+    if (isTRUE(db_query(DB, sql, "VGran3", list(project_id)))) {
+      if (assert) stop_user("Public projects are already viewable by everyone.")
       return (FALSE)
     }
   }
@@ -255,12 +246,12 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
     return (TRUE)
   
   if (gperm == "none") {
-    if (assert) stop("You do not have granting permissions.")
+    if (assert) stop_forbidden("You do not have granting permissions.")
     return (FALSE)
   }
   
   if (permissions == "edit") {
-    if (assert) stop("Insufficient rights to grant editor permissions.")
+    if (assert) stop_forbidden("Insufficient rights to grant editor permissions.")
     return (FALSE)
   }
   
@@ -280,7 +271,7 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
   if (uperm == "none") return (TRUE)
   
   if (uperm == "edit") {
-    if (assert) stop("Insufficient rights to modify an editor's permissions.")
+    if (assert) stop_forbidden("Insufficient rights to modify an editor's permissions.")
     return (FALSE)
   }
   
@@ -293,7 +284,7 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
   #________________________________________________________
   
   if (permissions %in% c("view", "any")) {
-    if (assert) stop("User already has view permissions.")
+    if (assert) stop_user("User already has view permissions.")
     return (FALSE)
   }
   
@@ -314,7 +305,7 @@ can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, as
     return (TRUE)
     
   } else {
-    if (assert) stop("Action not allowed.")
+    if (assert) stop_forbidden("Action not allowed.")
     return (FALSE)
   }
   

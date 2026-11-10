@@ -5,17 +5,15 @@
 #' @return list(image_url, r_code, stats_df, BIOM (optional), ...)
 #' @noRd
 api_plot <- function (
-    REQ, plot_fn, plot_args, depth, 
+    REQ, plot_fn, plot_args, depth,
     save_args = list(), subset_args = list(), attrs = FALSE) {
-  
-  #________________________________________________________
-  # Sanitize user-provided plotting function name
-  #________________________________________________________
-  stopifnot(is_one_of(plot_fn, c(
-    "adiv_boxplot", "adiv_corrplot", "bdiv_boxplot", "bdiv_heatmap", 
-    "bdiv_ord_plot", "rare_multiplot", "taxa_stacked", "taxa_boxplot", 
-    "taxa_corrplot", "taxa_heatmap" )))
 
+  # `plot_fn` is one of the names listed in the route table, so it is safe
+  # to look up in rbiom. The contents of `plot_args`, `save_args` and
+  # `subset_args` are checked below (and by the step 6 schema).
+  plot_args   <- as.list(plot_args)
+  save_args   <- as.list(save_args)
+  subset_args <- as.list(subset_args)
 
   resp <- list()
   
@@ -82,11 +80,15 @@ api_plot <- function (
   if (is.null(save_args[['device']])) save_args[['device']] <- "png"
   if (is.null(save_args[['units']]))  save_args[['units']]  <- "px"
   
-  stopifnot(is_one_of(save_args[['device']], c("eps", "ps", "tex", "pdf", "jpeg", "tiff", "png", "bmp", "svg", "wmf")))
-  stopifnot(is_one_of(save_args[['units']], c("in", "cm", "mm", "px")))
-  
+  if (!is_one_of(save_args[['device']], c("eps", "ps", "tex", "pdf", "jpeg", "tiff", "png", "bmp", "svg", "wmf")))
+    stop_user("Unknown image format.")
+
+  if (!is_one_of(save_args[['units']], c("in", "cm", "mm", "px")))
+    stop_user("Unknown image size units.")
+
   for (i in seq_len(length(save_args)))
-    stopifnot(length(save_args[[i]]) == 1)
+    if (length(save_args[[i]]) != 1 || is.na(save_args[[i]]))
+      stop_user("Invalid image setting '", names(save_args)[[i]], "'.")
   
   
   
@@ -121,10 +123,11 @@ api_plot <- function (
         col_name   <- names(subset_args[['cat']])[[i]]
         col_values <- subset_args[['cat']][[i]]
         
-        stopifnot(is_one_of(col_name, biom$fields))
-        stopifnot(is.character(col_values))
-        stopifnot(length(col_values) > 0)
-        stopifnot(is.null(names(col_values)))
+        if (!is_one_of(col_name, biom$fields))
+          stop_user("Unknown metadata field in subset.")
+
+        if (!is.character(col_values) || length(col_values) == 0 || !is.null(names(col_values)))
+          stop_user("Invalid subset values for '", col_name, "'.")
         
         x <- biom$metadata
         x[[col_name]] %<>% factor(levels = col_values)
@@ -149,11 +152,11 @@ api_plot <- function (
         col_name  <- names(subset_args[['num']])[[i]]
         col_range <- subset_args[['num']][[i]]
         
-        stopifnot(is_one_of(col_name, biom$fields))
-        stopifnot(is.numeric(col_range))
-        stopifnot(length(col_range) == 2)
-        stopifnot(!anyNA(col_range))
-        stopifnot(is.null(names(col_range)))
+        if (!is_one_of(col_name, biom$fields))
+          stop_user("Unknown metadata field in subset.")
+
+        if (!is.numeric(col_range) || length(col_range) != 2 || anyNA(col_range) || !is.null(names(col_range)))
+          stop_user("Invalid subset range for '", col_name, "'.")
         
         lo <- col_range[[1]]
         hi <- col_range[[2]]
@@ -172,7 +175,7 @@ api_plot <- function (
   #________________________________________________________
   # Generate the plot
   #________________________________________________________
-  p <- do.call(plot_fun, plot_args)
+  p <- with_user_errors("The plot could not be made.", do.call(plot_fun, plot_args))
   
   
   #________________________________________________________
