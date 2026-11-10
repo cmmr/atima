@@ -27,7 +27,7 @@ it to that step's list instead of fixing it now.
 | # | Step | Status |
 |---|------|--------|
 | 1 | Baseline and safety fixes | done (2026-11-10) |
-| 2 | Dead code and package hygiene | not started |
+| 2 | Dead code and package hygiene | done (2026-11-10) |
 | 3 | Request pipeline and database layer | not started |
 | 4 | Worker pool, jobs, storage, cleanup | not started |
 | 5 | Auth modes, sessions, permissions | not started |
@@ -59,6 +59,20 @@ it to that step's list instead of fixing it now.
   feature branches. The repository was restarted from a single commit on
   2026-11-10; earlier history lives only in the private `cmmr/atima-old` and
   must never be pushed here. Never use `git push --all` or `--tags`.
+- **Example datasets (step 2).** The nine bundled BIOM files are not shipped
+  in the package. Daniel chose to move them out rather than delete them:
+  they are in the local, gitignored `archive/datasets/` on the dev machine
+  (not in git), on hand for seeding the public server. First-run seeding
+  uses rbiom's `hmp50` and `gems`.
+- **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
+  Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
+  `Remotes: cmmr/rbiom` so installs and CI work; step 10 removes `Remotes:`.
+  `ecodive` is on CRAN and atima never calls it directly, so it is not
+  listed.
+- **Unused worker code removed (step 2, not put to Daniel).** `run()` started
+  mirai daemons and defined launchers that no request used; these and the
+  `callr`, `mirai` and `promises` Imports were removed as dead code. Step 4
+  adds back what its design needs.
 
 ## Conventions (apply from step 2 onward)
 
@@ -163,6 +177,29 @@ Make the package honest about what it contains.
 Decisions for Daniel: keep or drop the nine bundled example datasets; whether
 `rbiom`/`ecodive` will be on CRAN at release (affects `Remotes:`).
 
+**Done. Both decisions are in the decision log. Notes for later steps:**
+
+- `R CMD check --no-manual --as-cran` on Windows, R release: 0 errors,
+  0 warnings, 0 notes. `devtools::test()` passes. Keep it that way.
+- `NAMESPACE` is generated: imports are `@importFrom` tags in
+  `R/atima-package.r`; `man/` holds `run.Rd` only. Run
+  `devtools::document()` after touching roxygen comments.
+- CI is `.github/workflows/R-CMD-check.yaml` (Linux release and oldrel-1,
+  Windows, macOS; fails on warnings).
+- Tests can build an empty database with `local_test_req()` and add rows
+  with `add_test_user()` / `add_test_project()`
+  (`tests/testthat/helper-db.R`). `withr` is in Suggests.
+- Kept although the step listed it: `guess_param()` in
+  `inst/www/js/page_plot.js` is still called from `modules/dd.js`, `irs.js`
+  and `md.js`, so it is not dead (see step 7).
+- Behaviour that changed: renaming a project from the tree now updates
+  `projects.title` (it called the undefined `api_update_title()` for the open
+  project and did nothing otherwise); figure files are named
+  `plot_<random>.<ext>`; POSTs outside `/api/<name>` fail with "Not an API
+  path".
+- `R/migration.r` is entirely comments and `inst/www/js/migration.js` is
+  untouched; both are still the step 8 reference.
+
 ## Step 3: Request pipeline and database layer
 
 Replace "URL path becomes a function name" with an explicit design.
@@ -183,6 +220,15 @@ Replace "URL path becomes a function name" with an explicit design.
   Replace `error_details()`. (Step 1 note: a rejected allow-list value
   currently returns a 500 whose body is the raw `stopifnot` text; the router
   should turn these into a 400 with a short message.)
+- Found in step 2 (smoke test), not fixed: every GET download such as
+  `/hmp50/rare.json` returns 500. `simple_handler()` in `R/run.r` passes
+  the empty request body to `webutils::parse_http()` with a `NULL` content
+  type. `/api/init_session`, `/api/plot`, `/api/export/...`,
+  `/api/heartbeat` and the static `/tmp` and `/www` paths were exercised
+  with curl and work; a POST needs a `Content-Length`, and `/api/plot` needs
+  a JSON body.
+- `run()` puts the SMTP settings in `config$smtp`, but handlers read
+  `REQ[['SMTP']]`, which is never set (see step 5).
 
 Decisions for Daniel: REST-style paths vs. keeping `/api/<verb>`; how public
 projects are represented once "user 0" goes away.
@@ -201,6 +247,13 @@ projects are represented once "user 0" goes away.
 - Cleanup on a `later` timer: temp files, expired sessions, orphaned drafts,
   guests, unreferenced files. Covered by tests.
 - Graceful shutdown (stop daemons, close DB).
+- State after step 2: there is no worker code at all. Every request runs in
+  the main process through `simple_handler()`. `run()` still accepts and
+  type-checks `workers`, `max_cpus` and `time_limit` (default 60 s) but
+  ignores them, and says so in its documentation and in `README.md`; update
+  both when they take effect. `mirai`, `promises` and `callr` are no longer
+  in `DESCRIPTION`. `R/garbage.r` was deleted; nothing cleans up temp files,
+  sessions, drafts or guests.
 
 Decisions for Daniel: retention periods (guest data, idle sessions, unsaved
 drafts); default worker count and per-job CPU and time limits.
@@ -216,6 +269,13 @@ drafts); default worker count and per-job CPU and time limits.
   downloads (`R/handle_get_request.r`) go through the same checks.
 - Fix stored XSS: escape metadata/taxonomy names and values
   (`R/tables.r`), sanitize project descriptions on save.
+- State after step 2: no email can be sent, because handlers read
+  `REQ[['SMTP']]`, which is never set, so `api_create_account()` always
+  creates an unverified account with the password the client supplied and
+  `api_reset_password()` always answers "not enabled". `delete_account()`
+  was removed as dead code (it deleted from a `resets` table that does not
+  exist), so there is no way to delete an account. `blastula` is still in
+  Suggests and `sodium` in Imports for this code.
 
 Decisions for Daniel: can anonymous guests upload data on the public server,
 or only explore public projects; do "anyone with the link" share URLs stay,
@@ -261,6 +321,12 @@ release; "basic" vs. "advanced" grouping of controls.
   (`/api/init_session` and `/api/plot` were exercised with curl). The CDN
   usage conflicts with "vendored libraries, no build step" and with offline
   local installs.
+- Step 2 removed only the duplicate jQuery 3.6.0 and selectize 0.13.5
+  (3.7.1 and 0.15.2 stay) and the empty `modals/activate_account.html`.
+  Everything else under `inst/www/js/`, `modules/`, `modals/` and `assets/`
+  is unreferenced by the new `index.html` but was kept as the only copy of
+  the old UI code in this repository. `guess_param()` in `js/page_plot.js`
+  is marked "phase out" but still has callers in `modules/`.
 
 Decisions for Daniel: review of the control layout once a first version runs.
 
@@ -275,6 +341,13 @@ Decisions for Daniel: review of the control layout once a first version runs.
   the selected projects into the user's account. Old credentials are never
   stored. Re-running an import does not duplicate projects.
 - Fixture databases and tests for every adapter.
+- Step 2 removed the old-style share link branch from `api_init_session()`
+  (it called an undefined `md5()`). For reference: a URL carried `?p=<old
+  project id>&k=<base64 key>`, and the project was opened if the first 12
+  characters of the MD5 of the base64-decoded `k` matched its `access_key`.
+  The `migration_*` tables are still created by `init_db_structure()`, and
+  the session data still sends an empty `CONF.migration_queue`, which
+  `inst/www/js/migration.js` reads.
 
 Decisions for Daniel: how old MariaDB data is supplied (offline conversion to
 SQLite vs. live connection); whether shared-project permissions are imported
@@ -295,6 +368,13 @@ version, plus a test account for each.
 - Vignettes: local install, server deployment, OIDC setup, legacy import,
   data-handling notes for local use.
 - pkgdown site.
+- From step 2: `vignettes/articles/nginx.Rmd` is stale (it calls
+  `run(config = list(...))`, which does not exist) and `vignettes/` is in
+  `.Rbuildignore`. `DESCRIPTION` lists `https://cmmr.github.io/atima/` as a
+  URL although no site is published. The nine example BIOM files for
+  seeding a public server are in the local `archive/datasets/`, not in git.
+  `todo.txt` and `logo.pptx` at the repo root are tracked but not part of
+  the package.
 
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
@@ -302,5 +382,8 @@ text; backup policy.
 ## Step 10: Release
 
 - Version, NEWS, citation, DOI.
-- CRAN or r-universe submission.
+- CRAN or r-universe submission. Remove `Remotes: cmmr/rbiom` from
+  `DESCRIPTION` once rbiom 4 is on CRAN (it was 3.1.0 on 2026-11-10), and
+  update the install instructions in `README.md` and the comment in the CI
+  workflow.
 - Delete this file.
