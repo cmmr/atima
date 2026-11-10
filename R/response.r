@@ -1,49 +1,25 @@
-
-#' Compile an HTTP response.
-#' 
-#' If your `webqueue`'s `handler` function returns a list, json object,
-#' character vector, or scalar integer, `response()` will be used to transform
-#' that result into an HTTP response.\cr\cr
-#' You may also call `response()` within your handler to better customize the 
-#' HTTP response. Or, return a result of class 'AsIs' to have that object 
-#' passed directly on to `httpuv`.
-#' 
-#' @param body      The content. A list will be encoded as JSON. A scalar 
-#'                  integer will be interpreted as a status. A character vector
-#'                  will be concatenated with no separator.
-#' @param status    A HTTP response status code.
-#' @param headers   A named character vector of HTTP headers. A list-like
-#'                  object is acceptable if all elements are simple strings.
-#' @param ...       Objects created by `header()` and/or `cookie()`. Or 
-#'                  key-value pairs to add to `headers`.
-#' 
-#' @return A `<response/AsIs>` object. Essentially a list with elements named
-#'         `body`, `status`, and `headers` formatted as `httpuv` expects.
-#' 
-#' @export
-#' @examples
-#' 
-#'     library(webqueue)
-#'     
-#'     response(list(name = unbox('Peter'), pi = pi))
-#'          
-#'     response(307L, Location = '/new/file.html')
-#'     
-#'     # The `body` and `status` slots also handle header objects.
-#'     response(cookie(id = 123, http_only = TRUE))
-#'     
-#'     # Allow javascript to access custom headers.
-#'     uid <- header('x-user-id'     = 100,      expose = TRUE)
-#'     sid <- header('x-session-key' = "303xyz", expose = TRUE)
-#'     response(uid, sid)
-#'     
-
+#______________________________________________________________________________
+#' Build the HTTP response that is handed back to httpuv.
+#'
+#' @param body      The content. A list is encoded as JSON; a character vector
+#'                  is concatenated and sent as HTML; a single integer is taken
+#'                  to be the status code. With no body, the standard reason
+#'                  phrase for `status` is sent.
+#' @param status    An HTTP status code.
+#' @param headers   A named list or character vector of HTTP headers.
+#' @param ...       Objects made by `header()` or `cookie()`, or name = value
+#'                  pairs to add to `headers`. A header object may also be
+#'                  given in place of `body` or `status`.
+#'
+#' @return A list with `body`, `status` and `headers`, of class
+#'         `c('response', 'AsIs')`.
+#' @noRd
 response <- function (body = NULL, status = 200L, headers = NULL, ...) {
-  
+
   headers <- c(as.list(headers), ...)
   if (inherits(status, 'header')) { headers <- c(status, headers); status <- 200L }
   if (inherits(body,   'header')) { headers <- c(body,   headers); body   <- NULL }
-  
+
   for (i in seq_along(headers)) {
     headers[[i]] <- as.character(headers[[i]])
     stopifnot(
@@ -51,21 +27,21 @@ response <- function (body = NULL, status = 200L, headers = NULL, ...) {
       valid_string(headers[[i]], ok = '_ :;.,\\/"\'?!(){}[]@<>=-+*#$&`|~^%')
     )
   }
-  
+
   if (is_int(body)) { status <- body; body <- NULL }
   status <- as.integer(status)
   stopifnot(status >= 100L, status < 600L)
-  
-  if (!inherits(body, c('list', 'json', 'character', 'numeric', 'NULL', 'ls_str')))
-    cli_abort('`body` must be of class list, character, json, or NULL, not {.type {body}}.')
-  
+
+  if (!inherits(body, c('list', 'json', 'character', 'numeric', 'NULL')))
+    stop('`body` must be a list, character, json, or NULL, not ', class(body)[[1]], '.')
+
   # Set content-type unless it's already set.
   if (!'content-type' %in% tolower(names(headers)))
     headers[['Content-Type']] <- {
       if (inherits(body, c('list', 'json'))) { 'application/json; charset=utf-8' }
       else if (inherits(body, 'character'))  { 'text/html; charset=utf-8'        }
     }
-  
+
   # Combine multiple 'Access-Control-Expose-Headers' into one.
   aceh <- tolower(names(headers)) == 'access-control-expose-headers'
   if (sum(aceh) > 1) {
@@ -73,117 +49,82 @@ response <- function (body = NULL, status = 200L, headers = NULL, ...) {
     headers <- headers[!aceh]
     headers[['Access-Control-Expose-Headers']] <- merged
   }
-  
-  if (inherits(body, 'ls_str'))             body <- paste(capture.output(body), collapse = '\n')
+
   if (inherits(body, 'list'))               body <- toJSON(body, null = 'null')
   if (inherits(body, c('json', 'numeric'))) body <- as.character(body)
   if (length(body) > 0) { body <- paste0(body, collapse = '')         }
   else                  { body <- code_to_msg[[as.character(status)]] }
-  
+
   resp <- structure(
     .Data = list(body = body, status = status, headers = headers),
     class = c('response', 'AsIs') )
-  
+
   return (resp)
 }
 
 
 
-#' Assemble an HTTP header.
-#' 
-#' See https://developer.mozilla.org/en-US/docs/Glossary/Response_header for 
-#' example response headers and their purpose.
-#' 
-#' @param ...       A single key-value pair.
-#' @param expose    Allow javascript to read this header.
-#' @param name      Explicitly set the name (key) in the key-value pair.
-#' @param value     Explicitly set the value in the key-value pair.
-#' 
-#' @return A 'header' object that can be passed to `response()`.
-#' 
-#' @export
-#' @examples
-#' 
-#'     library(webqueue)
-#'     
-#'     header(name = 'Location', value = '/index.html')
-#'     
-#'     Location <- '/index.html'
-#'     header(Location)
-#'     
-#'     response(307L, header(Location = '/index.html'))
-#'     
-#'     # Allow javascript to access a header value
-#'     header('x-user-id' = 100, expose = TRUE)
-#'     
-
+#______________________________________________________________________________
+#' One HTTP response header, for passing to `response()`.
+#'
+#' @param ...       A single name = value pair. An unnamed variable uses its
+#'                  own name, e.g. `header(Location)`.
+#' @param expose    Allow javascript in the browser to read this header.
+#' @param name,value  Set the header's name and value explicitly.
+#'
+#' @return A named list of class 'header'.
+#' @noRd
 header <- function (..., expose = FALSE, name = ...names(), value = ..1) {
-  
+
   header_name  <- name[[1]] %||% as.character(substitute(...))
   header_value <- as.character(value)
-  
+
   stopifnot(
     valid_string(header_name,  ok = '-_'),
     valid_string(header_value, ok = '_ :;.,\\/"\'?!(){}[]@<>=-+*#$&`|~^%')
   )
-  
+
   hdr        <- list(header_value)
   names(hdr) <- header_name
-  
+
   if (isTRUE(expose))
     hdr <- c(hdr, list('Access-Control-Expose-Headers' = header_name))
-  
+
   class(hdr) <- 'header'
   return (hdr)
-  
+
 }
 
 
 
-#' Assemble an HTTP cookie.
-#' 
-#' See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie for 
-#' a more in-depth description of each parameter's purpose.
-#' 
-#' @param ...          A single key-value pair.
-#' @param max_age      The number of seconds until expiration. Omit to create a 
-#'                     session cookie. `Inf` is mapped to 34560000L (400 days).
-#' @param domain       Send with requests to this host.
-#' @param path         Send with requests to this path.
+#______________________________________________________________________________
+#' A `Set-Cookie` header, for passing to `response()`.
+#'
+#' @param ...          A single name = value pair. An unnamed variable uses
+#'                     its own name, e.g. `cookie(auth_token)`.
+#' @param max_age      Seconds until the cookie expires. `NULL` makes a
+#'                     session cookie. `Inf` is sent as 400 days, the most
+#'                     browsers accept.
+#' @param domain,path  Limit which requests the cookie is sent with.
 #' @param same_site    `'Strict'`, `'Lax'`, or `'None'`.
-#'                     `secure` required for `'None'`.
-#' @param secure        Only send over HTTPS.
-#' @param http_only     Disallow javascript access.
-#' @param partitioned   Use partitioned storage. `secure` required.
-#' @param name          Explicitly set the name (key) in the key-value pair.
-#' @param value         Explicitly set the value in the key-value pair.
-#' 
-#' @return A 'header' object that can be passed to `response()`.
-#' 
-#' @export
-#' @examples
-#' 
-#'     library(webqueue)
-#'     
-#'     cookie(xyz = 123, max_age = 3600, http_only = TRUE)
-#'     
-#'     token <- 'randomstring123'
-#'     cookie(token)
-#'     
-#'     response(cookie(token = 'randomstring123'))
-#'     
-
+#' @param secure       Only send over HTTPS.
+#' @param http_only    Hide the cookie from javascript.
+#' @param partitioned  Use partitioned storage.
+#' @param name,value   Set the cookie's name and value explicitly.
+#'
+#' @return A 'header' object.
+#' @noRd
 cookie <- function (
     ...,
-    max_age = NULL, domain = NULL, path = NULL, same_site = 'Lax', 
-    secure = FALSE, http_only = FALSE, partitioned = FALSE, 
+    max_age = NULL, domain = NULL, path = NULL, same_site = 'Lax',
+    secure = FALSE, http_only = FALSE, partitioned = FALSE,
     name = ...names(), value = ..1 ) {
-  
+
   cookie_name  <- name[[1]] %||% as.character(substitute(...))
   cookie_value <- as.character(value)
-  
+
   if (identical(max_age, Inf)) max_age <- 34560000L
-  
+
   stopifnot(
     valid_string(cookie_name,  no = ' ()<>@,;:\\"/[]?={}'),
     valid_string(cookie_value, no = ' ",;\\'),
@@ -195,7 +136,7 @@ cookie <- function (
     is_bool(http_only),
     is_bool(partitioned)
   )
-  
+
   cookie_string <- paste(collapse = '; ', c(
     paste0(cookie_name, '=', cookie_value),
     if (!is.null(max_age))  paste0('Max-Age=',  max_age),
@@ -206,69 +147,45 @@ cookie <- function (
     if (http_only)          'HttpOnly',
     if (partitioned)        'Partitioned'
   ))
-  
+
   hdr <- header(name = 'Set-Cookie', value = cookie_string)
-  
+
   return (hdr)
 }
 
 
 
-#' Ensure a list becomes a JSON object.
-#' 
-#' This function returns a list that `jsonlite::toJSON()` will always encode as 
-#' `{}`.
-#' 
-#' @param x   A list, or list-like object.
-#' 
-#' @return A list with the names attribute set.
-#' 
-#' @export
-#' @examples
-#' 
-#'     library(webqueue)
-#'     
-#'     updates <- list()
-#'     
-#'     response(list(updates = updates))
-#'     
-#'     response(list(updates = js_obj(updates)))
-#'     
-
-js_obj <- function (x = list()) {
-  x <- as.list(x, all.names = TRUE)
-  if (is.null(names(x)))
-    names(x) <- character(length(x))
-  return (x)
-}
-
+#______________________________________________________________________________
+#' Is `x` a single non-missing integer?
+#' @noRd
 is_int <- function (x) {
-  if (!is.integer(x)) return (FALSE)
-  if (length(x) != 1) return (FALSE)
-  if (is.na(x))       return (FALSE)
-  return (TRUE)
+  is.integer(x) && length(x) == 1 && !is.na(x)
 }
 
+
+#______________________________________________________________________________
+#' Is `x` a single `TRUE` or `FALSE`?
+#' @noRd
 is_bool <- function (x) {
-  if (!is.logical(x)) return (FALSE)
-  if (length(x) != 1) return (FALSE)
-  if (is.na(x))       return (FALSE)
-  return (TRUE)
+  is.logical(x) && length(x) == 1 && !is.na(x)
 }
 
-all_named <- function (x) {
-  if (length(x) == 0)      return (TRUE)
-  if (is.null(names(x)))   return (FALSE)
-  if (any(names(x) == '')) return (FALSE)
-  return (TRUE)
-}
 
+#______________________________________________________________________________
+#' Is `x` a single non-empty string made only of permitted characters?
+#'
+#' @param ok       Characters allowed in addition to letters and digits. When
+#'                 given, anything else is rejected.
+#' @param no       Characters to reject, in addition to control characters.
+#'                 Only used when `ok` is empty.
+#' @param null_ok  Accept `NULL`.
+#' @noRd
 valid_string <- function (x, ok = '', no = '', null_ok = FALSE) {
-  
+
   if (is.null(x) && null_ok) return (TRUE)
-  if (!is_string(x))         return (FALSE) # rlang::is_string
+  if (!is_string(x))         return (FALSE)
   if (!nzchar(x))            return (FALSE)
-  
+
   if (nzchar(ok)) {
     ok <- c(as.raw(c(48:57, 65:90, 97:122)), charToRaw(ok))
     return (all(charToRaw(x) %in% ok))
@@ -277,11 +194,13 @@ valid_string <- function (x, ok = '', no = '', null_ok = FALSE) {
     no <- c(as.raw(c(0:31, 127)), charToRaw(no))
     return (!any(charToRaw(x) %in% no))
   }
-  
+
 }
 
 
 
+#______________________________________________________________________________
+# Reason phrases, used as the body of responses that have none.
 code_to_msg <- list(
   '100' = "Continue",
   '101' = "Switching Protocols",
