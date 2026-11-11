@@ -29,7 +29,7 @@ it to that step's list instead of fixing it now.
 | 1 | Baseline and safety fixes | done (2026-11-10) |
 | 2 | Dead code and package hygiene | done (2026-11-10) |
 | 3 | Request pipeline and database layer | done (2026-11-10) |
-| 4 | Worker pool, jobs, storage, cleanup | not started |
+| 4 | Worker pool, jobs, storage, cleanup | done (2026-11-10) |
 | 5 | Auth modes, sessions, permissions | not started |
 | 6 | rbiom 4 schema (R side) | not started |
 | 7 | Front end: schema-driven controls | not started |
@@ -106,6 +106,52 @@ it to that step's list instead of fixing it now.
   (`what`, `sample_set`, `format`, `method`, `rank`) instead of extra path
   segments. (e) The auth cookie is set with `Path=/`. (f) Password and
   lockout columns stay in `users` until step 5 removes that code.
+
+- **Retention (step 4).** Daniel chose 24 hours and 30 days, both `run()`
+  settings: a session not heard from for `session_hours = 24` is deleted
+  with its unsaved draft and temporary files; a guest not seen for
+  `guest_days = 30` is deleted with the projects only they could open.
+  Stored files that nothing refers to go once they are 24 hours old. A
+  saved project that still has a user is never deleted.
+- **Worker defaults (step 4).** Daniel chose `workers` = half the cores,
+  at least 1 and at most 4; `max_cpus` = cores divided by workers;
+  `time_limit` = 60 seconds per job.
+- **Caches (step 4).** Daniel chose both, separated. atima keeps its own
+  cache for what atima derives (parsed BIOM objects, project summaries) in
+  `<data_dir>/cache/atima`; rbiom's cache stays on inside workers in
+  `<data_dir>/cache/rbiom`. Each gets half of `cache_size_mb`. rbiom's cache
+  still lists its directory on every write and does not write atomically;
+  Daniel is holding the rbiom 4 CRAN submission so that this can be changed
+  in rbiom (a prompt for that session was given to him at the end of
+  step 4).
+- **Job model (step 4).** Daniel agreed: handlers of compute routes return
+  a job; the main process does "prepare" in one transaction and "finish" in
+  another, with the worker in between; workers get paths and validated
+  arguments and never see the database. A new request replaces the same
+  session's earlier request to the same route. Stopping a job is an
+  interrupt first and, if it has not stopped after 5 seconds, the end of
+  that worker process and the start of a new one. Superseded and cancelled
+  requests are answered 409, overdue ones 504, a full queue 503. New route
+  `POST /api/session/abort` cancels a session's jobs.
+- **Step 4 choices not put to Daniel.** (a) "Replaces the earlier request"
+  is switched on per route (`supersede = TRUE` in the route table) and only
+  for `/api/plot`, `/api/project/rarefy`, `/api/metadata/table` and
+  `/api/taxonomy/table`. The plot controls ask for the values of several
+  metadata fields at once and a user may start two exports, so those
+  routes must not cancel each other. (b) The main process keeps its own
+  job queue and only hands a job to mirai when a worker is free, so the
+  time limit measures running time and not time spent waiting; at most
+  `10 x workers` jobs wait. (c) The main process remembers the summaries
+  of the last 50 projects it served, so opening a known project needs no
+  worker. (d) If a session switches project while one of its jobs runs,
+  that job's result is dropped (409). (e) `temp_dir` may not overlap
+  `data_dir`; `run()` refuses to start if it does. (f) Every request that
+  loads a session counts as a sign of life (it updates
+  `sessions.heartbeat_utc` and the new `users.seen_utc`), not only the
+  heartbeat route. (g) Cleanup runs at start-up and every ten minutes.
+  (h) Schema version 3 adds `users.seen_utc`. (i) Files stored by 5.0.x
+  under random names are copied to their SHA-256 names when the server
+  starts.
 
 ## Conventions (apply from step 2 onward)
 
@@ -397,6 +443,80 @@ projects are represented once "user 0" goes away.
 Decisions for Daniel: retention periods (guest data, idle sessions, unsaved
 drafts); default worker count and per-job CPU and time limits.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- Where things are. `R/jobs.R`: `job()`, the pool (`pool_start()`,
+  `pool_submit()`, `pool_cancel_session()`, `pool_stop()`, `pool_call()`)
+  and `run_inline()`. `R/worker.R` and `R/worker-plot.R`: everything that
+  runs in a worker; each `work_*()` function is one kind of job.
+  `R/storage.R`: the content-addressed file store and `atomic_write()`.
+  `R/cache.R`: atima's cache. `R/biom-data.R`: the browser's `BIOM`
+  variable (`with_biom_data()`, `biom_reply()`, `update_draft()`).
+  `R/cleanup.R`: the seven cleanup rules and the timer.
+- How a compute request runs. The handler (main process, in a
+  transaction) reads the database and returns
+  `job(fn, args, finish)`. The router commits, submits the job and
+  returns a promise to httpuv. In the worker, `worker_run()` calls
+  `fn` by name. Back in the main process the router reloads the session,
+  opens a new transaction and calls `finish(result)`, whose value is the
+  response. A handler may also just return a response (for example when
+  the answer is already known); `finish` may not return another job. A
+  worker function raises `stop_user()` like a handler does; anything else
+  it raises becomes a 500 whose detail and worker call stack are in the
+  log.
+- To add a compute route: write `work_<name>(ctx, <paths>, <args>)` in
+  `R/worker.R` (first line `worker_init(ctx)`), have the handler return
+  `job("work_<name>", list(ctx = worker_ctx(REQ$CONFIG), ...), finish)`,
+  and declare the route with lane `"compute"`. Turn database ids into
+  paths with `biom_path()` in the handler. A worker that makes a new BIOM
+  file returns `store_biom()`'s `list(file, hash)`; `finish` records it
+  with `register_biom_file()` or `update_draft()`. Pass `cpus =
+  ctx$cpus`, or call through `with_cpus()`, on every rbiom function that
+  takes `cpus`; `worker_init()` also caps the cores for rbiom functions
+  that do not take it.
+- `app` is now `list(db, config, pool, memo)`, and `REQ` also has `POOL`
+  and `MEMO`. With `pool = NULL` jobs run in the calling process
+  (`run_inline()`); most tests run that way through `test_app(REQ)`.
+  Tests that need real workers use `local_test_pool()` and
+  `test_app(REQ, pool)`, wait with `await()`, and can run any expression
+  in a worker with `eval_job()` (helpers in `tests/testthat/helper-db.R`).
+  Under `devtools::test()` the workers load atima from source; under
+  `R CMD check` they load the installed package.
+- Pool details worth knowing. Workers are given the main process's
+  `.libPaths()` with every job, because a new R process does not know a
+  library added at run time (renv, a script's `.libPaths()`); a live
+  smoke test found this. Work the server does for itself goes through
+  `pool_call()`, which has its own time limit (600 s) so that a short
+  `time_limit` cannot stop first-run seeding. An interrupted job counts
+  as stopped when its marker file is gone and the dispatcher no longer
+  lists it as executing. A worker that had to be ended leaves its R
+  temporary directory (and on Windows a small `Rscript<pid>` file)
+  behind; the pool removes them when it stops. In tests, code run in a
+  worker through `eval_job()` must not call a bare `on.exit()`: it would
+  replace `worker_run()`'s own (wrap it in `local()`).
+- Storage. `biom_files.file` is `<sha256>.biom` and `biom_files.hash` the
+  SHA-256, for everything written from now on. Rows from 5.0.x are
+  converted when the server starts (`storage_adopt_legacy()`); a row
+  whose file is missing is left as it was. There is no unique index on
+  `hash`; `register_biom_file()` looks before it inserts.
+- Behaviour that changed for the browser: 409, 503 and 504 answers (same
+  `{"error": {"message", "id"}}` body); the new `/api/session/abort`;
+  `/api/project/publish` is now lane `compute` (same path and response).
+  Figures are still `plot_<random>.<ext>` under `/tmp/<session_key>/`.
+  Nothing else in paths or response shapes changed.
+- Verified by hand against a running server installed in a scratch
+  library (Windows, `workers = 1`, `time_limit = 5`): start-up and
+  seeding, session init, a plot, a table page, a download, a heartbeat
+  answered in about 20 ms while a slow plot ran, that plot answered 409
+  when a newer one arrived, a slow plot answered 504 at 5 s, and
+  `/api/session/abort`. Not verified by hand: stopping the server with
+  an interrupt (the pieces are tested: `pool_stop()`, the cleanup timer,
+  `db_close()`), and anything in a browser.
+- Not done here, on purpose: the upgrade backups `sqlite.db.v*.bak` are
+  still never deleted (step 9, backup policy); there is no per-user limit
+  on queued jobs or on stored data (step 9); nothing limits how much
+  memory a worker may use.
+
 ## Step 5: Auth modes, sessions, permissions
 
 - `auth = "none"`: refuse to start on a non-loopback host; single owner.
@@ -443,6 +563,25 @@ drafts); default worker count and per-job CPU and time limits.
   the log records user ids, route patterns and error details (which can
   include SQL parameters such as email addresses), never request bodies.
 
+- From step 4: what cleanup deletes depends on `users.is_guest` and on who
+  has a row in `permissions`. A guest is deleted 30 days after they were
+  last seen, and a private project is deleted as soon as it has no
+  permission rows. So the single owner of `auth = "none"` must not be a
+  guest, and if OIDC sign-in turns a guest into a user, the guest's
+  projects have to move to that user (as `api_sign_in()` does now for the
+  open project only). Sessions are deleted 24 hours after their last
+  request; a session cookie that outlives its session gets a 401 and the
+  browser starts a new one. `users.seen_utc` (schema version 3) is
+  updated by `resume_session()`.
+- From step 4: sign-out (`api_log_out()`) ends by opening a new guest
+  session, and the router's "reload the session after the job" step uses
+  whatever session the handler left in `REQ$SESSION`, not the request's
+  cookie. Keep that in mind when sessions are rotated at sign-in.
+- From step 4: the download routes have no session, so their jobs cannot
+  be superseded or cancelled per session, and anyone who knows a key can
+  queue jobs. They share the queue limit (503 when full); a per-client
+  limit belongs to the reverse proxy (step 9).
+
 Decisions for Daniel: can anonymous guests upload data on the public server,
 or only explore public projects; do "anyone with the link" share URLs stay,
 and if so random keys only; which identity attributes are shown to other users
@@ -474,6 +613,24 @@ when sharing (name, email, ORCID iD).
 - From step 3: `/api/project/export` validates `method` and `rank` only
   as short alphanumeric strings; the real lists should come from rbiom
   and the open project.
+
+- From step 4: `plot_args` and `subset_args` are passed to the worker as
+  they arrive and checked there (`work_plot()`, `subset_biom()` in
+  `R/worker-plot.R`); `save_args` are checked in the main process by
+  `plot_save_args()` in `R/plot.r`. Schema validation belongs in the
+  main process, before the job is submitted, so a bad request never takes
+  a worker. `cpus` must stay out of the schema: the worker sets it
+  (`with_cpus()`), and a `cpus` sent by a browser would currently be
+  overwritten for functions that take it and passed through `...` for
+  those that do not.
+- From step 4: the option lists `clust_options`, `dist_options` and
+  `ord_options` are hard-coded in `biom_summary()` (`R/worker.R`), which
+  is where "replace hard-coded option lists" now applies. New export
+  formats go in `work_export()`.
+- From step 4: the project summary is cached under the hashes of the two
+  BIOM files only. If the summary's contents change with the schema,
+  change the cache key prefix (`data_`) in `cached_summary()` and the
+  in-memory copy is rebuilt on restart.
 
 Decisions for Daniel: which functions/parameters are in scope for the first
 release; "basic" vs. "advanced" grouping of controls.
@@ -520,6 +677,23 @@ release; "basic" vs. "advanced" grouping of controls.
   `projects.editors` and `projects.jstree_icon` are denormalised display
   columns that the new UI may not need.
 
+- From step 4: requests to `/api/plot`, `/api/project/rarefy`,
+  `/api/metadata/table` and `/api/taxonomy/table` replace the same tab's
+  earlier request to that route. The replaced request is answered 409
+  ("This request was replaced by a newer one."), which the front end
+  should ignore rather than show. Other statuses to handle: 409 "The open
+  project changed while this was running." (drop the result), 504 (the
+  job passed the time limit; the message says so), 503 (queue full or
+  server stopping; safe to retry). `POST /api/session/abort` (no
+  arguments, answers `{"cancelled": n}`) cancels all of the tab's jobs;
+  call it when the user presses stop, and with `navigator.sendBeacon` or
+  `fetch(..., {keepalive: true})` on page unload. Every request keeps the
+  session alive, but an idle open tab still needs the heartbeat: a
+  session with no request for 24 hours is deleted and the next request
+  gets 401.
+- From step 4: figure and export URLs (`/tmp/<session_key>/...`) stop
+  working 24 hours after the file was made, or when the session ends.
+
 Decisions for Daniel: review of the control layout once a first version runs.
 
 ## Step 8: Legacy data import
@@ -549,6 +723,12 @@ Decisions for Daniel: review of the control layout once a first version runs.
   `sqlite.db.v0.<UTC stamp>.bak`, which is an untouched copy of the old
   database (schema in `tests/testthat/fixtures/atima-5.0.sql`). Old ids
   are not reserved any more: imported projects get new ids.
+
+- From step 4: an import adapter must not parse BIOM data in the main
+  process. Write the old object to a temporary file and run
+  `work_import()` on it through `pool_call()` or a job, then insert the
+  rows with `add_project(REQ, imported)`, which is what first-run seeding
+  does (`db_seed()` in `R/db.R`).
 
 Decisions for Daniel: how old MariaDB data is supplied (offline conversion to
 SQLite vs. live connection); whether shared-project permissions are imported
@@ -587,6 +767,29 @@ version, plus a test account for each.
   A reverse proxy should pass `/api/`, `/www/`, `/tmp/` and the root-level
   project paths; access keys `api`, `www`, `tmp` and `unsaved` are
   reserved.
+
+- From step 4: sizing. Memory is roughly one R process with rbiom loaded
+  per worker, plus the main process. `workers` x `max_cpus` should not
+  exceed the cores the container may use; inside a container
+  `parallelly::availableCores()` respects cgroup limits, so the defaults
+  follow the container's CPU quota. Requests wait in a queue of at most
+  `10 x workers`, then get 503. With one worker, a table page or a
+  project nobody has opened since the restart waits behind a running
+  plot (up to `time_limit`); the load test should measure that. There is
+  no per-user fairness in the queue.
+- From step 4: new log events: `pool_start`, `pool_stop`, `job_timeout`,
+  `worker_killed`, `worker_lost`, `worker_replace_failed`, `cleanup`
+  (counts per rule, only when something was removed), `cleanup_failed`,
+  `storage_adopt_legacy`. Worker processes write nothing to the log
+  themselves.
+- From step 4: `temp_dir` must be outside `data_dir` and is emptied of
+  old files by the server, so give it its own volume or directory.
+  `<data_dir>/cache` can be deleted at any time. Stopping the server
+  (SIGINT, or SIGTERM if R turns it into an interrupt; check this in the
+  container) cancels jobs, stops workers and checkpoints the database.
+  Whether `docker stop` gives a clean shutdown was not tested.
+- From step 4: not verified on Linux or macOS by hand, only by CI: ending
+  a stuck worker (`tools::pskill()`), and replacing one.
 
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
