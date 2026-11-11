@@ -30,7 +30,7 @@ it to that step's list instead of fixing it now.
 | 2 | Dead code and package hygiene | done (2026-11-10) |
 | 3 | Request pipeline and database layer | done (2026-11-10) |
 | 4 | Worker pool, jobs, storage, cleanup | done (2026-11-10) |
-| 5 | Auth modes, sessions, permissions | not started |
+| 5 | Auth modes, sessions, permissions | done (2026-11-11) |
 | 6 | rbiom 4 schema (R side) | not started |
 | 7 | Front end: schema-driven controls | not started |
 | 8 | Legacy data import | not started |
@@ -159,6 +159,80 @@ it to that step's list instead of fixing it now.
   Imports) on every platform, instead of `type = "cairo"` where R had
   cairo: macOS and container installs often lack X11 and cairo, and
   ggplot2 already picks ragg when it is installed.
+
+- **Guests (step 5).** Daniel chose: on the public server a visitor who
+  has not signed in may upload and save. The data is tied to their browser
+  cookie, is deleted `guest_days` after their last visit, and becomes
+  theirs when they sign in.
+- **Project keys (step 5).** Daniel chose two keys per project. The
+  private key (`projects.access_key`) is always there, always random (12
+  lower-case letters and digits, 62 bits) and never chosen by a user;
+  whoever has it can read the project, and a browser that opens it gets a
+  lasting view grant. The public key (`projects.public_key`) is optional,
+  short and readable; a project is public exactly when it has one, which
+  replaces `projects.is_public`. Publishing and unpublishing never change
+  the private key. Why 12: keys can only be guessed over HTTP, and at 62
+  bits finding any one of 10,000 projects takes about 5e14 guesses, so no
+  rate limit is needed for this; 8 characters (41 bits) would have relied
+  on one.
+- **Who may publish (step 5).** Daniel chose: any signed-in editor of a
+  project, not only administrators (this replaces the step 3 choice). So
+  what is in the public tree is not moderated before it appears;
+  administrators can edit and unpublish public projects.
+- **Identity shown to other users (step 5).** Daniel chose to keep it as
+  it was: name, affiliation and a partly hidden email address, found by
+  fuzzy search over all users with accounts. Someone who signs in with
+  ORCID has no email to show.
+- **Password accounts after the upgrade (step 5).** Daniel chose: the rows
+  and their projects are kept, nobody can sign in as them, and step 8 lets
+  a signed-in user claim one with the old email and password, checked
+  against the pre-upgrade backup. No linking by email.
+- **Old short keys (step 5).** Daniel chose: on upgrade, private projects
+  whose key is shorter than 12 characters get a new random key (their old
+  links stop working); keys of 12 or more stay.
+- **Local owner (step 5).** Daniel chose: the one owner in `auth = "none"`
+  is an ordinary user, not an administrator. They can publish their own
+  projects (as any editor can) but cannot change the bundled examples.
+- **Local installs have one user (step 5).** Daniel said, while the step
+  ran: assume local installs (`auth = "none"`) do not need several
+  accounts. So when the server starts in that mode, the owner takes over
+  everything that guests and password accounts left in the database from
+  before an upgrade, and those rows are deleted. Users with a provider
+  identity (`issuer` set) are left alone, in case a shared server's
+  database is opened in local mode by mistake.
+- **Step 5 choices not put to Daniel.** (a) `run()` defaults to
+  `auth = "none"`. (b) The redirect URI is `<public_url>/auth/callback`;
+  `public_url` is a setting and is never taken from the `Host` header.
+  (c) A sign-in lasts `signin_days = 30`, then the browser signs in again;
+  there is no refresh. (d) In `auth = "none"` requests whose `Host` header
+  is not a loopback name get 403, against DNS rebinding. (e) The calls to
+  the provider (token, keys, userinfo) are made by the main process and
+  block it for up to 10 seconds each; sign-ins are rare and this kept the
+  router unchanged. (f) Administrators are named by `run(admins = )`, a
+  list of provider `sub` values; when it is set, it decides `is_admin` at
+  every sign-in. (g) Unfinished sign-ins (`state`, `nonce`, PKCE verifier)
+  are kept in memory, not in the database, for 10 minutes; a restart
+  forgets them. (h) The sharing and account routes do not exist in
+  `auth = "none"`. (i) A project must keep at least one editor: the last
+  one cannot be removed or demoted through sharing. (j) Guests cannot see
+  who a project is shared with, search users, grant or publish. (k) A
+  viewer of a public project who is not one of its members is not shown
+  its private key. (l) Table cell values are HTML-escaped on the server,
+  because DataTables inserts them as HTML. (m) Descriptions keep a small
+  set of formatting elements and http(s)/mailto links; everything else is
+  removed. (n) Sign-out does not sign the user out of the provider.
+  (o) Schema version 4. (p) The `admin` permission level stays in the
+  router although no route uses it now. Added after an independent
+  review of the auth code: (q) a POST whose `Sec-Fetch-Site` or `Origin`
+  header says it comes from another site is refused (a form elsewhere
+  could otherwise make `/api/session/init` replace a visitor's cookie
+  with a new guest's); (r) new route `POST /api/project/new_key`, for
+  editors, gives the open project a new private key, because taking away
+  a grant does not make anyone forget the old key; (s) an administrator
+  cannot grant themselves a project they edit only because it is public.
+  Left as decided, and worth knowing: private keys of 12 or more
+  characters that a user chose under 5.0.x survive the upgrade and now
+  work as share links (as they already did).
 
 ## Conventions (apply from step 2 onward)
 
@@ -604,6 +678,118 @@ or only explore public projects; do "anyone with the link" share URLs stay,
 and if so random keys only; which identity attributes are shown to other users
 when sharing (name, email, ORCID iD).
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+### The permission model
+
+This is the model the code enforces. The rules are in `R/access.R` and are
+applied by the router (`check_permission()`, `check_rule()`); handlers
+check nothing. The one caller outside the router is `api_init_session()`,
+which uses `open_by_key()` to choose the project a new session opens.
+
+Who a caller is:
+
+- **Nobody**: a request with no session (no cookie, or no session key).
+- **Guest**: a browser that has not signed in. A `users` row with
+  `is_guest = 1`, made the first time the page loads, forgotten
+  `guest_days` after the last visit.
+- **User**: someone who signed in (`is_guest = 0`), identified by
+  `(issuer, sub)`. In `auth = "none"` the one owner is a user.
+- **Administrator**: a user with `is_admin = 1`.
+
+What a caller is to a project (`project_access()`):
+
+- **Editor**: has a grant with `is_editor = 1`; or is an administrator and
+  the project is public.
+- **Viewer**: has a grant; or the project is public.
+- **None**: otherwise. Administrators have no access to private projects
+  they were not granted.
+
+A project is public when it has a public key. Its private key works as a
+share link for whoever has it: a browser that opens `/<private key>`
+gets a view grant (guest or user), and `GET /<key>/<file>` serves the BIOM
+file to anyone, with either key.
+
+| May do | Nobody | Guest | User | Viewer | Editor |
+|---|---|---|---|---|---|
+| Load the page, start a session | yes | yes | yes | | |
+| Download a BIOM file with a project key, or a draft with its session key | yes | yes | yes | | |
+| Open public projects; open a project by its private key | | yes | yes | | |
+| Upload a file (becomes its editor); manage own collections | | yes | yes | | |
+| Plot, export, rarefy, change the working copy, save a copy | | | | yes | yes |
+| See who has access, search users, share (the `grant` rule) | | no | | yes | yes |
+| Save over the project, rename or delete it in the tree | | | | no | yes |
+| Publish or unpublish | | no | | no | yes |
+
+Columns "Viewer" and "Editor" are about the project open in the session;
+"no" under Guest means a guest is refused even as a viewer or editor.
+
+Sharing (`check_grant()`): editors may give, change or remove anyone's
+grant, except that the last editor stays. Viewers may give view access to
+people who have none, and take back a view grant they gave. Nobody is
+granted view access to a public project, and nothing is granted to a
+guest by name.
+
+Tree routes (`check_nodes()`): a collection node must be the caller's; a
+project node (`P<permission_id>`) must be the caller's grant, and an
+editor's for rename and delete; a public node (`G<project_id>`) must be a
+public project.
+
+Route declarations in `R/routes.R` carry all of this: the level, `account
+= TRUE` (signed in), `rule` (one of `tree`, `tree_edit`, `grant`,
+`project_key`, `draft_key`), and `modes` (routes that exist only with
+`auth = "oidc"`).
+
+### Other notes
+
+- Where things are. `R/access.R`: every permission rule. `R/auth.R`:
+  modes, the loopback checks, auth tokens, the cookie, `sign_in()`,
+  `adopt_guest()`, sign-out. `R/auth-oidc.R`: discovery, the login and
+  callback pages, ID token validation. `R/html.R`: `html_escape()` and
+  `sanitize_html()`. `auth_settings()` in `R/run.r` checks the settings.
+  `inst/sql/004_auth.sql`: the schema change. `inst/www/js/account.js`:
+  the sign-in/out control.
+- Removed: `R/accounts.r`, `R/send_email.r`, `R/sanity_check.r`, the
+  `smtp` argument of `run()`, `sodium` and `blastula`; `swal()` and
+  `int()` (no callers left); `is_project_readable()`,
+  `is_project_writable()`, `can_grant()`, `own_permission()`,
+  `own_collection()`, `create_access_key()`. New Imports: `httr2`, `jose`,
+  `xml2`.
+- Routes that changed. Gone: `/api/account/create`, `update`,
+  `reset_password`, `sign_in`. New: `GET /auth/login?return_to=<path>` and
+  `GET /auth/callback` (pages, not API calls). `/api/account/sign_out`
+  now answers `{"signed_out": true}` and removes the cookie; it no longer
+  returns a new guest session. `/api/project/save` and `save_as` take
+  `title` and `description` only. `/api/project/publish` takes
+  `is_public`, `public_key` (needed the first time) and `collection_id`,
+  and is for signed-in editors.
+- Session data (`/api/session/init`): `CONF` is now `auth`, `user_id`,
+  `full_name`, `is_guest`, `is_admin`. `BIOM` has `public_key` (or
+  null), `access_key` (the private key; null unless the caller has the
+  project in their own tree) and `project_key` (the one to use in URLs).
+  In the public tree a node's `info.access_key` is the public key.
+- Sessions. The cookie is `auth_token` (`HttpOnly`, `SameSite=Lax`,
+  `Path=/`, `Secure` over HTTPS); `auth_tokens.expires_utc` is enforced
+  on every request and expired tokens are removed by cleanup. The session
+  key is now a number followed by 24 random characters. Sign-in and
+  sign-out each replace the token and close the tabs that used the old
+  one, so the page must start a new session afterwards (it gets 401
+  until it does).
+- Sign-in moves everything a guest has to the user (`adopt_guest()`) and
+  deletes the guest. What is not carried over: unsaved changes in the
+  guest's open tab, because that session is closed.
+- In `auth = "none"` cleanup never deletes guests, and
+  `local_owner()` folds any that exist into the owner at start-up.
+- Not protected by the `Host` check in `auth = "none"`: the static paths
+  `/www` and `/tmp`, which httpuv serves without calling the router.
+  `/tmp/<session key>/` needs the session key.
+- Tested without a real provider: `tests/testthat/helper-oidc.R` is a
+  mock issuer (discovery, JWKS, token and userinfo endpoints, keys made in
+  the test) behind httr2's mocking. A whole sign-in was also run by hand
+  over HTTP against a mock issuer in a second R process (curl, both
+  modes). **Not verified: sign-in against Globus Auth or ORCID**, and
+  anything in a browser.
+
 ## Step 6: rbiom 4 schema (R side)
 
 - One schema registry describing, per rbiom function exposed, each parameter:
@@ -648,6 +834,16 @@ when sharing (name, email, ORCID iD).
   BIOM files only. If the summary's contents change with the schema,
   change the cache key prefix (`data_`) in `cached_summary()` and the
   in-memory copy is rebuilt on restart.
+
+- From step 5: `route()` has more fields (`account`, `rule`, `modes`,
+  `strict`, `html`); a schema route for the browser needs none of them
+  (`public` or `session` level). There is a new argument type,
+  `arg_html()`, that sanitizes as it validates; schema validation of
+  `plot_args` should follow the same idea (the checked value is what the
+  handler gets). Names and values that come out of a BIOM file (metadata
+  fields, taxa, ranks) are user data: the schema's labels and choices
+  built from them go to the browser as JSON text, and anything the server
+  turns into HTML must go through `html_escape()` (`R/html.R`).
 
 Decisions for Daniel: which functions/parameters are in scope for the first
 release; "basic" vs. "advanced" grouping of controls.
@@ -711,6 +907,59 @@ release; "basic" vs. "advanced" grouping of controls.
 - From step 4: figure and export URLs (`/tmp/<session_key>/...`) stop
   working 24 hours after the file was made, or when the session ends.
 
+- From step 5: what exists in the front end for accounts is
+  `inst/www/js/account.js` and an empty `#account-control` in
+  `index.html`. It starts a session of its own to learn `CONF`, then shows
+  "Sign in" (a link to `/auth/login?return_to=<path>`), or the name and
+  "Sign out", or nothing when `CONF.auth` is `"none"`. Fold it into the
+  state store, so the page starts one session, not two. Still to build:
+  - Sign-in and sign-out are page loads. After either, start a new
+    session; the old session key answers 401. Warn before signing in if
+    the open tab has unsaved changes, since they are not carried over.
+  - A failed sign-in shows a bare HTML page from the server (message,
+    error id, link home). Style it or redirect to the app with a message.
+  - In `auth = "none"`: no account menu, no sharing page (those routes
+    answer 404), and the tree has no "shared by" folders.
+  - Publishing: a control for signed-in editors that sends `is_public`,
+    a `public_key` (4 to 20 lower-case letters, digits, inner hyphens;
+    the server answers 400 with the reason if it is taken or reserved)
+    and optionally a public `collection_id`. Guests are refused (403).
+    Whether ordinary users should also choose the public collection, or
+    only administrators, was not decided; today anyone who may publish
+    may pick an existing public collection. There is still no route to
+    create, rename or delete public collections.
+  - Unpublishing a project that nobody has a grant on (the bundled
+    examples, which have no editors and can only be unpublished by an
+    administrator) makes it a private project in nobody's tree, and the
+    next cleanup run deletes it. The UI should say so before it happens.
+  - "New link": `POST /api/project/new_key` (editors, no arguments)
+    answers `{"access_key": ...}`; every older link stops working, which
+    the UI should say first. It is the only way to shut out someone whose
+    grant was removed but who still has the link.
+  - Requests from the app's own pages are fine as they are; a POST with
+    an `Origin` or `Sec-Fetch-Site` header naming another site gets 403.
+  - Share link: show `BIOM.access_key` (the private key) as the link to
+    copy; it is null for someone who only sees the project because it is
+    public. Use `BIOM.project_key` for download URLs in the R code shown
+    next to plots: it is the public key when there is one, so a private
+    key is not handed around in scripts of a public project.
+  - Sharing: the user search still returns name, affiliation and a partly
+    hidden email; people who signed in with ORCID have no email, so two
+    people with the same name cannot be told apart there. Showing the
+    ORCID iD for them was suggested and not chosen; raise it again when
+    the sharing page is rebuilt. The server refuses to remove or demote a
+    project's last editor (400).
+  - Cell values from `/api/metadata/table` and `/api/taxonomy/table` are
+    already HTML-escaped; insert them as HTML (as DataTables does), not as
+    text, or they will show `&lt;`. Header HTML from the `thead` routes is
+    escaped too. Descriptions are sanitized HTML and can be inserted as
+    HTML; titles, names, collection names and everything else are plain
+    text and must be inserted as text.
+  - The old `js/` code calls routes that no longer exist
+    (`/api/account/create`, `update`, `reset_password`, `sign_in`) and
+    sends `access_key` to `save`/`save_as`, which now refuse it. The
+    account modals under `inst/www/modals/` are dead.
+
 Decisions for Daniel: review of the control layout once a first version runs.
 
 ## Step 8: Legacy data import
@@ -746,6 +995,43 @@ Decisions for Daniel: review of the control layout once a first version runs.
   `work_import()` on it through `pool_call()` or a job, then insert the
   rows with `add_project(REQ, imported)`, which is what first-run seeding
   does (`db_seed()` in `R/db.R`).
+
+- From step 5: nothing in the package verifies passwords any more, and
+  `sodium` is no longer a dependency. This step needs it back, as a
+  Suggests used only by the import code:
+  - Pre-renovation 5.x: `users.password` and `users.alt_password` held
+    strings made by `sodium::password_store()` (scrypt); check a typed
+    password with `sodium::password_verify(hash, password)`. An account
+    could also have five failed attempts recorded (`n_attempts`,
+    `locked_utc`); the old rule was a five-minute lockout after five
+    wrong passwords, and the import should rate-limit in its own way.
+    The old code is in git at `R/accounts.r` before step 5
+    (`authenticate_password()`).
+  - Those columns do not exist in a current database. They are in the
+    backup made when the server upgraded it:
+    `sqlite.db.v3.<UTC stamp>.bak` for a database that had reached schema
+    3, or `sqlite.db.v0.<stamp>.bak` for one straight from 5.0.x. That
+    backup is the "saved copy" to verify against.
+  - After the upgrade, password accounts are still rows in `users` with
+    `is_guest = 0` and no `issuer`/`sub`. Their projects, collections and
+    grants are intact, other users can still share with them, and cleanup
+    never deletes them, but nobody can sign in as them. "Claiming" one
+    means: a signed-in user proves the old email and password against the
+    backup, then everything the old row has moves to their row.
+    `adopt_guest()` in `R/auth.R` does exactly that move for guests (it
+    refuses a non-guest in its last statement); generalise it rather than
+    writing a second one.
+  - The upgrade replaced private keys shorter than 12 characters and gave
+    public projects a new private key (their old address is now the
+    public key). Old share links that used a replaced key are dead; the
+    backup has the old keys if a redirect table is ever wanted.
+  - In `auth = "none"` this is already done without a password: at
+    start-up the local owner takes over everything that guests and
+    password accounts had (`local_owner()` in `R/auth.R`), so a local
+    install upgraded from 5.0.x needs no claiming. Claiming is only for
+    the shared server.
+  - Importing shared-project permissions needs users to exist; with OIDC
+    a user only exists once they have signed in.
 
 Decisions for Daniel: how old MariaDB data is supplied (offline conversion to
 SQLite vs. live connection); whether shared-project permissions are imported
@@ -807,6 +1093,67 @@ version, plus a test account for each.
   Whether `docker stop` gives a clean shutdown was not tested.
 - From step 4: not verified on Linux or macOS by hand, only by CI: ending
   a stuck worker (`tools::pskill()`), and replacing one.
+
+- From step 5: **what Daniel has to register before the public server can
+  sign anyone in.** One provider per server; Globus Auth is the default.
+  - Globus Auth: sign in at `https://app.globus.org/settings/developers`,
+    choose to register a portal or web application you host (not a
+    native app, not a service account), in a project of the lab's. Set
+    the redirect URL to exactly `https://<the server's host>/auth/callback`
+    (Globus only accepts HTTPS, except `http://localhost`, which is handy
+    for a trial run on a laptop: `http://localhost:8080/auth/callback`).
+    Scopes: `openid`, `profile`, `email`. Then generate a client secret.
+    Give the server `ATIMA_AUTH=oidc`, `ATIMA_PUBLIC_URL=https://<host>`,
+    `ATIMA_OIDC_CLIENT_ID` and `ATIMA_OIDC_CLIENT_SECRET`; the issuer
+    default, `https://auth.globus.org`, is right. Globus signs ID tokens
+    with RS512 and wants the secret by HTTP Basic; both are handled.
+  - ORCID instead: sign in at `https://orcid.org`, open Developer Tools
+    under your name, register for the public API, and add the same
+    redirect URI (HTTPS only in production, and it must match exactly,
+    host included). Set `ATIMA_OIDC_ISSUER=https://orcid.org` plus the
+    client id and secret. ORCID knows only the `openid` scope and sends
+    no email, so its users show a name only. ORCID has a sandbox
+    (`https://sandbox.orcid.org`) for trying it first.
+  - To make someone an administrator, sign in once, read the `sub` from
+    `users.sub` in the database, and set `ATIMA_ADMINS` to a
+    comma-separated list of those values. For Globus the `sub` is a
+    UUID; for ORCID it is the ORCID iD.
+  - The client secret belongs in the container's environment or a secret
+    store, never in a compose file in git. It is not logged and is not
+    passed to worker processes.
+- From step 5: the reverse proxy must terminate TLS and pass `/auth/`
+  as well as the paths listed above. Either set `public_url` to the
+  `https://` address (enough for the cookie's `Secure` flag) or have the
+  proxy set a header such as `X-Forwarded-Proto` and name it in
+  `ATIMA_FORWARDED_PROTO_HEADER`; the proxy must then overwrite that
+  header on every request, so that a client cannot send its own. `host`
+  must be `0.0.0.0` (or the container's address) and `auth` must be
+  `oidc`: with `auth = "none"` the server refuses to start on such a host
+  and refuses requests whose `Host` header is not a loopback name, so a
+  proxied local install does not work by design.
+- From step 5: still for the proxy to do: rate-limit `/api/session/init`
+  (every cookie-less call makes a guest row, removed after `guest_days`),
+  `/auth/login` (at most 5,000 unfinished sign-ins are kept; more get
+  503) and the key-in-URL routes. Sessions record `REMOTE_ADDR`, which
+  behind a proxy is the proxy's address; nothing uses it.
+- From step 5: sign-in calls the provider from the main R process
+  (token endpoint, keys, sometimes userinfo), each with a 10 second
+  timeout, and the server answers nothing else meanwhile. Include
+  sign-in under a slow provider in the load test; if it matters, make
+  those calls with `httr2::req_perform_promise()`. The provider's
+  discovery document is read at start-up; if that fails the server
+  starts anyway, logs `oidc_discovery_failed`, and tries again at the
+  first sign-in. New log events: `sign_in`, `sign_out`,
+  `oidc_discovery_failed`; a refused sign-in is an `error` event whose
+  `detail` says which check failed.
+- From step 5: docs to write (OIDC setup vignette): the two provider
+  recipes above; that changing `oidc_issuer` on a server with users makes
+  them all strangers, because users are `(issuer, sub)`; that moving a
+  data directory from `auth = "none"` to `oidc` leaves the local owner's
+  projects with a user nobody can sign in as; and, for local use, that
+  anyone with access to the computer while the server runs can open the
+  app. Public content is unmoderated (any signed-in editor can publish),
+  which the terms text should cover.
 
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
