@@ -46,11 +46,16 @@ connections <- function () mirai::status(.compute = pool$profile)$connections
 # Blocks until interrupted, as R code does; then stops.
 sleep_30 <- quote(Sys.sleep(30))
 
-# Ignores interrupts, as compiled code can.
-deaf_30 <- quote(suspendInterrupts({
-  until <- Sys.time() + 30
-  while (Sys.time() < until) Sys.sleep(0.2)
-}))
+# Ignores interrupts, as compiled code can. On Unix the interrupt is a
+# SIGINT, which R ignores while it waits for a child process.
+deaf_30 <- if (.Platform$OS.type == "windows") {
+  quote(suspendInterrupts({
+    until <- Sys.time() + 30
+    while (Sys.time() < until) Sys.sleep(0.2)
+  }))
+} else {
+  quote(system("sleep 30"))
+}
 
 
 test_that("a job runs in a worker process, not in the main process", {
