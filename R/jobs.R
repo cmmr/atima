@@ -416,7 +416,9 @@ worker_await <- function (pool, j) {
     } else if (file.exists(j$marker)) {
       pid <- suppressWarnings(as.integer(readLines(j$marker, n = 1L, warn = FALSE)))
       log_event("warn", "worker_killed", fn = j$fn, pid = pid)
-      if (length(pid) == 1 && !is.na(pid)) tools::pskill(pid, tools::SIGKILL)
+      # SIGKILL is not defined on Windows, where any signal ends the process.
+      signal <- if (is.na(tools::SIGKILL)) tools::SIGTERM else tools::SIGKILL
+      if (length(pid) == 1 && !is.na(pid)) tools::pskill(pid, signal)
       pool$waiting <- pool$waiting - 1L
       worker_gone(pool, j)
 
