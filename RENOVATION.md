@@ -151,7 +151,10 @@ it to that step's list instead of fixing it now.
   heartbeat route. (g) Cleanup runs at start-up and every ten minutes.
   (h) Schema version 3 adds `users.seen_utc`. (i) Files stored by 5.0.x
   under random names are copied to their SHA-256 names when the server
-  starts.
+  starts. (j) PNG, JPEG and TIFF figures are drawn with `ragg` (now in
+  Imports) on every platform, instead of `type = "cairo"` where R had
+  cairo: macOS and container installs often lack X11 and cairo, and
+  ggplot2 already picks ragg when it is installed.
 
 ## Conventions (apply from step 2 onward)
 

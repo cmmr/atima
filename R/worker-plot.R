@@ -73,9 +73,14 @@ work_plot <- function (
   save_args[['plot']]      <- p
   save_args[['limitsize']] <- FALSE
 
-  # Better anti-aliasing, where ggsave() is not already using ragg for it.
-  if (capabilities("cairo") && !nzchar(system.file(package = "ragg")) && device %in% c("png", "jpeg", "tiff", "bmp"))
-    save_args[['type']] <- "cairo"
+  # Raster images are drawn by ragg: well anti-aliased, and the same on
+  # every platform, with no need for X11 or cairo on the server.
+  save_args[['device']] <- switch(
+    EXPR = device,
+    png  = ragg::agg_png,
+    jpeg = ragg::agg_jpeg,
+    tiff = ragg::agg_tiff,
+    device )
 
   atomic_write(file.path(out_dir, file), function (tmp) {
     do.call(ggsave, c(list(filename = tmp), save_args))

@@ -47,10 +47,10 @@ connections <- function () mirai::status(.compute = pool$profile)$connections
 sleep_30 <- quote(Sys.sleep(30))
 
 # Ignores interrupts, as compiled code can.
-deaf_30 <- quote({
+deaf_30 <- quote(suspendInterrupts({
   until <- Sys.time() + 30
-  while (Sys.time() < until) tryCatch(Sys.sleep(0.2), interrupt = function (i) NULL)
-})
+  while (Sys.time() < until) Sys.sleep(0.2)
+}))
 
 
 test_that("a job runs in a worker process, not in the main process", {

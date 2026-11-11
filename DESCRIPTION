@@ -39,6 +39,7 @@ Imports:
     pandoc,
     parallelly,
     promises,
+    ragg,
     rbiom (>= 4.0.0),
     rlang,
     RSQLite,
