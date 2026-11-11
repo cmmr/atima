@@ -7,7 +7,10 @@
 #' project that is open in the caller's session.
 #'
 #' The lane is `compute` for anything that may read a BIOM file or call
-#' rbiom, and `fast` for work that only touches the database.
+#' rbiom, and `fast` for work that only touches the database. A `compute`
+#' handler hands that work to a worker process as a `job()`. Routes marked
+#' `supersede = TRUE` are those where only a session's latest request
+#' matters: a new one cancels the one before it.
 #'
 #' @return A list of `route` objects, in matching order.
 #' @noRd
@@ -40,6 +43,8 @@ route_table <- function () {
       access_key = arg_string(max = 20L, optional = TRUE) )),
 
     route("POST /api/session/heartbeat", "api_heartbeat", "session", "fast"),
+
+    route("POST /api/session/abort", "api_abort", "session", "fast"),
 
 
     #__________________________________________________________________________
@@ -79,7 +84,7 @@ route_table <- function () {
       component      = arg_choice(c("metadata", "taxonomy", "tree")),
       component_file = arg_file() )),
 
-    route("POST /api/project/rarefy", "api_rarefy", "viewer", "compute", args = list(
+    route("POST /api/project/rarefy", "api_rarefy", "viewer", "compute", supersede = TRUE, args = list(
       depth = arg_int(min = 1L) )),
 
     route("POST /api/project/save", "api_save", "editor", "compute", args = list(
@@ -92,7 +97,7 @@ route_table <- function () {
       access_key  = arg_string(min = 4L, max = 20L, pattern = access_key_pattern),
       description = arg_string(max = 5000L) )),
 
-    route("POST /api/project/publish", "api_publish", "admin", "fast", args = list(
+    route("POST /api/project/publish", "api_publish", "admin", "compute", args = list(
       is_public     = arg_bool(),
       collection_id = arg_int(min = 1L, optional = TRUE) )),
 
@@ -147,7 +152,7 @@ route_table <- function () {
     #__________________________________________________________________________
     # Metadata and taxonomy of the open project
 
-    route("POST /api/metadata/table", "api_metadata_dt", "viewer", "compute", args = dt_args),
+    route("POST /api/metadata/table", "api_metadata_dt", "viewer", "compute", supersede = TRUE, args = dt_args),
 
     route("POST /api/metadata/thead", "api_metadata_thead", "viewer", "compute"),
 
@@ -163,7 +168,7 @@ route_table <- function () {
     route("POST /api/metadata/minmax", "api_metadata_minmax", "viewer", "compute", args = list(
       field = arg_string(min = 1L, max = 200L, trim = FALSE) )),
 
-    route("POST /api/taxonomy/table", "api_taxonomy_dt", "viewer", "compute", args = dt_args),
+    route("POST /api/taxonomy/table", "api_taxonomy_dt", "viewer", "compute", supersede = TRUE, args = dt_args),
 
     route("POST /api/taxonomy/thead", "api_taxonomy_thead", "viewer", "compute"),
 
@@ -171,7 +176,7 @@ route_table <- function () {
     #__________________________________________________________________________
     # Plots
 
-    route("POST /api/plot", "api_plot", "viewer", "compute", args = list(
+    route("POST /api/plot", "api_plot", "viewer", "compute", supersede = TRUE, args = list(
       plot_fn     = arg_choice(plot_fns),
       plot_args   = arg_json(),
       depth       = arg_int(min = 1L),

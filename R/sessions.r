@@ -2,22 +2,28 @@
 
 #______________________________________________________________________________
 #' Client asking us to not garbage collect their session.
+#'
+#' Loading the session, which the router has already done, records that it
+#' is alive (`resume_session()`), so there is nothing left to do here.
 #' @return list()
 #' @noRd
 api_heartbeat <- function (REQ) {
-  
-  DB         <- REQ[['DB']]
-  session_id <- REQ[['SESSION']][['session_id']]
-  
-  sql <- paste0(
-    "UPDATE sessions",
-    " SET heartbeat_utc = CURRENT_TIMESTAMP",
-    " WHERE session_id = ?" )
-  db_query(DB, sql, "AHear1", list(session_id))
-  
   return (list())
 }
 
+
+#______________________________________________________________________________
+#' Cancel whatever jobs the session has queued or running. The browser calls
+#' this when the page is closed or the user stops a plot.
+#' @return list(cancelled = <number of jobs>)
+#' @noRd
+api_abort <- function (REQ) {
+
+  pool <- REQ[['POOL']]
+  n    <- if (is.null(pool)) 0L else pool_cancel_session(pool, REQ[['SESSION']][['session_id']])
+
+  return (list(cancelled = unbox(n)))
+}
 
 
 #______________________________________________________________________________
@@ -251,10 +257,23 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   
   
   #________________________________________________________
-  # Track last access for each user/project combo.
+  # Record that the session and its user are alive. The
+  # cleanup timer removes sessions and guests that have not
+  # been for a while.
   #________________________________________________________
   user_id    <- session[['user_id']]
   project_id <- session[['project_id']]
+
+  sql <- "UPDATE sessions SET heartbeat_utc = CURRENT_TIMESTAMP WHERE session_id = ?"
+  db_query(DB, sql, "RSess3", list(session[['session_id']]))
+
+  sql <- "UPDATE users SET seen_utc = CURRENT_TIMESTAMP WHERE user_id = ?"
+  db_query(DB, sql, "RSess4", list(user_id))
+
+
+  #________________________________________________________
+  # Track last access for each user/project combo.
+  #________________________________________________________
   if (!is.na(project_id)) {
     sql <- paste0(
       "INSERT INTO last_access (user_id, project_id) VALUES (?, ?)",
@@ -273,28 +292,28 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
 
 #______________________________________________________________________________
 #' Client-side data.
-#' @return <response:session_data>
+#' @return <response:session_data>, or a job that leads to one.
 #' @noRd
 get_session_data <- function (REQ) {
-  
-  auth_token  <- REQ[['SESSION']][['auth_token']]
-  session_key <- REQ[['SESSION']][['session_key']]
-  
-  # Without a path, browsers would only send the cookie back to URLs
-  # under the one that set it (/api/session/).
-  auth_cookie <- cookie(auth_token, max_age = Inf, http_only = TRUE, path = "/")
-  sess_header <- header('x-session-key' = session_key, expose = TRUE)
-  
-  body <- list(
-    jstree_data = compile_jstree_data(REQ), 
-    BIOM        = get_biom_data(REQ), 
-    CONF        = list(
-      user_id         = unbox(REQ[['SESSION']][['user_id']]),
-      is_guest        = unbox(REQ[['SESSION']][['is_guest']]),
-      is_admin        = unbox(REQ[['SESSION']][['is_admin']]) ))
-  
-  resp <- response(body, auth_cookie, sess_header)
-  
-  return (resp)
-}
 
+  with_biom_data(REQ, function (BIOM) {
+
+    auth_token  <- REQ[['SESSION']][['auth_token']]
+    session_key <- REQ[['SESSION']][['session_key']]
+
+    # Without a path, browsers would only send the cookie back to URLs
+    # under the one that set it (/api/session/).
+    auth_cookie <- cookie(auth_token, max_age = Inf, http_only = TRUE, path = "/")
+    sess_header <- header('x-session-key' = session_key, expose = TRUE)
+
+    body <- list(
+      jstree_data = compile_jstree_data(REQ),
+      BIOM        = BIOM,
+      CONF        = list(
+        user_id         = unbox(REQ[['SESSION']][['user_id']]),
+        is_guest        = unbox(REQ[['SESSION']][['is_guest']]),
+        is_admin        = unbox(REQ[['SESSION']][['is_admin']]) ))
+
+    response(body, auth_cookie, sess_header)
+  })
+}

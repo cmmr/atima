@@ -1,21 +1,23 @@
 #______________________________________________________________________________
 #' Update the rarefaction level.
-#' @return list(BIOM) or list()
+#' @return list(BIOM), or list() if the project is already at that depth.
 #' @noRd
 api_rarefy <- function (REQ, depth) {
-  
-  if (rarefy_if_needed(REQ, depth)) {
-    
-    resume_session(REQ)
-    BIOM <- get_biom_data(REQ)
-    return (list(BIOM = BIOM))
-    
-  } else {
-    return (list())
-  }
-  
-  
-  
+
+  job(
+    fn   = "work_rarefy",
+    args = list(
+      ctx   = worker_ctx(REQ[['CONFIG']]),
+      full  = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+      rare  = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
+      depth = depth ),
+    finish = function (result) {
+
+      if (!isTRUE(result[['changed']])) return (list())
+
+      update_draft(REQ, rare = result[['rare']])
+      list(BIOM = biom_reply(REQ, result[['data']]))
+    })
 }
 
 
@@ -25,146 +27,120 @@ api_rarefy <- function (REQ, depth) {
 #' @noRd
 api_save <- function (REQ, title, access_key, description) {
 
-  DB         <- REQ[['DB']]
-  project_id <- REQ[['SESSION']][['project_id']]
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
+  job(
+    fn   = "work_details",
+    args = list(
+      ctx  = worker_ctx(REQ[['CONFIG']]),
+      full = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+      rare = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]) ),
+    finish = function (result) {
 
+      DB      <- REQ[['DB']]
+      details <- result[['details']]
 
-  #________________________________________________________
-  # Check that new custom access_key is valid and available.
-  #________________________________________________________
-  if (!identical(access_key, REQ[['SESSION']][['access_key']]))
-    access_key <- create_access_key(DB, requested_access_key = access_key)
-  
-  
-  #________________________________________________________
-  # Copy data from draft to parent project.
-  #________________________________________________________
-  full_biom <- get_biom(REQ, full_bf_id)
-  details   <- biom_to_details(full_biom)
-  
-  db_update(
-    DB            = DB, 
-    table         = "projects", 
-    id            = project_id, 
-    err_code      = "ASave1",
-    title         = title,
-    full_bf_id    = full_bf_id,
-    rare_bf_id    = rare_bf_id,
-    access_key    = access_key,
-    description   = description,
-    n_samples     = details[['n_samples']],
-    n_taxa        = details[['n_taxa']],
-    has_tree      = details[['has_tree']],
-    median_depth  = details[['median_depth']],
-    meta_colnames = details[['meta_colnames']] %>% toJSON() )
-  
-  
-  #________________________________________________________
-  # Reload this project on the client side.
-  #________________________________________________________
-  resume_session(REQ)
-  BIOM <- get_biom_data(REQ)
-  
-  
-  return (list(BIOM = BIOM))
+      # Check that a new custom access_key is valid and available.
+      if (!identical(access_key, REQ[['SESSION']][['access_key']]))
+        access_key <- create_access_key(DB, requested_access_key = access_key)
+
+      # Copy data from draft to parent project.
+      db_update(
+        DB            = DB,
+        table         = "projects",
+        id            = REQ[['SESSION']][['project_id']],
+        err_code      = "ASave1",
+        title         = title,
+        full_bf_id    = REQ[['SESSION']][['full_bf_id']],
+        rare_bf_id    = REQ[['SESSION']][['rare_bf_id']],
+        access_key    = access_key,
+        description   = description,
+        n_samples     = details[['n_samples']],
+        n_taxa        = details[['n_taxa']],
+        has_tree      = details[['has_tree']],
+        median_depth  = details[['median_depth']],
+        meta_colnames = details[['meta_colnames']] %>% toJSON() )
+
+      # Reload this project on the client side.
+      resume_session(REQ)
+
+      list(BIOM = biom_reply(REQ, result[['data']]))
+    })
 }
 
 
 #______________________________________________________________________________
 #' Copy this draft to a new project_id.
-#' 
+#'
 #' @return list(BIOM, jstree_node)
 #' @noRd
 api_save_as <- function (REQ, title, access_key, description) {
-  
-  DB         <- REQ[['DB']]
-  user_id    <- REQ[['SESSION']][['user_id']]
-  draft_id   <- REQ[['SESSION']][['draft_id']]
-  project_id <- REQ[['SESSION']][['project_id']]
-  full_name  <- REQ[['SESSION']][['full_name']]
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
 
+  job(
+    fn   = "work_details",
+    args = list(
+      ctx  = worker_ctx(REQ[['CONFIG']]),
+      full = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+      rare = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]) ),
+    finish = function (result) {
 
-  #________________________________________________________
-  # Get a new unique access_key.
-  #________________________________________________________
-  access_key <- create_access_key(DB, requested_access_key = access_key)
-  
-  
-  #________________________________________________________
-  # Fetch the current project values.
-  #________________________________________________________
-  sql     <- "SELECT * FROM projects WHERE project_id = ?"
-  project <- db_query(DB, sql, "ASAs2", list(project_id), req1 = TRUE)
-  
-  full_biom <- get_biom(REQ, full_bf_id)
-  details   <- biom_to_details(full_biom)
-  
-  
-  #________________________________________________________
-  # Merge into a new project record.
-  #________________________________________________________
-  project_id <- db_insert(
-    DB            = DB,
-    table         = "projects",
-    err_code      = "ASAs3",
-    project_id    = NULL,
-    defaults      = project,
-    title         = title,
-    full_bf_id    = full_bf_id,
-    rare_bf_id    = rare_bf_id,
-    access_key    = access_key,
-    description   = description,
-    n_samples     = details[['n_samples']],
-    n_taxa        = details[['n_taxa']],
-    has_tree      = details[['has_tree']],
-    median_depth  = details[['median_depth']],
-    meta_colnames = details[['meta_colnames']] %>% toJSON(),
-    editors       = toJSON(full_name),
-    n_views       = 1L,
-    is_public     = FALSE,
-    public_collection_id = NULL )
-  
-  
-  #________________________________________________________
-  # Update the draft to point to the new project.
-  #________________________________________________________
-  sql <- "UPDATE drafts set project_id = ? WHERE draft_id = ?"
-  db_query(DB, sql, "ASAs4", list(project_id, draft_id))
-  
-  
-  #________________________________________________________
-  # Grant editor permissions to this user.
-  #________________________________________________________
-  sql <- "INSERT INTO permissions (user_id, project_id) VALUES (?, ?)"
-  permission_id <- db_query(DB, sql, "ASAs5", list(user_id, project_id))
-  
-  sql <- "INSERT INTO last_access (user_id, project_id) VALUES (?, ?)"
-  db_query(DB, sql, "ASAs6", list(user_id, project_id))
-  
-  
-  #________________________________________________________
-  # Fetch information for displaying in the collections.
-  #________________________________________________________
-  sql <- paste0(
-    "SELECT * FROM permissions",
-    " LEFT JOIN projects USING (project_id)",
-    " WHERE permission_id = ?" )
-  row         <- db_query(DB, sql, "ASAs7", list(permission_id))
-  jstree_node <- compile_jstree_node(row)
-  
-  
-  #________________________________________________________
-  # Reload this project on the client side.
-  #________________________________________________________
-  resume_session(REQ)
-  BIOM <- get_biom_data(REQ)
-  
-  
-  return (list(BIOM = BIOM, jstree_node = jstree_node))
+      DB       <- REQ[['DB']]
+      session  <- REQ[['SESSION']]
+      user_id  <- session[['user_id']]
+      details  <- result[['details']]
+
+      # Get a new unique access_key.
+      access_key <- create_access_key(DB, requested_access_key = access_key)
+
+      # Fetch the current project values.
+      sql     <- "SELECT * FROM projects WHERE project_id = ?"
+      project <- db_query(DB, sql, "ASAs2", list(session[['project_id']]), req1 = TRUE)
+
+      # Merge into a new project record.
+      project_id <- db_insert(
+        DB            = DB,
+        table         = "projects",
+        err_code      = "ASAs3",
+        project_id    = NULL,
+        defaults      = project,
+        title         = title,
+        full_bf_id    = session[['full_bf_id']],
+        rare_bf_id    = session[['rare_bf_id']],
+        access_key    = access_key,
+        description   = description,
+        n_samples     = details[['n_samples']],
+        n_taxa        = details[['n_taxa']],
+        has_tree      = details[['has_tree']],
+        median_depth  = details[['median_depth']],
+        meta_colnames = details[['meta_colnames']] %>% toJSON(),
+        editors       = toJSON(session[['full_name']]),
+        n_views       = 1L,
+        is_public     = FALSE,
+        public_collection_id = NULL )
+
+      # Update the draft to point to the new project.
+      sql <- "UPDATE drafts set project_id = ? WHERE draft_id = ?"
+      db_query(DB, sql, "ASAs4", list(project_id, session[['draft_id']]))
+
+      # Grant editor permissions to this user.
+      sql <- "INSERT INTO permissions (user_id, project_id) VALUES (?, ?)"
+      permission_id <- db_query(DB, sql, "ASAs5", list(user_id, project_id))
+
+      sql <- "INSERT INTO last_access (user_id, project_id) VALUES (?, ?)"
+      db_query(DB, sql, "ASAs6", list(user_id, project_id))
+
+      # Fetch information for displaying in the collections.
+      sql <- paste0(
+        "SELECT * FROM permissions",
+        " LEFT JOIN projects USING (project_id)",
+        " WHERE permission_id = ?" )
+      row <- db_query(DB, sql, "ASAs7", list(permission_id))
+
+      # Reload this project on the client side.
+      resume_session(REQ)
+
+      list(
+        BIOM        = biom_reply(REQ, result[['data']]),
+        jstree_node = compile_jstree_node(row) )
+    })
 }
 
 
@@ -204,68 +180,34 @@ select_project <- function (REQ, project_id = NULL, access_key = NULL) {
 
 
 #______________________________________________________________________________
-#' Parse out summary information from a biom file to go into `projects`. 
-#' @return list(title, description, n_samples, ...)
-#' @noRd
-biom_to_details <- function (biom) {
-  
-  list(
-    title         = biom$id,
-    description   = pandoc_convert(text = biom$comment, to = 'html', args = '--wrap=none'),
-    n_samples     = biom$n_samples,
-    n_taxa        = biom$n_otus,
-    has_tree      = !is.null(biom$tree),
-    median_depth  = as.integer(median(sample_sums(biom))),
-    meta_colnames = biom$fields )
-}
-
-
-
-#______________________________________________________________________________
-#' Insert a new project into the SQL tables.
+#' Insert a newly imported project into the SQL tables.
 #'
 #' The session's user becomes the project's first editor. With no user in
 #' the session (first-run seeding) the project has no editors.
 #'
+#' @param imported   What `work_import()` returned: the three stored files
+#'                   and the project's details.
 #' @param is_public  Make the project readable by everyone.
 #' @return a project_id.
 #' @noRd
 add_project <- function (
-    REQ, infile, title = NULL, collection_id = NULL,
+    REQ, imported, collection_id = NULL,
     requested_access_key = NULL, is_public = FALSE ) {
-  
+
   DB        <- REQ[['DB']]
   user_id   <- REQ[['SESSION']][['user_id']]
   full_name <- REQ[['SESSION']][['full_name']]
-  
-  
-  #________________________________________________________
-  # Parse the BIOM data into full and rarefied objects
-  #________________________________________________________
-  full_biom <- with_user_errors(
-    message = "That file could not be read as a BIOM file.",
-    detail  = FALSE,
-    code    = as_rbiom(infile) )
-  
-  full_biom$sequences <- NULL
-  if (!is.null(title)) full_biom$id <- title
-  
-  rare_biom <- rarefy(full_biom)
-  details   <- biom_to_details(full_biom)
-  
-  
-  #________________________________________________________
-  # Save to `projects` and `objects` SQL tables.
-  #________________________________________________________
+  details   <- imported[['details']]
+
   project_id <- db_insert(
     DB            = DB,
     table         = "projects",
     err_code      = "AProj1",
     title         = details[['title']],
-    orig_bf_id    = store_file(REQ, infile), 
-    full_bf_id    = store_biom(REQ, full_biom), 
-    rare_bf_id    = store_biom(REQ, rare_biom), 
-    access_key    = create_access_key(DB, requested_access_key), 
+    orig_bf_id    = register_biom_file(DB, imported[['orig']]),
+    full_bf_id    = register_biom_file(DB, imported[['full']]),
+    rare_bf_id    = register_biom_file(DB, imported[['rare']]),
+    access_key    = create_access_key(DB, requested_access_key),
     description   = details[['description']],
     n_samples     = details[['n_samples']],
     n_taxa        = details[['n_taxa']],
@@ -275,17 +217,12 @@ add_project <- function (
     editors       = toJSON(full_name),
     is_public     = is_public )
 
-
-  #________________________________________________________
   # Put into the user's top level collection by default.
-  #________________________________________________________
   if (!is.null(user_id))
     db_insert(DB, "permissions", "AProj2", project_id, user_id, collection_id)
-  
-  
+
   return (project_id)
 }
-
 
 
 #______________________________________________________________________________
@@ -464,46 +401,7 @@ api_publish <- function (REQ, is_public, collection_id = NULL) {
 
   resume_session(REQ)
 
-  return (list(
-    BIOM        = get_biom_data(REQ),
+  with_biom_data(REQ, function (BIOM) list(
+    BIOM        = BIOM,
     jstree_data = compile_jstree_data(REQ) ))
 }
-
-
-
-
-#______________________________________________________________________________
-#' Ensures that rare_biom is rarefied to a specific depth.
-#' Keeps back-end and front-end in sync, in case of api_rarefy abort.
-#' 
-#' @return TRUE if depth was updated, FALSE otherwise.
-#' @noRd
-rarefy_if_needed <- function (REQ, depth) {
-  
-  DB         <- REQ[['DB']]
-  draft_id   <- REQ[['SESSION']][['draft_id']]
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
-  
-  new_depth <- int(depth)
-  old_depth <- int(get_biom_component(REQ, rare_bf_id, 'depth'))
-  
-  #________________________________________________________
-  # Re-rarefy from the full_biom. Save new rare_biom.
-  #________________________________________________________
-  if (!identical(new_depth, old_depth)) {
-    
-    biom <- get_biom(REQ, full_bf_id)
-    rarefy(biom, depth = new_depth, clone = FALSE)
-    rare_bf_id <- store_biom(REQ, biom)
-    
-    sql <- "UPDATE drafts SET rare_bf_id = ? WHERE draft_id = ?"
-    db_query(DB, sql, "Rare1", list(rare_bf_id, draft_id))
-    
-    return (TRUE)
-  }
-  
-  
-  return (FALSE)
-}
-

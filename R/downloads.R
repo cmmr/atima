@@ -64,38 +64,18 @@ download_draft_biom <- function (REQ, session_key, file) {
 
 
 #______________________________________________________________________________
-#' Write a BIOM object in the requested format and send it.
+#' Have a worker write a BIOM file in the requested format, then send it.
 #'
 #' @param project  A list with `full_bf_id`, `rare_bf_id`, `title` and
 #'                 `description`.
 #' @param file     `<rare|full>.<tab|json|hdf5>[.gz|.bz2]`, already checked
 #'                 by the router.
+#' @return A job whose result is a <response> with the file as its body.
 #' @noRd
 biom_response <- function (REQ, project, file) {
 
-  TEMP_DIR <- REQ[['CONFIG']][['temp_dir']]
-
   parts        <- strsplit(file, ".", fixed = TRUE)[[1]]
   biom_file_id <- project[[paste0(parts[[1]], '_bf_id')]]
-  format       <- parts[[2]]
-
-
-  #________________________________________________________
-  # Add the latest title and description to the biom obj.
-  #________________________________________________________
-  biom         <- get_biom(REQ, biom_file_id)
-  biom$id      <- project[['title']]
-  biom$comment <- paste0(collapse = '\n', pandoc_convert(
-    text = project[['description']], from = 'html', to = 'markdown' ))
-
-
-  #________________________________________________________
-  # Use rbiom to write to a temporary file. The extension
-  # tells rbiom which compression to use.
-  #________________________________________________________
-  tfile <- tempfile(tmpdir = TEMP_DIR, fileext = sub("^[a-z]+", "", file))
-  on.exit(unlink(tfile), add = TRUE)
-  write_biom(biom, tfile, format)
 
   content_type <- switch(
     EXPR   = tail(parts, 1),
@@ -105,13 +85,38 @@ biom_response <- function (REQ, project, file) {
     'json' = 'application/json; charset=utf-8',
     'application/octet-stream' )
 
-  structure(
-    class = c('response', 'AsIs'),
-    .Data = list(
-      status  = 200L,
-      headers = list(
-        'Content-Type'           = content_type,
-        'Content-Disposition'    = paste0('attachment; filename="', file, '"'),
-        'X-Content-Type-Options' = 'nosniff' ),
-      body    = read_file_raw(tfile) ))
+  job(
+    fn   = "work_download",
+    args = list(
+      ctx         = worker_ctx(REQ[['CONFIG']]),
+      src         = biom_path(REQ, biom_file_id),
+      dir         = file.path(REQ[['CONFIG']][['temp_dir']], "downloads"),
+      file        = file,
+      title       = project[['title']],
+      description = project[['description']] ),
+    finish = function (result) {
+
+      path <- result[['path']]
+      on.exit(unlink(path), add = TRUE)
+
+      structure(
+        class = c('response', 'AsIs'),
+        .Data = list(
+          status  = 200L,
+          headers = list(
+            'Content-Type'           = content_type,
+            'Content-Disposition'    = paste0('attachment; filename="', file, '"'),
+            'X-Content-Type-Options' = 'nosniff' ),
+          body    = read_file_raw(path) ))
+    })
+}
+
+
+#______________________________________________________________________________
+#' The entire contents of a file as a raw vector.
+#' @return a raw vector; `raw(0)` if the file does not exist.
+#' @noRd
+read_file_raw <- function (file) {
+  if (!file.exists(file)) return (raw(0))
+  readBin(file, what = 'raw', n = file.size(file))
 }

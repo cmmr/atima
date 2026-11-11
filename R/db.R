@@ -2,7 +2,7 @@
 # The SQLite database.
 #
 # The main R process opens one connection in `run()` and keeps it until the
-# server stops. Nothing else opens the database. The schema is created and
+# server stops. Nothing else opens the database; worker processes never do. The schema is created and
 # upgraded by the numbered scripts in `inst/sql/`; the number of the last
 # script applied is kept in `PRAGMA user_version`.
 #______________________________________________________________________________
@@ -41,10 +41,13 @@ db_open <- function (data_dir) {
 
 
 #______________________________________________________________________________
-#' Close the database connection.
+#' Checkpoint and close the database connection.
 #' @noRd
 db_close <- function (DB) {
   stopifnot(is(DB, "SQLiteConnection"))
+  # Fold the write-ahead log back into the database file, so that the file
+  # is complete on its own once the server has stopped.
+  try(silent = TRUE, dbGetQuery(DB, "PRAGMA wal_checkpoint(TRUNCATE)"))
   try(silent = TRUE, dbDisconnect(DB))
   invisible(NULL)
 }
@@ -432,8 +435,13 @@ db_is_empty <- function (DB) {
 
 #______________________________________________________________________________
 #' Fill a new database with rbiom's example datasets as public projects.
+#'
+#' @param DB      The connection.
+#' @param config  The server configuration.
+#' @param pool    The worker pool that imports the datasets, or `NULL` to
+#'                import them in this process.
 #' @noRd
-db_seed <- function (DB, config) {
+db_seed <- function (DB, config, pool = NULL) {
 
   REQ <- as.environment(list(
     DB      = DB,
@@ -442,13 +450,11 @@ db_seed <- function (DB, config) {
 
   for (dataset in c('hmp50', 'gems')) {
 
-    infile <- tempfile(tmpdir = config[['temp_dir']], fileext = ".json")
-    on.exit(unlink(infile), add = TRUE)
-    write_biom(biom = base::getExportedValue('rbiom', dataset), file = infile)
+    imported <- pool_call(pool, "work_seed", list(ctx = worker_ctx(config), dataset = dataset))
 
     db_transaction(DB, add_project(
       REQ                  = REQ,
-      infile               = infile,
+      imported             = imported,
       requested_access_key = dataset,
       is_public            = TRUE ))
 

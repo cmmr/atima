@@ -37,36 +37,22 @@ test_that("is_one_of only accepts a single string from the list", {
 
 
 
-test_that("get_biom_component refuses unknown component names", {
-
-  local_mocked_bindings(with_cache = function (...) stop("reached with_cache"))
-
-  for (rbiom_fn in c("system", "clone", "initialize", ".__enclos_env__", "Metadata", ""))
-    expect_error(get_biom_component(list(), 1L, rbiom_fn), "is_one_of(rbiom_fn", fixed = TRUE, info = rbiom_fn)
-
-  expect_error(get_biom_component(list(), 1L, "metadata"), "reached with_cache")
-})
-
-
-
 test_that("metadata field names must be real columns", {
 
   md <- data.frame(Sex = factor(c("F", "M", "F")), Age = c(20, 30, NA))
-  local_mocked_bindings(get_biom_component = function (...) md)
-  REQ <- list(SESSION = list(rare_bf_id = 1L))
 
   for (field in c("nope", "sex", "", "Sex, Age")) {
-    expect_error(api_metadata_levels(REQ, field), "Unknown metadata field", class = "atima_http_error", info = field)
-    expect_error(api_metadata_minmax(REQ, field), "Unknown metadata field", class = "atima_http_error", info = field)
+    expect_error(metadata_levels(md, field), "Unknown metadata field", class = "atima_http_error", info = field)
+    expect_error(metadata_minmax(md, field), "Unknown metadata field", class = "atima_http_error", info = field)
   }
-  expect_error(api_metadata_levels(REQ, c("Sex", "Age")), "Unknown metadata field", class = "atima_http_error")
+  expect_error(metadata_levels(md, c("Sex", "Age")), "Unknown metadata field", class = "atima_http_error")
 
   # The right kind of column for each question.
-  expect_error(api_metadata_levels(REQ, "Age"), "not categorical", class = "atima_http_error")
-  expect_error(api_metadata_minmax(REQ, "Sex"), "not numeric",     class = "atima_http_error")
+  expect_error(metadata_levels(md, "Age"), "not categorical", class = "atima_http_error")
+  expect_error(metadata_minmax(md, "Sex"), "not numeric",     class = "atima_http_error")
 
-  expect_identical(api_metadata_levels(REQ, "Sex")$default, c("F", "M"))
-  expect_identical(api_metadata_minmax(REQ, "Age"), list(min = 20, max = 30))
+  expect_identical(metadata_levels(md, "Sex")$default, c("F", "M"))
+  expect_identical(metadata_minmax(md, "Age"), list(min = 20, max = 30))
 })
 
 

@@ -72,9 +72,8 @@ api_jstree_select <- function (REQ, node_id) {
     } else                        { node_number(node_id) }
 
   select_project(REQ, project_id = project_id)
-  BIOM <- get_biom_data(REQ)
 
-  return (list(BIOM = BIOM))
+  with_biom_data(REQ, function (BIOM) list(BIOM = BIOM))
 }
 
 

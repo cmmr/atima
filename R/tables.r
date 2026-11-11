@@ -1,105 +1,71 @@
+#______________________________________________________________________________
+# The metadata and taxonomy tables of the open project.
+#
+# The `api_*()` handlers run in the main process and only describe a job.
+# `dt_page()`, `metadata_thead()` and `taxonomy_thead()` are the pure parts
+# that a worker applies to the data (`work_table_page()`,
+# `work_table_head()` in `R/worker.R`).
+#______________________________________________________________________________
+
+
+#' A job on the session's full (unrarefied) BIOM file.
+#' @noRd
+full_biom_job <- function (REQ, fn, ...) {
+  job(fn, list(
+    ctx = worker_ctx(REQ[['CONFIG']]),
+    src = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+    ... ))
+}
+
 
 #______________________________________________________________________________
 #' Provide server side paging of the METADATA DataTable.
-#' 
+#'
 #' @return list(draw, recordsTotal, recordsFiltered, data)
 #'         as per https://datatables.net/manual/server-side .
 #' @noRd
 api_metadata_dt <- function (
-    REQ, columns=NULL, draw=1L, start=0L, length=10L, 
+    REQ, columns=NULL, draw=1L, start=0L, length=10L,
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {
-  
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  
-  df <- get_biom_component(REQ, full_bf_id, "metadata")
-  
-  return (dt_page(df, draw, start, length, search, order))
-}
 
+  full_biom_job(
+    REQ, "work_table_page", what = "metadata",
+    draw = draw, start = start, length = length, search = search, order = order )
+}
 
 
 #______________________________________________________________________________
 #' Provide server side paging of the TAXONOMY DataTable.
-#' 
+#'
 #' @return list(draw, recordsTotal, recordsFiltered, data)
 #'         as per https://datatables.net/manual/server-side .
 #' @noRd
 api_taxonomy_dt <- function (
-    REQ, columns=NULL, draw=1L, start=0L, length=10L, 
+    REQ, columns=NULL, draw=1L, start=0L, length=10L,
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {
-  
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  
-  df <- get_biom_component(REQ, full_bf_id, "taxonomy")
-  
-  return (dt_page(df, draw, start, length, search, order))
+
+  full_biom_job(
+    REQ, "work_table_page", what = "taxonomy",
+    draw = draw, start = start, length = length, search = search, order = order )
 }
 
 
-
 #______________________________________________________________________________
-#' Construct the HTML to define the double header row for the 
-#' METADATA DataTable. Two header rows: Column Name and Column Class.
-#' 
-#' @return A <thead/> html string.
+#' The double header row of the METADATA DataTable.
+#' @return list(html)
 #' @noRd
 api_metadata_thead <- function (REQ) {
-  
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  
-  df <- get_biom_component(REQ, full_bf_id, "metadata")
-  
-  colnames <- paste("<th>", colnames(df), "</th>")
-  classes  <- sapply(
-    X         = seq_len(ncol(df)), 
-    USE.NAMES = FALSE,
-    function (i) {
-      
-      vals      <- df[[i]]
-      curr_type <- ifelse(is.numeric(vals), "numeric", "categorical")
-      
-      if (i == ".sample")
-        return (paste0("<td>", curr_type, "</td>"))
-      
-      if (!all(is.na(vals) | grepl("^[\\+\\-]{0,1}[0-9]*\\.{0,1}[0-9]*$", vals)))
-        return (paste0("<td>", curr_type, "</td>"))
-      
-      return (paste0(
-        "<td><select class='numcat' data-colnum='", (i - 1), "'>",
-        "<option", ifelse(curr_type == "numeric", " selected", ""), ">numeric</option>",
-        "<option", ifelse(curr_type == "numeric", "", " selected"), ">categorical</option>",
-        "</select></td>" ))
-    })
-  
-  html <- sprintf(
-    fmt = "<thead><tr>%s</tr><tr>%s</tr></thead>", 
-    paste(colnames, collapse = ""), 
-    paste(classes, collapse = "") )
-  
-  return (list(html = unbox(html)))
+  full_biom_job(REQ, "work_table_head", what = "metadata")
 }
-
 
 
 #______________________________________________________________________________
-#' Construct the HTML to define the header row for the dynamically defined
-#' TAXONOMY DataTable.
-#' 
-#' @return A <thead/> html string.
+#' The header row of the TAXONOMY DataTable.
+#' @return list(html)
 #' @noRd
 api_taxonomy_thead <- function (REQ) {
-  
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  
-  df <- get_biom_component(REQ, full_bf_id, "taxonomy")
-  
-  colnames <- paste("<th>", colnames(df), "</th>")
-  colnames <- paste(colnames, collapse = "")
-  html     <- sprintf("<thead><tr>%s</tr></thead>", colnames)
-  
-  return (list(html = unbox(html)))
+  full_biom_job(REQ, "work_table_head", what = "taxonomy")
 }
-
 
 
 #______________________________________________________________________________
@@ -107,65 +73,92 @@ api_taxonomy_thead <- function (REQ) {
 #' @return list(BIOM)
 #' @noRd
 api_metadata_change_class <- function (REQ, col_num) {
-  
 
-  DB         <- REQ[['DB']]
-  draft_id   <- REQ[['SESSION']][['draft_id']]
-  full_bf_id <- REQ[['SESSION']][['full_bf_id']]
-  rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
-  
-  full_biom  <- get_biom(REQ, full_bf_id)
-  rare_biom  <- get_biom(REQ, rare_bf_id)
-  md         <- full_biom$metadata
-  depth      <- rare_biom$depth
-  
-  if (col_num > ncol(md))
-    stop_user("There is no metadata column ", col_num, ".")
-  
-  if (is.numeric(md[[col_num]])) {
-    md[[col_num]] <- as.character(md[[col_num]])
-  } else {
-    md[[col_num]] <- as.numeric(as.character(md[[col_num]]))
-  }
-  
-  full_biom$metadata <- md
-  rare_biom <- rarefy(biom = full_biom, depth = depth)
-  
-  db_update(
-    DB         = DB, 
-    table      = "drafts", 
-    id         = draft_id, 
-    err_code   = "AMCClas1", 
-    full_bf_id = store_biom(REQ, full_biom), 
-    rare_bf_id = store_biom(REQ, rare_biom) )
-  
-  resume_session(REQ)
-  BIOM <- get_biom_data(REQ)
-  
-  return (list(BIOM = BIOM))
+  job(
+    fn   = "work_change_class",
+    args = list(
+      ctx     = worker_ctx(REQ[['CONFIG']]),
+      full    = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+      rare    = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
+      col_num = col_num ),
+    finish = function (result) {
+      update_draft(REQ, full = result[['full']], rare = result[['rare']])
+      list(BIOM = biom_reply(REQ, result[['data']]))
+    })
 }
 
+
+#______________________________________________________________________________
+#' Construct the HTML to define the double header row for the
+#' METADATA DataTable. Two header rows: Column Name and Column Class.
+#'
+#' @param df  The metadata table.
+#' @return A <thead/> html string.
+#' @noRd
+metadata_thead <- function (df) {
+
+  colnames <- paste("<th>", colnames(df), "</th>")
+  classes  <- sapply(
+    X         = seq_len(ncol(df)),
+    USE.NAMES = FALSE,
+    function (i) {
+
+      vals      <- df[[i]]
+      curr_type <- ifelse(is.numeric(vals), "numeric", "categorical")
+
+      if (i == ".sample")
+        return (paste0("<td>", curr_type, "</td>"))
+
+      if (!all(is.na(vals) | grepl("^[\\+\\-]{0,1}[0-9]*\\.{0,1}[0-9]*$", vals)))
+        return (paste0("<td>", curr_type, "</td>"))
+
+      return (paste0(
+        "<td><select class='numcat' data-colnum='", (i - 1), "'>",
+        "<option", ifelse(curr_type == "numeric", " selected", ""), ">numeric</option>",
+        "<option", ifelse(curr_type == "numeric", "", " selected"), ">categorical</option>",
+        "</select></td>" ))
+    })
+
+  sprintf(
+    fmt = "<thead><tr>%s</tr><tr>%s</tr></thead>",
+    paste(colnames, collapse = ""),
+    paste(classes, collapse = "") )
+}
+
+
+#______________________________________________________________________________
+#' Construct the HTML to define the header row for the dynamically defined
+#' TAXONOMY DataTable.
+#'
+#' @param df  The taxonomy table.
+#' @return A <thead/> html string.
+#' @noRd
+taxonomy_thead <- function (df) {
+  colnames <- paste("<th>", colnames(df), "</th>")
+  colnames <- paste(colnames, collapse = "")
+  sprintf("<thead><tr>%s</tr></thead>", colnames)
+}
 
 
 #______________________________________________________________________________
 #' Handle server-side paging of a datatable.
-#' 
+#'
 #' @return list(draw, recordsTotal, recordsFiltered, data)
 #'         as per https://datatables.net/manual/server-side .
 #' @noRd
 dt_page <- function (
-    df, draw=1L, start=0L, length=10L, 
+    df, draw=1L, start=0L, length=10L,
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {
-  
-  
+
+
   df <- if (is.matrix(df)) df else as.matrix(df)
   recordsTotal <- nrow(df)
-  
+
   # Coerce inputs into expected formats
   draw   <- as.integer(draw)
   start  <- as.integer(start) + 1
   length <- as.integer(length)
-  
+
   # Filter by global search term
   if (!identical(search[['value']], "")) {
     pattern <- tolower(head(as.character(search[['value']]), 1))
@@ -173,7 +166,7 @@ dt_page <- function (
       any(grepl(pattern, row, fixed = TRUE)) }),,drop=FALSE]
   }
   recordsFiltered <- nrow(df)
-  
+
   # Sort by the `order` arguments: one row per sort column.
   order <- as.data.frame(order, stringsAsFactors = FALSE)
   for (i in seq_len(nrow(order))) {
@@ -183,17 +176,14 @@ dt_page <- function (
       stop_user("There is no column ", column, " to sort by.")
     df <- df[base::order(df[,column], decreasing = decreasing),,drop=FALSE]
   }
-  
+
   # Hand back just a page's worth of rows.
   rows <- seq_len(nrow(df))
   df   <- df[rows >= start & rows < start + length,,drop=FALSE]
-  
+
   return (list(
     draw            = unbox(as.integer(draw)),
     recordsTotal    = unbox(recordsTotal),
     recordsFiltered = unbox(recordsFiltered),
     data            = df ))
 }
-
-
-

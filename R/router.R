@@ -7,6 +7,12 @@
 # for, validates the arguments against the route's declarations, and only
 # then calls the handler. Handlers can therefore assume that their arguments
 # have the declared types and that the session has the declared permission.
+#
+# A handler for a `fast` route returns its response. A handler for a
+# `compute` route may instead return a `job()` (see `R/jobs.R`): work for a
+# worker process plus a `finish` function for its result. The handler and
+# `finish` each run in their own database transaction, and no transaction is
+# open while the job runs.
 #______________________________________________________________________________
 
 
@@ -31,13 +37,19 @@ lanes             <- c("fast", "compute")
 #'     \item{`admin`}{a session whose user is an administrator.}
 #'   }
 #' @param lane        `"fast"` for database-only work, `"compute"` for
-#'                    anything that reads a BIOM file or calls rbiom.
+#'                    anything that reads a BIOM file or calls rbiom. Only
+#'                    a `compute` handler may return a `job()`.
+#' @param supersede   For a `compute` route: does a new request from a
+#'                    session replace that session's earlier request to
+#'                    this route that is still queued or running? The
+#'                    earlier request is answered with a 409. Use it where
+#'                    only the latest answer matters, such as a plot.
 #' @param args        A named list of argument declarations made with the
 #'                    `arg_*()` functions. Path parameters are declared here
 #'                    too. Arguments that are not declared are refused.
 #' @return A list of class `route`.
 #' @noRd
-route <- function (endpoint, handler, permission, lane = "fast", args = list()) {
+route <- function (endpoint, handler, permission, lane = "fast", args = list(), supersede = FALSE) {
 
   parts <- strsplit(endpoint, " ", fixed = TRUE)[[1]]
 
@@ -48,6 +60,8 @@ route <- function (endpoint, handler, permission, lane = "fast", args = list()) 
     is_scalar_character(handler),
     is_one_of(permission, permission_levels),
     is_one_of(lane, lanes),
+    is_bool(supersede),
+    !supersede || lane == "compute",
     is.list(args),
     length(args) == 0 || (!is.null(names(args)) && all(grepl("^[a-z_]+$", names(args)))),
     all(vapply(args, inherits, logical(1), "arg_spec")) )
@@ -64,6 +78,7 @@ route <- function (endpoint, handler, permission, lane = "fast", args = list()) 
     handler     = handler,
     permission  = permission,
     lane        = lane,
+    supersede   = supersede,
     args        = args ))
 }
 
@@ -311,53 +326,132 @@ call_handler <- function (route, REQ, args) {
 #' Handle one HTTP request.
 #'
 #' @param request  The request environment from httpuv.
-#' @param app      `list(db, config)`: the open database connection and the
-#'                 server configuration.
-#' @return A `response()`. Never stops: every error becomes a response with
-#'         a short message and an error id.
+#' @param app      `list(db, config, pool, memo)`: the open database
+#'                 connection, the server configuration, the worker pool and
+#'                 the in-memory project summaries. Without a pool, jobs run
+#'                 in this process, which is how most tests run.
+#' @return A `response()`, or, when the handler returned a job and there is
+#'         a pool, a promise of one. Never stops and never rejects: every
+#'         error becomes a response with a short message and an error id.
 #' @noRd
 handle_request <- function (request, app) {
 
   started <- Sys.time()
-  calls   <- NULL
 
   REQ <- as.environment(list(
     DB      = app[['db']],
     CONFIG  = app[['config']],
+    POOL    = app[['pool']],
+    MEMO    = app[['memo']],
     METHOD  = request[['REQUEST_METHOD']],
     PATH    = request[['PATH_INFO']],
     URL     = paste0("http://", request[['HTTP_HOST']]),
     CLIENT  = request_client(request),
     SESSION = list() ))
 
-  resp <- tryCatch(
 
+  #________________________________________________________
+  # Route, session, permission, arguments, handler.
+  #________________________________________________________
+  out <- request_stage(REQ, {
+
+    matched <- match_route(REQ[['METHOD']], REQ[['PATH']])
+    route   <- matched[['route']]
+
+    REQ[['ROUTE']] <- route
+
+    if (route[['permission']] != "public")
+      resume_session(REQ)
+
+    check_permission(REQ, route)
+
+    args <- c(request_args(request), matched[['params']])
+    args <- validate_args(route, args)
+
+    # Nothing a handler writes is kept unless the handler finishes.
+    out <- db_transaction(REQ[['DB']], call_handler(route, REQ, args))
+
+    if (inherits(out, "job") && route[['lane']] != "compute")
+      stop("The handler of a fast route returned a job: ", route[['endpoint']])
+
+    out
+  })
+
+  if (!inherits(out, "job"))
+    return (request_done(REQ, started, out))
+
+
+  #________________________________________________________
+  # The handler left work for a worker. When that is done,
+  # `finish` turns the result into the response.
+  #________________________________________________________
+  session <- REQ[['SESSION']]
+
+  finish <- function (outcome) {
+    request_done(REQ, started, request_stage(REQ, {
+
+      result <- job_value(outcome())
+
+      db_transaction(REQ[['DB']], {
+
+        # Other requests ran in the meantime. Reload the session, and give
+        # up if it has moved on to a different project.
+        if (!is.null(session[['session_key']])) {
+          resume_session(REQ, session[['auth_token']], session[['session_key']])
+          if (!identical(REQ[['SESSION']][['draft_id']], session[['draft_id']]))
+            stop_http(409L, "The open project changed while this was running.")
+        }
+
+        resp <- out[['finish']](result)
+
+        if (inherits(resp, "job"))
+          stop("The finish step of a job returned another job: ", out[['fn']])
+
+        resp
+      })
+    }))
+  }
+
+  pool <- REQ[['POOL']]
+
+  if (is.null(pool))
+    return (finish(function () run_inline(out[['fn']], out[['args']])))
+
+  key <- NULL
+  if (isTRUE(REQ[['ROUTE']][['supersede']]) && !is.null(session[['session_id']]))
+    key <- paste(session[['session_id']], REQ[['ROUTE']][['path']])
+
+  promises::then(
+    promise     = pool_submit(pool, out[['fn']], out[['args']], session[['session_id']], key),
+    onFulfilled = function (value) finish(function () value),
+    onRejected  = function (error) finish(function () stop(error)) )
+}
+
+
+#______________________________________________________________________________
+#' Run one stage of a request. An error becomes the error response, with the
+#' details logged.
+#' @return The value of `code`, or a `response()` describing the error.
+#' @noRd
+request_stage <- function (REQ, code) {
+
+  calls <- NULL
+
+  tryCatch(
     error = function (e) error_response(e, REQ, calls),
-
-    expr = withCallingHandlers(
-
+    expr  = withCallingHandlers(
       error = function (e) if (is.null(calls)) calls <<- sys.calls(),
+      expr  = code ))
+}
 
-      expr = {
 
-        matched <- match_route(REQ[['METHOD']], REQ[['PATH']])
-        route   <- matched[['route']]
+#______________________________________________________________________________
+#' Make sure a request's result is a `response()`, and log the request.
+#' @noRd
+request_done <- function (REQ, started, resp) {
 
-        REQ[['ROUTE']] <- route
-
-        if (route[['permission']] != "public")
-          resume_session(REQ)
-
-        check_permission(REQ, route)
-
-        args <- c(request_args(request), matched[['params']])
-        args <- validate_args(route, args)
-
-        # Nothing a handler writes is kept unless the handler finishes.
-        resp <- db_transaction(REQ[['DB']], with_rbiom_cache(REQ, call_handler(route, REQ, args)))
-
-        if (inherits(resp, "response")) resp else response(resp)
-      }))
+  if (!inherits(resp, "response"))
+    resp <- tryCatch(response(resp), error = function (e) error_response(e, REQ))
 
   log_event(
     level   = "info",
@@ -442,23 +536,4 @@ request_args <- function (request) {
       error = function (e) stop_user("The query string could not be read.") ))
 
   return (args)
-}
-
-
-#______________________________________________________________________________
-#' Point rbiom's cache at atima's cache directory while `code` runs, with
-#' keys tied to the session's rarefied BIOM file.
-#' @noRd
-with_rbiom_cache <- function (REQ, code) {
-
-  rare_bf_id <- REQ[['SESSION']][['rare_bf_id']]
-  if (is.null(rare_bf_id)) return (force(code))
-
-  prev <- options(
-    rbiom.cache_dir  = file.path(REQ[['CONFIG']][['data_dir']], 'cache'),
-    rbiom.cache_size = REQ[['CONFIG']][['cache_size']],
-    rbiom.cache_hash = function (args) paste0(rare_bf_id, "_", hash(args)) )
-  on.exit(options(prev), add = TRUE)
-
-  force(code)
 }
