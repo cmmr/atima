@@ -236,15 +236,21 @@ test_that("a job that runs past the time limit is stopped", {
 
 test_that("the time limit counts running time, not time spent in the queue", {
 
-  # Three jobs of two and a half seconds on two workers: the third waits
-  # that long and then needs as long again, five seconds in all, with a
-  # limit of four.
   withr::defer(pool$time_limit <- 3)
-  pool$time_limit <- 4
+  pool$time_limit <- 60
 
-  jobs <- lapply(1:3, function (i) submit(quote({ Sys.sleep(2.5); "done" })))
+  # Both workers are busy for three seconds. A third job, allowed only two
+  # seconds, waits longer than that for a worker and still succeeds, because
+  # its own run is short.
+  busy   <- lapply(1:2, function (i) submit(quote({ Sys.sleep(3); "done" })))
+  queued <- quiet(pool_submit(pool, "eval", list(expr = quote("quick")), time_limit = 2))
+  expect_length(pool$queue, 1L)
 
-  expect_identical(vapply(jobs, value_of, ""), rep("done", 3))
+  started <- Sys.time()
+  expect_identical(value_of(queued), "quick")
+  expect_gte(as.numeric(difftime(Sys.time(), started, units = "secs")), 2.5)
+
+  expect_identical(vapply(busy, value_of, ""), rep("done", 2))
   expect_true(pool_idle())
 })
 

@@ -119,11 +119,15 @@ it to that step's list instead of fixing it now.
 - **Caches (step 4).** Daniel chose both, separated. atima keeps its own
   cache for what atima derives (parsed BIOM objects, project summaries) in
   `<data_dir>/cache/atima`; rbiom's cache stays on inside workers in
-  `<data_dir>/cache/rbiom`. Each gets half of `cache_size_mb`. rbiom's cache
-  still lists its directory on every write and does not write atomically;
-  Daniel is holding the rbiom 4 CRAN submission so that this can be changed
-  in rbiom (a prompt for that session was given to him at the end of
-  step 4).
+  `<data_dir>/cache/rbiom`. Each gets half of `cache_size_mb`. When step 4
+  was written, rbiom's cache listed its directory on every write and did
+  not write atomically. Daniel changed that in rbiom (still version 4.0.0,
+  not yet on CRAN) on 2026-11-11: it now writes to a temporary name and
+  renames, keeps a per-process tally instead of listing on every write,
+  and removes stale temporary files. He also removed the
+  `rbiom.cache_hash` option, which atima stopped using in step 4 (rbiom
+  keys its cache by each object's `$hash`). atima needed no change; its
+  tests and `R CMD check` pass against the updated rbiom.
 - **Job model (step 4).** Daniel agreed: handlers of compute routes return
   a job; the main process does "prepare" in one transaction and "finish" in
   another, with the worker in between; workers get paths and validated
@@ -515,6 +519,16 @@ drafts); default worker count and per-job CPU and time limits.
   `/api/session/abort`. Not verified by hand: stopping the server with
   an interrupt (the pieces are tested: `pool_stop()`, the cleanup timer,
   `db_close()`), and anything in a browser.
+- Seen and not explained: in two of several whole-suite
+  `devtools::test()` runs on the Windows dev machine, a job that only
+  sleeps 2.5 s was stopped by a 4 s time limit, in the test that follows
+  the time-limit test in `test-jobs.R`. It never happened when that file
+  ran alone, under `R CMD check`, or in CI, and a traced whole-suite run
+  showed correct dispatch. The test now avoids the tight margin. If
+  step 9's load test shows jobs timing out early after another job was
+  interrupted, look at whether a worker is handed a job before it has
+  finished unwinding the interrupted one (`worker_await()` in
+  `R/jobs.R`).
 - Not done here, on purpose: the upgrade backups `sqlite.db.v*.bak` are
   still never deleted (step 9, backup policy); there is no per-user limit
   on queued jobs or on stored data (step 9); nothing limits how much
