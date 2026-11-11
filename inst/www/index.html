@@ -177,9 +177,9 @@
         <span class="material-symbols-outlined text-sm">add</span>
         New Project
       </button>
-      <button class="p-2 text-on-primary/70 hover:bg-white/10 rounded-full">
-        <span class="material-symbols-outlined">account_circle</span>
-      </button>
+      <!-- Filled in by js/account.js: sign in, or the user's name and sign out.
+           Stays empty when the server runs without accounts. -->
+      <div id="account-control" class="flex items-center gap-2"></div>
     </div>
   </header>
 
@@ -201,5 +201,6 @@
       </div>
     </footer>
   </main>
+  <script type="module" src="/www/js/account.js"></script>
 </body>
 </html>
