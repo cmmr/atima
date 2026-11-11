@@ -75,9 +75,34 @@ laptop. A job that runs past `time_limit` is stopped. When the server is
 interrupted it cancels running jobs, stops the workers and closes the
 database.
 
-`run()` also accepts `smtp` (and `ATIMA_SMTP_SERVER`, `ATIMA_SMTP_PORT`,
-`ATIMA_SMTP_USERNAME`, `ATIMA_SMTP_PASSWORD`, `ATIMA_SMTP_FROMADDR` and
-`ATIMA_SMTP_SSL`). It is checked but has no effect yet: no email is sent.
+### Who can use it
+
+By default (`auth = "none"`) atima is for one person on their own computer.
+There are no accounts, the server only listens on `127.0.0.1`, and it
+refuses to start on an address that other computers can reach.
+
+For a shared server, use `auth = "oidc"`. People then sign in through an
+OpenID Connect provider such as [Globus Auth](https://www.globus.org/platform/services/auth)
+(the default) or [ORCID](https://orcid.org); atima stores no passwords.
+Register the server with the provider as a web application whose redirect
+URL is `<public_url>/auth/callback`, then start it with the client id and
+secret the provider gave you, preferably from the environment:
+
+```sh
+export ATIMA_OIDC_CLIENT_ID="<client id>"
+export ATIMA_OIDC_CLIENT_SECRET="<client secret>"
+```
+
+```r
+atima::run(
+  host       = "0.0.0.0",
+  auth       = "oidc",
+  public_url = "https://atima.example.org" )
+```
+
+Put a reverse proxy in front for HTTPS. Visitors who have not signed in can
+explore public projects and upload their own data, which is kept for
+`guest_days` and becomes theirs when they sign in.
 
 See `?atima::run` for details.
 
