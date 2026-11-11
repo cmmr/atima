@@ -21,7 +21,38 @@
 #' @param port        Port to listen on.
 #' @param host        IP address to listen on. The default, `"127.0.0.1"`,
 #'                    only accepts connections from this computer. Use
-#'                    `"0.0.0.0"` to listen on all interfaces.
+#'                    `"0.0.0.0"` to listen on all interfaces; that needs
+#'                    `auth = "oidc"`.
+#' @param auth        Who may use the server. `"none"`, the default, is for
+#'                    one person on their own computer: there are no
+#'                    accounts and nothing to sign in to, and `host` must be
+#'                    a loopback address. `"oidc"` is for a shared server:
+#'                    visitors sign in through an OpenID Connect provider.
+#'                    See the section on signing in.
+#' @param public_url  With `auth = "oidc"`: the address people type to reach
+#'                    the server, such as `"https://atima.example.org"`.
+#'                    Needed unless the server is only used from this
+#'                    computer, when it defaults to `http://localhost:<port>`.
+#' @param oidc_issuer  The OpenID Connect provider's issuer URL. The default
+#'                    is Globus Auth; for ORCID use `"https://orcid.org"`.
+#' @param oidc_client_id,oidc_client_secret  The client id and secret that
+#'                    the provider gave you when you registered this
+#'                    server with it. Prefer the environment variables
+#'                    `ATIMA_OIDC_CLIENT_ID` and `ATIMA_OIDC_CLIENT_SECRET`
+#'                    to writing the secret in a script.
+#' @param admins      With `auth = "oidc"`: the provider's identifiers
+#'                    (`sub` claims) of the people who are administrators,
+#'                    as a character vector or one comma-separated string.
+#'                    Administrators can change public projects. The
+#'                    default, `NULL`, leaves administrators as they are in
+#'                    the database.
+#' @param forwarded_proto_header  The name of a request header, set by a
+#'                    reverse proxy you control, that says whether the
+#'                    visitor used HTTPS; usually `"X-Forwarded-Proto"`. The
+#'                    default, `NULL`, trusts no such header. Not needed
+#'                    when `public_url` starts with `https://`.
+#' @param signin_days  How long a sign-in lasts before the browser has to
+#'                    sign in again.
 #' @param data_dir    Directory for the database and stored BIOM files. It
 #'                    is created, and filled with two example projects, the
 #'                    first time the server starts.
@@ -47,11 +78,31 @@
 #'                    after this many days without a visit, along with any
 #'                    projects that only they could open.
 #' @param max_upload_mb  Largest upload to accept, in megabytes.
-#' @param smtp        A list of SMTP settings (`server`, `port`, `username`,
-#'                    `password`, `fromaddr`, `ssl`) for account emails.
-#'                    Accepted but not used yet: no email is sent, and new
-#'                    accounts are created without email verification.
 #' @param open        Open the app in a web browser once the server is up?
+#'
+#' @section Signing in:
+#' With `auth = "none"` there is nothing to set up. The server refuses to
+#' start on an address other computers can reach, and only answers requests
+#' addressed to `localhost`, `127.0.0.1` or `[::1]`. Everything belongs to
+#' one local user, including projects that guests or password accounts
+#' made with an earlier version of atima. Anyone who can use this computer
+#' while the server runs can open the app.
+#'
+#' With `auth = "oidc"` atima keeps no passwords. Register the server with
+#' the provider as a web application (a confidential client) whose redirect
+#' URL is `<public_url>/auth/callback`, and give `run()` the client id and
+#' secret. atima reads everything else from the provider's discovery
+#' document and uses the authorization code flow with PKCE. A person is
+#' recognised by the provider's identifier for them, never by their email
+#' address. Visitors who have not signed in are guests: they can explore
+#' public projects, and what they upload is kept for `guest_days` and
+#' becomes theirs when they sign in.
+#'
+#' The browser is recognised by one cookie. It cannot be read by scripts,
+#' is not sent with requests made by other sites, and is marked `Secure`
+#' whenever the site is served over HTTPS (see `public_url` and
+#' `forwarded_proto_header`). Serve a public server over HTTPS, through a
+#' reverse proxy.
 #'
 #' @section Database:
 #' The database is the file `sqlite.db` in `data_dir`. When a newer version
@@ -93,6 +144,14 @@
 run <- function(
     port          = 8080,
     host          = '127.0.0.1',
+    auth          = 'none',
+    public_url    = NULL,
+    oidc_issuer   = 'https://auth.globus.org',
+    oidc_client_id     = NULL,
+    oidc_client_secret = NULL,
+    admins        = NULL,
+    forwarded_proto_header = NULL,
+    signin_days   = 30,
     data_dir      = tools::R_user_dir('atima', 'data'),
     temp_dir      = tempfile(pattern = 'atima_'),
     workers       = max(1, min(4, parallelly::availableCores() %/% 2)),
@@ -102,7 +161,6 @@ run <- function(
     max_upload_mb = 50,
     session_hours = 24,
     guest_days    = 30,
-    smtp          = NULL,
     open          = interactive() ) {
 
   message("Initializing Atima Server...")
@@ -112,6 +170,10 @@ run <- function(
   #
   explicits <- if (nargs() > 0) mget(names(match.call())[-1]) else list()
 
+  optional <- c(
+    'max_cpus', 'public_url', 'oidc_client_id', 'oidc_client_secret',
+    'admins', 'forwarded_proto_header' )
+
   find_arg <- function(param, cls) {
 
     val <- if (hasName(explicits, param)) { explicits[[param]]
@@ -120,12 +182,12 @@ run <- function(
     } else if (param %in% formalArgs(run)) { get(param, parent.frame())
     } else { NULL }
 
-    if (startsWith(param, 'smtp_') && is.null(val)) return (val)
-    if (param == 'max_cpus'        && is.null(val)) return (val)
+    if (param %in% optional && is.null(val)) return (val)
 
     if (is.null(val))     stop(param, ' cannot be NULL.')
-    if (length(val) != 1) stop(param, ' must be a single value.')
-    if (is.na(val))       stop(param, ' cannot be NA.')
+    if (param == 'admins') val <- paste(val, collapse = ',')
+    if (length(val) != 1)  stop(param, ' must be a single value.')
+    if (is.na(val))        stop(param, ' cannot be NA.')
 
     tryCatch(
       error = function (e) stop("Error with '", param, "' parameter: ", e),
@@ -149,23 +211,23 @@ run <- function(
   session_hours <- find_arg('session_hours', 'int')
   guest_days    <- find_arg('guest_days',    'int')
   open          <- find_arg('open',          'bool')
+  signin_days   <- find_arg('signin_days',   'int')
 
-  if (is.null(smtp)) {
-    smtp <- list(
-      server   = find_arg('smtp_server',   'chr'),
-      port     = find_arg('smtp_port',     'int'),
-      username = find_arg('smtp_username', 'chr'),
-      password = find_arg('smtp_password', 'chr'),
-      fromaddr = find_arg('smtp_fromaddr', 'chr'),
-      ssl      = find_arg('smtp_ssl',      'bool')
-    )
-    if (all(vapply(smtp, is.null, logical(1)))) smtp <- NULL
-  }
+  auth_cfg <- auth_settings(
+    auth          = find_arg('auth', 'chr'),
+    host          = host,
+    port          = port,
+    public_url    = find_arg('public_url', 'chr'),
+    issuer        = find_arg('oidc_issuer', 'chr'),
+    client_id     = find_arg('oidc_client_id', 'chr'),
+    client_secret = find_arg('oidc_client_secret', 'chr'),
+    admins        = find_arg('admins', 'chr'),
+    forwarded_proto_header = find_arg('forwarded_proto_header', 'chr') )
 
   if (is.null(max_cpus))
     max_cpus <- max(1L, as.integer(availableCores()) %/% workers)
 
-  for (param in c('workers', 'max_cpus', 'time_limit', 'session_hours', 'guest_days'))
+  for (param in c('workers', 'max_cpus', 'time_limit', 'session_hours', 'guest_days', 'signin_days'))
     if (get(param) < 1) stop(param, ' must be at least 1.')
 
   cache_size_bytes <- cache_size_mb * 1024 * 1024
@@ -197,8 +259,13 @@ run <- function(
     max_cpus    = max_cpus,
     session_ttl = session_hours * 3600,
     guest_ttl   = guest_days * 86400,
-    smtp        = smtp
+    signin_ttl  = signin_days * 86400,
+    auth        = auth_cfg[['auth']],
+    public_url  = auth_cfg[['public_url']],
+    forwarded_proto_header = auth_cfg[['forwarded_proto_header']]
   )
+
+  message(' - Sign-in: ', if (config[['auth']] == 'none') 'none (single local user)' else paste('OpenID Connect,', auth_cfg[['oidc']][['issuer']]))
 
   for (subdir in file.path(data_dir, c('files', 'cache')))
     if (!dir.exists(subdir)) dir.create(subdir, recursive = TRUE)
@@ -220,7 +287,24 @@ run <- function(
     db_seed(db, config, pool)
   }
 
-  app_state <- list(db = db, config = config, pool = pool, memo = memo_new())
+  auth_state <- auth_new(config[['auth']], auth_cfg[['oidc']])
+
+  # Find the provider now, so that a wrong issuer shows at start-up. If it
+  # cannot be reached, the server still starts and tries again when
+  # someone signs in.
+  if (config[['auth']] == 'oidc')
+    tryCatch(
+      expr  = auth_state[['provider']] <- oidc_discover(auth_cfg[['oidc']][['issuer']]),
+      error = function (e) {
+        message(' - Warning: the sign-in provider is not usable yet: ', conditionMessage(e))
+        log_event("error", "oidc_discovery_failed", message = log_truncate(conditionMessage(e), 2000L))
+      })
+
+  # A local install has one user, who owns whatever is in the database.
+  if (config[['auth']] == 'none')
+    db_transaction(db, local_owner(db))
+
+  app_state <- list(db = db, config = config, pool = pool, memo = memo_new(), auth = auth_state)
 
   stop_cleanup <- cleanup_start(app_state)
   on.exit(stop_cleanup(), add = TRUE, after = FALSE)
@@ -280,7 +364,7 @@ run <- function(
   #______________________________________________
   # 4. Start Server
   #
-  url <- local_url(host, port)
+  url <- if (config[['auth']] == 'oidc') config[['public_url']] else local_url(host, port)
   message("Server listening on ", host, " port ", port, ". Open ", url)
 
   if (open) utils::browseURL(url)
@@ -288,6 +372,78 @@ run <- function(
   on.exit(message("Stopping the Atima server..."), add = TRUE, after = FALSE)
 
   httpuv::runServer(host, port, app)
+}
+
+
+#______________________________________________________________________________
+#' Internal: check the authentication settings and put them in order.
+#'
+#' @return `list(auth, public_url, forwarded_proto_header, oidc)`, where
+#'         `oidc` is `NULL` or `list(issuer, client_id, client_secret,
+#'         redirect_uri, admins)`. Stops if the settings cannot be used.
+#' @noRd
+auth_settings <- function (
+    auth, host, port, public_url = NULL, issuer = NULL, client_id = NULL,
+    client_secret = NULL, admins = NULL, forwarded_proto_header = NULL ) {
+
+  if (!is_one_of(auth, auth_modes))
+    stop('auth must be "none" or "oidc".', call. = FALSE)
+
+  if (!is.null(forwarded_proto_header) && !grepl("^[A-Za-z0-9-]+$", forwarded_proto_header))
+    stop('forwarded_proto_header must be the name of a request header, such as "X-Forwarded-Proto".', call. = FALSE)
+
+
+  # Without accounts, the server must not be reachable from elsewhere.
+  if (auth == "none") {
+
+    if (!is_loopback_host(host))
+      stop(call. = FALSE, sprintf(paste(
+        'auth = "none" has no accounts, so it only runs on this computer,',
+        'and host = "%s" would let other computers connect.',
+        'Use host = "127.0.0.1", or set auth = "oidc" for a shared server.' ), host))
+
+    return (list(auth = auth, public_url = NULL, forwarded_proto_header = forwarded_proto_header, oidc = NULL))
+  }
+
+
+  if (is.null(client_id) || !nzchar(client_id) || is.null(client_secret) || !nzchar(client_secret))
+    stop(call. = FALSE, paste(
+      'auth = "oidc" needs the client id and secret from your provider:',
+      'set oidc_client_id and oidc_client_secret, or the environment variables',
+      'ATIMA_OIDC_CLIENT_ID and ATIMA_OIDC_CLIENT_SECRET.' ))
+
+  if (!oidc_url_ok(issuer))
+    stop('oidc_issuer must be an https:// URL.', call. = FALSE)
+
+  if (is.null(public_url)) {
+    if (!is_loopback_host(host))
+      stop('auth = "oidc" needs public_url, the address people use to reach this server, e.g. "https://atima.example.org".', call. = FALSE)
+    public_url <- sprintf("http://localhost:%d", as.integer(port))
+  }
+
+  public_url <- sub("/+$", "", public_url)
+
+  if (!grepl("^https?://[^/?#[:space:]]+$", public_url))
+    stop('public_url must look like "https://atima.example.org", with no path.', call. = FALSE)
+
+  if (!oidc_url_ok(public_url))
+    stop('public_url must start with https://, unless it is a localhost address.', call. = FALSE)
+
+  if (!is.null(admins)) {
+    admins <- trimws(strsplit(admins, ",", fixed = TRUE)[[1]])
+    admins <- admins[nzchar(admins)]
+  }
+
+  list(
+    auth                   = auth,
+    public_url             = public_url,
+    forwarded_proto_header = forwarded_proto_header,
+    oidc                   = list(
+      issuer        = issuer,
+      client_id     = client_id,
+      client_secret = client_secret,
+      redirect_uri  = paste0(public_url, "/auth/callback"),
+      admins        = admins ))
 }
 
 

@@ -265,7 +265,7 @@ test_that("a full cleanup removes an expired guest's upload and keeps everything
   expect_identical(resp$status, 200L)
   expect_identical(post(session, "/api/project/rarefy", list(depth = 1000))$status, 200L)
 
-  seeded_files <- db_query(DB, "SELECT file FROM biom_files JOIN projects ON biom_file_id IN (orig_bf_id, full_bf_id, rare_bf_id) WHERE is_public = 1", "T1")
+  seeded_files <- db_query(DB, "SELECT file FROM biom_files JOIN projects ON biom_file_id IN (orig_bf_id, full_bf_id, rare_bf_id) WHERE public_key IS NOT NULL", "T1")
 
   # Right away, nothing that is in use is removed: only the draft the
   # session left when it switched to its upload.
@@ -299,7 +299,7 @@ test_that("a full cleanup removes an expired guest's upload and keeps everything
   expect_identical(count(DB, "permissions"), 0L)
 
   # What is left is exactly the two public example projects and their files.
-  expect_setequal(db_query(DB, "SELECT access_key FROM projects", "T2"), c("hmp50", "gems"))
+  expect_setequal(db_query(DB, "SELECT public_key FROM projects", "T2"), c("hmp50", "gems"))
   expect_setequal(db_query(DB, "SELECT file FROM biom_files", "T3"), seeded_files)
   expect_setequal(list.files(files_dir), seeded_files)
   expect_identical(nrow(DBI::dbGetQuery(DB, "PRAGMA foreign_key_check")), 0L)

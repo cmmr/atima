@@ -26,9 +26,14 @@ test_that("a collection can only be deleted by its owner", {
   owner <- add_test_user(DB, "Ada Lovelace")
   other <- add_test_user(DB, "Charles Babbage")
   coll  <- create_collection(DB, owner, NULL, "Private collection")
+  pid   <- add_test_project(DB, other)$project_id
 
-  REQ$SESSION <- list(user_id = other)
-  expect_error(api_jstree_delete(REQ, paste0("C", coll)), "not yours", class = "atima_http_error")
+  resp <- handle_request(
+    fake_request("POST", "/api/tree/delete", list(node_id = paste0("C", coll)), add_test_session(DB, other, pid)),
+    test_app(REQ) )
+
+  expect_identical(resp$status, 403L)
+  expect_match(response_json(resp)$error$message, "not yours")
   expect_true(db_row_exists(DB, "collections", coll, assert = FALSE))
 })
 
@@ -69,11 +74,18 @@ test_that("a viewer cannot rename a project", {
   DB     <- REQ$DB
   viewer <- add_test_user(DB, "Charles Babbage")
   proj   <- add_test_project(DB, viewer, "Read-only project", is_editor = FALSE)
-  REQ$SESSION <- list(user_id = viewer, project_id = proj$project_id)
 
-  expect_error(
-    api_jstree_rename(REQ, paste0("P", proj$permission_id), "Hijacked title"),
-    "do not have permission" )
+  session <- add_test_session(DB, viewer, proj$project_id)
+  node    <- paste0("P", proj$permission_id)
+  post    <- function (path, args) handle_request(fake_request("POST", path, args, session), test_app(REQ))
+
+  resp <- post("/api/tree/rename", list(node_id = node, text = "Hijacked title"))
+  expect_identical(resp$status, 403L)
+  expect_match(response_json(resp)$error$message, "do not have permission")
+
+  # Nor delete it for everyone. Leaving it is theirs to do.
+  expect_identical(post("/api/tree/delete", list(node_id = node))$status, 403L)
+  expect_identical(project_access(DB, proj$project_id, viewer), "viewer")
 
   title <- db_query(DB, "SELECT title FROM projects WHERE project_id = ?", "Test1", list(proj$project_id))
   expect_identical(title, "Read-only project")

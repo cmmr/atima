@@ -31,6 +31,8 @@ Depends:
 Imports:
     DBI,
     httpuv,
+    httr2 (>= 1.2.0),
+    jose,
     jsonlite,
     later,
     methods,
@@ -43,13 +45,12 @@ Imports:
     rbiom (>= 4.0.0),
     rlang,
     RSQLite,
-    sodium,
     stats,
     tools,
     utils,
-    webutils
+    webutils,
+    xml2
 Suggests:
-    blastula,
     curl,
     pkgload,
     testthat (>= 3.0.0),

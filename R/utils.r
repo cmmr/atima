@@ -16,70 +16,6 @@ is_one_of <- function (x, choices) {
 
 
 #______________________________________________________________________________
-#' Make sure this is a length-one integer or NULL.
-#' @return an integer, or NULL.
-#' @noRd
-int <- function (val, assert = TRUE) {
-  
-  if (is.null(val))
-    return (NULL)
-  
-  if (length(val) != 1) {
-    if (isTRUE(assert))
-      stop_user("Expected a single whole number.")
-    return (NULL)
-  }
-  
-  
-  if (!is.integer(val)) {
-    val <- try(silent = TRUE, as.integer(val))
-    
-    if (!is.integer(val) || is.na(val)) {
-      if (isTRUE(assert))
-        stop_user("Expected a whole number.")
-      return (NULL)
-    }
-  }
-  
-  
-  if (val < 1) {
-    if (isTRUE(assert))
-      stop_user("Expected a positive whole number.")
-    return (NULL)
-  }
-  
-  return (val)
-}
-
-
-
-#______________________________________________________________________________
-#' AJAX response that will trigger a sweetalert pop up.
-#' @return <response:swal>
-#' @noRd
-swal <- function (
-    ..., icon = 'warning', title = NA, 
-    success = NULL, error = NULL, warning = NULL, info = NULL ) {
-  
-  text <- paste0(success, error, warning, info, ...)
-  if (!is.null(success)) icon <- 'success'
-  if (!is.null(error))   icon <- 'error'
-  if (!is.null(warning)) icon <- 'warning'
-  if (!is.null(info))    icon <- 'info'
-  
-  resp <- response(list(
-    'swal' = list(
-      'title' = unbox(title), 
-      'text'  = unbox(text), 
-      'icon'  = unbox(icon) )))
-  
-  return (resp)
-}
-
-
-
-
-#______________________________________________________________________________
 #' Shorthand for replacing NAs with something else.
 #' @noRd
 if.na <- function (x, replacement) {
@@ -118,6 +54,26 @@ named_dots <- function (...) {
     names(values) <- names(exprs_auto_name(substitute(list(...))))[-1]
   
   return (values)
+}
+
+
+#______________________________________________________________________________
+#' Generate a random key of lower-case letters and digits, each equally
+#' likely, from the operating system's secure random source.
+#' @noRd
+random_key <- function (len) {
+
+  symbols <- c(letters, 0:9)
+  out     <- character(0)
+
+  while (length(out) < len) {
+    bytes <- as.integer(rand_bytes(len * 2L))
+    # 252 is the largest multiple of 36 that a byte can reach; larger bytes
+    # are thrown away so that no symbol is favoured.
+    out   <- c(out, symbols[bytes[bytes < 252L] %% 36L + 1L])
+  }
+
+  paste(out[seq_len(len)], collapse = "")
 }
 
 

@@ -8,9 +8,8 @@
 #   G<project_id>     a project in the public tree
 # "#" is the top of a tree.
 #
-# The router checks the format of node ids. Whether a node belongs to the
-# caller is checked here, by the helpers `own_permission()` and
-# `own_collection()`.
+# The router checks the format of node ids and, through the `tree` and
+# `tree_edit` rules in `R/access.R`, that the nodes belong to the caller.
 #______________________________________________________________________________
 
 
@@ -22,39 +21,13 @@ node_number <- function (node_id) {
 
 
 #______________________________________________________________________________
-#' Look up one of the caller's own project nodes.
-#' @param editor  Require editing rights on the project.
-#' @return The `permissions` row as a list. Stops with a 403 if the node is
-#'         not the caller's, or `editor` is asked for and missing.
+#' The `permissions` row behind a project node (`P<permission_id>`) of the
+#' caller's tree. The router has already checked that it is theirs.
+#' @return The row as a list.
 #' @noRd
-own_permission <- function (DB, user_id, node_id, editor = FALSE) {
-
-  sql <- "SELECT * FROM permissions WHERE permission_id = ? AND user_id = ?"
-  row <- db_query(DB, sql, "OPerm1", list(node_number(node_id), user_id), simplify = FALSE)
-
-  if (nrow(row) != 1)
-    stop_forbidden("That project is not in your collections. Please reload the page.")
-
-  if (editor && !isTRUE(row[['is_editor']]))
-    stop_forbidden("You do not have permission to change this project.")
-
-  as.list(row)
-}
-
-
-#______________________________________________________________________________
-#' Check that a collection node is one of the caller's own.
-#' @return The collection_id. Stops with a 403 otherwise.
-#' @noRd
-own_collection <- function (DB, user_id, node_id) {
-
-  collection_id <- node_number(node_id)
-
-  sql <- "SELECT COUNT(*) FROM collections WHERE collection_id = ? AND user_id = ?"
-  if (db_query(DB, sql, "OColl1", list(collection_id, user_id)) == 0)
-    stop_forbidden("That collection is not yours. Please reload the page.")
-
-  collection_id
+node_permission <- function (DB, node_id) {
+  sql <- "SELECT * FROM permissions WHERE permission_id = ?"
+  db_query(DB, sql, "NPerm1", list(node_number(node_id)), req1 = TRUE)
 }
 
 
@@ -65,10 +38,9 @@ own_collection <- function (DB, user_id, node_id) {
 api_jstree_select <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
-  user_id <- REQ[['SESSION']][['user_id']]
 
   project_id <-
-    if (startsWith(node_id, "P")) { own_permission(DB, user_id, node_id)[['project_id']]
+    if (startsWith(node_id, "P")) { node_permission(DB, node_id)[['project_id']]
     } else                        { node_number(node_id) }
 
   select_project(REQ, project_id = project_id)
@@ -102,7 +74,7 @@ compile_jstree_data <- function (REQ) {
   #________________________________________________________
   public <- c(
     nodes("SELECT * FROM collections WHERE user_id IS NULL", "AJData1"),
-    nodes("SELECT * FROM projects WHERE is_public = 1", "AJData2", public = TRUE, editor = is_admin) )
+    nodes("SELECT * FROM projects WHERE public_key IS NOT NULL", "AJData2", public = TRUE, editor = is_admin) )
 
 
   #________________________________________________________
@@ -143,10 +115,10 @@ api_jstree_create <- function (REQ, node_id) {
   parent_collection_id <- local({
     
     if (startsWith(node_id, 'P')) {
-      return (if.na(own_permission(DB, user_id, node_id)[['collection_id']], NULL))
+      return (if.na(node_permission(DB, node_id)[['collection_id']], NULL))
 
     } else if (startsWith(node_id, 'C')) {
-      return (own_collection(DB, user_id, node_id))
+      return (node_number(node_id))
 
     } else {
       return (NULL)
@@ -189,7 +161,6 @@ api_jstree_create <- function (REQ, node_id) {
 api_jstree_rename <- function (REQ, node_id, text) {
 
   DB         <- REQ[['DB']]
-  user_id    <- REQ[['SESSION']][['user_id']]
   project_id <- REQ[['SESSION']][['project_id']]
 
 
@@ -198,7 +169,7 @@ api_jstree_rename <- function (REQ, node_id, text) {
   #________________________________________________________
   if (startsWith(node_id, 'P')) {
 
-    pid <- own_permission(DB, user_id, node_id, editor = TRUE)[['project_id']]
+    pid <- node_permission(DB, node_id)[['project_id']]
     db_update(DB, "projects", pid, "AJRena1", title = text)
 
     # Tell the client when it was the open project that got renamed.
@@ -211,8 +182,7 @@ api_jstree_rename <- function (REQ, node_id, text) {
   # Renaming a COLLECTION, based on collection_id
   #________________________________________________________
   if (startsWith(node_id, 'C')) {
-    collection_id <- own_collection(DB, user_id, node_id)
-    db_update(DB, "collections", collection_id, "AJRena2", jstree_text = text)
+    db_update(DB, "collections", node_number(node_id), "AJRena2", jstree_text = text)
   }
 
 
@@ -228,12 +198,9 @@ api_jstree_rename <- function (REQ, node_id, text) {
 api_jstree_leave <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
-  user_id <- REQ[['SESSION']][['user_id']]
-
-  permission_id <- own_permission(DB, user_id, node_id)[['permission_id']]
 
   sql <- "DELETE FROM permissions WHERE permission_id = ?"
-  db_query(DB, sql, "AJLeav1", list(permission_id))
+  db_query(DB, sql, "AJLeav1", list(node_number(node_id)))
 
   return (list())
 }
@@ -247,14 +214,13 @@ api_jstree_leave <- function (REQ, node_id) {
 api_jstree_delete <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
-  user_id <- REQ[['SESSION']][['user_id']]
 
 
   # Deleting a PROJECT, based on a permission_id
   #________________________________________________________
   if (startsWith(node_id, 'P')) {
 
-    project_id <- own_permission(DB, user_id, node_id, editor = TRUE)[['project_id']]
+    project_id <- node_permission(DB, node_id)[['project_id']]
 
     # Really, just delete all permissions to it, to avoid clobbering
     # other users' open drafts of this project. Projects that nobody
@@ -268,7 +234,7 @@ api_jstree_delete <- function (REQ, node_id) {
   #________________________________________________________
   if (startsWith(node_id, 'C')) {
 
-    collection_id <- own_collection(DB, user_id, node_id)
+    collection_id <- node_number(node_id)
 
     # Are there sub-collections that need to be removed first?
     sql <- "SELECT COUNT(*) FROM collections WHERE parent_collection_id = ?"
@@ -299,18 +265,16 @@ api_jstree_delete <- function (REQ, node_id) {
 api_jstree_move <- function (REQ, node_id, parent_node_id) {
 
   DB      <- REQ[['DB']]
-  user_id <- REQ[['SESSION']][['user_id']]
 
   parent_collection_id <-
     if (identical(parent_node_id, "#")) { NULL
-    } else                              { own_collection(DB, user_id, parent_node_id) }
+    } else                              { node_number(parent_node_id) }
 
 
   # Moving a PROJECT, based on permission_id
   #________________________________________________________
   if (startsWith(node_id, 'P')) {
-    permission_id <- own_permission(DB, user_id, node_id)[['permission_id']]
-    db_update(DB, "permissions", permission_id, "AJMove1", collection_id = parent_collection_id)
+    db_update(DB, "permissions", node_number(node_id), "AJMove1", collection_id = parent_collection_id)
   }
 
 
@@ -318,7 +282,7 @@ api_jstree_move <- function (REQ, node_id, parent_node_id) {
   #________________________________________________________
   if (startsWith(node_id, 'C')) {
 
-    collection_id <- own_collection(DB, user_id, node_id)
+    collection_id <- node_number(node_id)
 
     # A collection cannot go inside itself or one of its own descendants.
     ancestor <- parent_collection_id
@@ -345,19 +309,6 @@ api_jstree_move <- function (REQ, node_id, parent_node_id) {
 #' @return a collection_id.
 #' @noRd
 create_collection <- function (DB, user_id, parent_collection_id, jstree_text) {
-  
-  sanity_check(user_id, parent_collection_id, jstree_text)
-  
-  # Check that the same user owns the parent collection
-  #________________________________________________________
-  if (!is.null(parent_collection_id)) {
-    sql        <- "SELECT user_id FROM collections WHERE collection_id = ?"
-    pc_user_id <- db_query(DB, sql, "CColl1", list(parent_collection_id))
-    
-    if (!((is.null(user_id) && is.na(pc_user_id)) || identical(pc_user_id, user_id)))
-      stop_forbidden("That collection is not yours. Please reload the page.")
-  }
-  
   
   collection_id <- db_insert(
     DB                   = DB,
@@ -404,7 +355,9 @@ compile_jstree_node <- function (row, public = FALSE, editor = FALSE) {
       icon   = unbox(if.blank(row[['jstree_icon']], 'fa fa-file')),
       info   = list(
         
-        access_key   = unbox(row[['access_key']]),
+        # In the public tree a project goes by its public key. Its private
+        # key is only for those who have it in their own tree.
+        access_key   = unbox(row[[ifelse(public, 'public_key', 'access_key')]]),
         created_utc  = unbox(row[['created_utc']]),
         has_tree     = unbox(row[['has_tree']]),
         median_depth = unbox(row[['median_depth']]),
@@ -458,9 +411,8 @@ get_shared_collection <- function (DB, user_id, grantor_user_id, create = TRUE) 
     return (NULL)
     
   
-  sql         <- "SELECT full_name, email FROM users WHERE user_id = ?"
-  grantor     <- db_query(DB, sql, "GSColl1", list(grantor_user_id))
-  jstree_text <- with(grantor, sprintf("Shared by %s (%s)", full_name, email))
+  sql         <- "SELECT full_name FROM users WHERE user_id = ?"
+  jstree_text <- paste("Shared by", db_query(DB, sql, "GSColl1", list(grantor_user_id)))
   
   sql <- paste0(
     "SELECT collection_id FROM collections",

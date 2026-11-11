@@ -27,127 +27,91 @@ api_abort <- function (REQ) {
 
 
 #______________________________________________________________________________
-#' Loading client-side data for the first time.
+#' Start a session for a browser tab.
+#'
+#' Who the tab belongs to comes from the browser's auth cookie. Without a
+#' valid one, the browser becomes a new guest (or, in `auth = "none"` mode,
+#' the owner) and is given a cookie.
+#'
+#' @param access_key  The project key in the page's URL, if any: a public
+#'                    key, or a private key (a share link).
 #' @return <response:session_data>
 #' @noRd
 api_init_session <- function (REQ, access_key = NULL) {
-  
-  DB <- REQ[['DB']]
-  
-  
-  
+
+  DB     <- REQ[['DB']]
+  CONFIG <- REQ[['CONFIG']]
+  local  <- identical(CONFIG[['auth']], "none")
+
+
   #________________________________________________________
-  # See if the headers have a valid auth_token.
+  # Who is this browser?
   #________________________________________________________
-  auth_token    <- REQ[['CLIENT']][['auth_token']]
-  auth_token_id <- NULL
-  user_id       <- NULL
-  if (identical(nchar(auth_token), 64L)) {
-    
-    sql <- paste0(
-      "SELECT auth_token_id, user_id FROM auth_tokens",
-      " WHERE auth_token_sha = ?" )
-    sha <- as.character(sha256(auth_token))
-    res <- db_query(DB, sql, "AISess1", list(sha))
-    
-    if (!is.null(res)) {
-      user_id       <- res[['user_id']]
-      auth_token_id <- res[['auth_token_id']]
+  token <- auth_token_find(DB, REQ[['CLIENT']][['auth_token']])
+  owner <- if (local) local_owner(DB)
+
+  if (local && !is.null(token) && !identical(token[['user_id']], owner))
+    token <- NULL
+
+  if (is.null(token)) {
+
+    if (local) {
+      user_id <- owner
+    } else {
+      user_id <- db_query(DB, "INSERT INTO users DEFAULT VALUES", "AISess2")
+      db_update(DB, "users", user_id, "AISess3", full_name = sprintf("Guest %i", user_id))
     }
+
+    ttl           <- if (local) CONFIG[['signin_ttl']] else CONFIG[['guest_ttl']]
+    issued        <- auth_token_new(DB, user_id, ttl)
+    auth_token    <- issued[['auth_token']]
+    auth_token_id <- issued[['auth_token_id']]
+
+  } else {
+
+    user_id       <- token[['user_id']]
+    auth_token    <- REQ[['CLIENT']][['auth_token']]
+    auth_token_id <- token[['auth_token_id']]
+
+    # A guest stays known for as long as they keep coming back.
+    if (token[['is_guest']])
+      db_update(
+        DB, "auth_tokens", auth_token_id, "AISess4",
+        expires_utc = sql_time(Sys.time() + CONFIG[['guest_ttl']]) )
   }
-  
-  
-  
-  #________________________________________________________
-  # No valid auth_token. Create a new auth_token and user.
-  #________________________________________________________
-  if (is.null(user_id)) {
-    
-    
-    #________________________________________________________
-    # Create a new guest user.
-    #________________________________________________________
-    user_id    <- db_query(DB, "INSERT INTO USERS DEFAULT VALUES", "AISess2")
-    full_name  <- sprintf("Guest %i", user_id)
-    db_update(DB, "users", user_id, "AISess3", full_name)
-    
-    
-    #________________________________________________________
-    # Create a new authentication token.
-    #________________________________________________________
-    auth_token     <- random_string(64)
-    auth_token_sha <- as.character(sha256(auth_token))
-    auth_token_id  <- db_insert(
-      DB             = DB,
-      table          = "auth_tokens",
-      err_code       = "AISess4",
-      user_id        = user_id,
-      auth_token_sha = auth_token_sha)
-  }
-  
-  
+
+
   #________________________________________________________
   # Decide which project to load.
   #________________________________________________________
-  project_id <- local({
-    
-    pid <- NULL
-    
-    
-    #________________________________________________________
-    # Load the project named in the page's URL, e.g. /hmp50
-    #________________________________________________________
-    if (!is.null(access_key) && nzchar(access_key))
-      pid <- local({
-        
-        if (!sanity_check(access_key, assert = FALSE))
-          return (NULL)
-        
-        sql <- "SELECT project_id FROM projects WHERE access_key = ?"
-        pid <- db_query(DB, sql, "AISess5", list(access_key))
-        
-        return (pid)
-      })
-    
-    
-    #________________________________________________________
-    # Default to the last project this user viewed.
-    #________________________________________________________
-    if (is.null(pid))
-      pid <- local({
-        sql <- "SELECT project_id FROM permissions
-            LEFT JOIN last_access USING (user_id, project_id)
-            WHERE user_id = ? ORDER BY `viewed_utc` DESC LIMIT 1"
-        pid <- db_query(DB, sql, "AISess6", list(user_id))
-        return (pid)
-      })
-    
-    
-    #________________________________________________________
-    # Otherwise the oldest public project.
-    #________________________________________________________
-    if (is.null(pid))
-      pid <- local({
-        sql <- "SELECT project_id FROM projects WHERE is_public = 1 ORDER BY project_id LIMIT 1"
-        pid <- db_query(DB, sql, "AISess9")
-        return (pid)
-      })
-    
-    if (is.null(pid))
-      stop_not_found("There is no project to open yet.")
-    
-    
-    return (pid)
-  })
-  
-  
-  if (!is_project_readable(DB, project_id, user_id))
-    update_permissions(DB, user_id, project_id, "view")
-  
-  
-  
+  project_id <- NULL
+
+  # The project named in the page's URL, e.g. /hmp50
+  if (!is.null(access_key) && nzchar(access_key))
+    project_id <- open_by_key(DB, access_key, user_id)
+
+  # Otherwise the last project this user viewed.
+  if (is.null(project_id)) {
+    sql <- "SELECT project_id FROM permissions
+        LEFT JOIN last_access USING (user_id, project_id)
+        WHERE user_id = ? ORDER BY `viewed_utc` DESC LIMIT 1"
+    project_id <- db_query(DB, sql, "AISess6", list(user_id))
+  }
+
+  # Otherwise the oldest public project.
+  if (is.null(project_id)) {
+    sql <- "SELECT project_id FROM projects WHERE public_key IS NOT NULL ORDER BY project_id LIMIT 1"
+    project_id <- db_query(DB, sql, "AISess9")
+  }
+
+  if (is.null(project_id))
+    stop_not_found("There is no project to open yet.")
+
+
   #________________________________________________________
-  # Assign a new session_id.
+  # Assign a new session_id. The session key also opens the
+  # session's temporary files and its unsaved working copy,
+  # so it has to be unguessable.
   #________________________________________________________
   session_id <- db_insert(
     DB            = DB,
@@ -157,19 +121,19 @@ api_init_session <- function (REQ, access_key = NULL) {
     user_id       = user_id,
     draft_id      = create_draft(DB, project_id),
     ip_address    = REQ[['CLIENT']][['ip_address']] )
-  
+
   sql         <- "UPDATE sessions SET session_key = ? WHERE session_id = ?"
-  session_key <- sprintf("%i%s", session_id, random_string(8))
+  session_key <- sprintf("%i%s", session_id, random_string(24))
   db_query(DB, sql, "AISess8", list(session_key, session_id))
-  
-  
+
+
   #________________________________________________________
   # Load the new session.
   #________________________________________________________
   resume_session(REQ, auth_token, session_key)
-  
+
   resp <- get_session_data(REQ)
-  
+
   return (resp)
 }
 
@@ -195,7 +159,7 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
     sql <- paste0(
       "SELECT",
       "  session_id, session_key,",
-      "  auth_token_id, auth_token_sha,",
+      "  auth_token_id, auth_token_sha, expires_utc,",
       "  user_id, full_name, is_guest, is_admin,",
       "  draft_id,",
       "    drafts.full_bf_id as full_bf_id,",
@@ -203,7 +167,7 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
       "  project_id,",
       "    orig_bf_id, title, description, access_key,",
       "    projects.rare_bf_id as proj_rare_bf_id,",
-      "    projects.is_public  as is_public,",
+      "    projects.public_key as public_key,",
       "  permission_id, is_editor",
       " FROM sessions",
       "  LEFT JOIN auth_tokens USING (auth_token_id, user_id)",
@@ -211,11 +175,11 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
       "  LEFT JOIN drafts      USING (draft_id)",
       "  LEFT JOIN projects    USING (project_id)",
       "  LEFT JOIN permissions USING (project_id, user_id)",
-      " WHERE session_key = ? AND auth_token_sha = ?",
+      " WHERE session_key = ? AND auth_token_sha = ? AND expires_utc > ?",
       "  AND logout_utc IS NULL AND auth_token_id IS NOT NULL" )
     
     sha <- as.character(sha256(auth_token))
-    return (db_query(DB, sql, "RSess1", list(session_key, sha)))
+    return (db_query(DB, sql, "RSess1", list(session_key, sha, sql_time(Sys.time()))))
   })
   
   if (!is.list(session))
@@ -229,11 +193,12 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   session[['auth_token']]  <- auth_token
   session[['server_temp']] <- paste0(TEMP_DIR, "/", session[['session_key']])
   session[['client_temp']] <- paste0("/tmp",   "/", session[['session_key']])
-  session[['project_key']] <- session[['access_key']]
+  session[['is_public']]   <- !is.na(session[['public_key']])
+  session[['project_key']] <- if (session[['is_public']]) session[['public_key']] else session[['access_key']]
   session[['is_saved']]    <- identical(session[['rare_bf_id']], session[['proj_rare_bf_id']])
   session[['draft_key']]   <- ifelse(
     test = session[['is_saved']], 
-    yes  = session[['access_key']], 
+    yes  = session[['project_key']], 
     no   = sprintf("unsaved/%s", session[['session_key']]) )
   
   
@@ -241,7 +206,6 @@ resume_session <- function (REQ, auth_token = NULL, session_key = NULL) {
   # What this session may do with its open project. The
   # router compares `access` with each route's permission.
   #________________________________________________________
-  session[['is_public']] <- isTRUE(session[['is_public']])
   session[['is_admin']]  <- isTRUE(session[['is_admin']])
   session[['access']]    <- project_access(DB, session[['project_id']], session[['user_id']])
   session[['is_editor']] <- identical(session[['access']], "editor")
@@ -301,19 +265,22 @@ get_session_data <- function (REQ) {
     auth_token  <- REQ[['SESSION']][['auth_token']]
     session_key <- REQ[['SESSION']][['session_key']]
 
-    # Without a path, browsers would only send the cookie back to URLs
-    # under the one that set it (/api/session/).
-    auth_cookie <- cookie(auth_token, max_age = Inf, http_only = TRUE, path = "/")
+    # The browser keeps the cookie for as long as the token is valid.
+    expires     <- REQ[['SESSION']][['expires_utc']]
+    max_age     <- as.numeric(difftime(expires, Sys.time(), units = "secs"))
+    cookie_hdr  <- auth_cookie(REQ, auth_token, max_age)
     sess_header <- header('x-session-key' = session_key, expose = TRUE)
 
     body <- list(
       jstree_data = compile_jstree_data(REQ),
       BIOM        = BIOM,
       CONF        = list(
-        user_id         = unbox(REQ[['SESSION']][['user_id']]),
-        is_guest        = unbox(REQ[['SESSION']][['is_guest']]),
-        is_admin        = unbox(REQ[['SESSION']][['is_admin']]) ))
+        auth      = unbox(REQ[['CONFIG']][['auth']]),
+        user_id   = unbox(REQ[['SESSION']][['user_id']]),
+        full_name = unbox(REQ[['SESSION']][['full_name']]),
+        is_guest  = unbox(REQ[['SESSION']][['is_guest']]),
+        is_admin  = unbox(REQ[['SESSION']][['is_admin']]) ))
 
-    response(body, auth_cookie, sess_header)
+    response(body, cookie_hdr, sess_header)
   })
 }

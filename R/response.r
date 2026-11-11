@@ -142,7 +142,7 @@ cookie <- function (
     if (!is.null(max_age))  paste0('Max-Age=',  max_age),
     if (!is.null(domain))   paste0('Domain=',   domain),
     if (!is.null(path))     paste0('Path=',     path),
-    if (same_site != 'Lax') paste0('SameSite=', same_site),
+    paste0('SameSite=', same_site),
     if (secure)             'Secure',
     if (http_only)          'HttpOnly',
     if (partitioned)        'Partitioned'

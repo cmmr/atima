@@ -1,7 +1,17 @@
+# The OpenID Connect client settings that tests run with. No such provider
+# exists; tests that sign in put a mock one in its place (helper-oidc.R).
+test_oidc <- list(
+  issuer        = "https://issuer.test",
+  client_id     = "atima-test-client",
+  client_secret = "test-client-secret-not-a-real-one",
+  redirect_uri  = "http://localhost:8080/auth/callback",
+  admins        = NULL )
+
+
 # A new, fully migrated atima database in a temporary data directory, wrapped
 # in the `REQ` environment that request handlers expect. Everything is
 # removed when the calling test finishes.
-local_test_req <- function (env = parent.frame()) {
+local_test_req <- function (env = parent.frame(), auth = "oidc") {
 
   data_dir <- withr::local_tempdir(pattern = "atima_test_", .local_envir = env)
   temp_dir <- withr::local_tempdir(pattern = "atima_temp_", .local_envir = env)
@@ -19,8 +29,11 @@ local_test_req <- function (env = parent.frame()) {
       cache_size  = 1e8,
       max_cpus    = 1L,
       session_ttl = 24 * 3600,
-      guest_ttl   = 30 * 86400 ),
+      guest_ttl   = 30 * 86400,
+      signin_ttl  = 30 * 86400,
+      auth        = auth ),
     MEMO    = memo_new(),
+    AUTH    = auth_new(auth, if (auth == "oidc") test_oidc),
     SESSION = list() ))
 }
 
@@ -28,7 +41,7 @@ local_test_req <- function (env = parent.frame()) {
 # The `app` argument of handle_request() for a test REQ. Without a `pool`,
 # jobs run in the test process.
 test_app <- function (REQ, pool = NULL) {
-  list(db = REQ$DB, config = REQ$CONFIG, pool = pool, memo = REQ$MEMO)
+  list(db = REQ$DB, config = REQ$CONFIG, pool = pool, memo = REQ$MEMO, auth = REQ$AUTH)
 }
 
 
@@ -120,8 +133,8 @@ add_test_project <- function (
     DB = DB, table = "projects", err_code = "TProj1",
     title      = title,
     orig_bf_id = bf_id, full_bf_id = bf_id, rare_bf_id = bf_id,
-    access_key = random_string(12),
-    is_public  = is_public )
+    access_key = random_key(12),
+    public_key = if (is_public) random_key(8) )
 
   permission_id <- NULL
   if (!is.null(user_id))
@@ -138,21 +151,35 @@ add_test_project <- function (
 # does. Returns the credentials a browser would hold.
 add_test_session <- function (DB, user_id, project_id) {
 
-  auth_token <- random_string(64)
-
-  auth_token_id <- db_insert(
-    DB = DB, table = "auth_tokens", err_code = "TSess1",
-    user_id = user_id, auth_token_sha = as.character(openssl::sha256(auth_token)) )
+  token      <- auth_token_new(DB, user_id, ttl = 3600)
+  auth_token <- token$auth_token
 
   session_key <- random_string(12)
 
   session_id <- db_insert(
     DB = DB, table = "sessions", err_code = "TSess2",
-    auth_token_id = auth_token_id, user_id = user_id,
+    auth_token_id = token$auth_token_id, user_id = user_id,
     draft_id      = create_draft(DB, project_id),
     ip_address    = "127.0.0.1", session_key = session_key )
 
   list(auth_token = auth_token, session_key = session_key, session_id = session_id)
+}
+
+
+# Let sessions open on test projects whose BIOM files are placeholders: the
+# summary a worker would compute from the files is left empty.
+local_fake_biom <- function (env = parent.frame()) {
+  testthat::local_mocked_bindings(
+    with_biom_data = function (REQ, then) then(session_biom(REQ, list())),
+    .env = env )
+}
+
+
+# The credentials a response from /api/session/init hands to the browser.
+session_from <- function (resp) {
+  list(
+    auth_token  = sub("^auth_token=([A-Za-z0-9]+);.*$", "\\1", resp$headers[['Set-Cookie']]),
+    session_key = resp$headers[['x-session-key']] )
 }
 
 
@@ -236,3 +263,17 @@ db_schema_summary <- function (DB) {
     list(columns = columns, foreign_keys = fkeys, indexes = indexes)
   })
 }
+
+
+# Send the server log to a file for the rest of the calling test, and return
+# a function that reads it back as a list of entries.
+local_log <- function (env = parent.frame()) {
+  file <- withr::local_tempfile(.local_envir = env)
+  withr::local_options(atima.log = file, .local_envir = env)
+  function () {
+    if (!file.exists(file)) return (list())
+    lapply(readLines(file), jsonlite::fromJSON, simplifyVector = FALSE)
+  }
+}
+
+log_errors <- function (entries) Filter(function (e) e$event == "error", entries)

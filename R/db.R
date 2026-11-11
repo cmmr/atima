@@ -453,10 +453,9 @@ db_seed <- function (DB, config, pool = NULL) {
     imported <- pool_call(pool, "work_seed", list(ctx = worker_ctx(config), dataset = dataset))
 
     db_transaction(DB, add_project(
-      REQ                  = REQ,
-      imported             = imported,
-      requested_access_key = dataset,
-      is_public            = TRUE ))
+      REQ        = REQ,
+      imported   = imported,
+      public_key = dataset ))
 
     log_event("info", "db_seed", dataset = dataset)
   }

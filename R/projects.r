@@ -25,7 +25,7 @@ api_rarefy <- function (REQ, depth) {
 #' Overwrites the original project with the working draft.
 #' @return list(BIOM)
 #' @noRd
-api_save <- function (REQ, title, access_key, description) {
+api_save <- function (REQ, title, description) {
 
   job(
     fn   = "work_details",
@@ -38,10 +38,6 @@ api_save <- function (REQ, title, access_key, description) {
       DB      <- REQ[['DB']]
       details <- result[['details']]
 
-      # Check that a new custom access_key is valid and available.
-      if (!identical(access_key, REQ[['SESSION']][['access_key']]))
-        access_key <- create_access_key(DB, requested_access_key = access_key)
-
       # Copy data from draft to parent project.
       db_update(
         DB            = DB,
@@ -51,7 +47,6 @@ api_save <- function (REQ, title, access_key, description) {
         title         = title,
         full_bf_id    = REQ[['SESSION']][['full_bf_id']],
         rare_bf_id    = REQ[['SESSION']][['rare_bf_id']],
-        access_key    = access_key,
         description   = description,
         n_samples     = details[['n_samples']],
         n_taxa        = details[['n_taxa']],
@@ -68,11 +63,12 @@ api_save <- function (REQ, title, access_key, description) {
 
 
 #______________________________________________________________________________
-#' Copy this draft to a new project_id.
+#' Copy this draft to a new project_id. The copy is private, with a private
+#' key of its own, and the caller is its editor.
 #'
 #' @return list(BIOM, jstree_node)
 #' @noRd
-api_save_as <- function (REQ, title, access_key, description) {
+api_save_as <- function (REQ, title, description) {
 
   job(
     fn   = "work_details",
@@ -86,9 +82,6 @@ api_save_as <- function (REQ, title, access_key, description) {
       session  <- REQ[['SESSION']]
       user_id  <- session[['user_id']]
       details  <- result[['details']]
-
-      # Get a new unique access_key.
-      access_key <- create_access_key(DB, requested_access_key = access_key)
 
       # Fetch the current project values.
       sql     <- "SELECT * FROM projects WHERE project_id = ?"
@@ -104,7 +97,7 @@ api_save_as <- function (REQ, title, access_key, description) {
         title         = title,
         full_bf_id    = session[['full_bf_id']],
         rare_bf_id    = session[['rare_bf_id']],
-        access_key    = access_key,
+        access_key    = new_access_key(DB),
         description   = description,
         n_samples     = details[['n_samples']],
         n_taxa        = details[['n_taxa']],
@@ -113,7 +106,7 @@ api_save_as <- function (REQ, title, access_key, description) {
         meta_colnames = details[['meta_colnames']] %>% toJSON(),
         editors       = toJSON(session[['full_name']]),
         n_views       = 1L,
-        is_public     = FALSE,
+        public_key    = NULL,
         public_collection_id = NULL )
 
       # Update the draft to point to the new project.
@@ -145,35 +138,25 @@ api_save_as <- function (REQ, title, access_key, description) {
 
 
 #______________________________________________________________________________
-#' Changes the project associated with the current session. 
+#' Changes the project associated with the current session. The router has
+#' already checked that the caller may read the project.
 #' @return invisible(NULL)
 #' @noRd
-select_project <- function (REQ, project_id = NULL, access_key = NULL) {
-  
-  DB         <- REQ[['DB']]
-  user_id    <- REQ[['SESSION']][['user_id']]
-  session_id <- REQ[['SESSION']][['session_id']]
-  
-  
-  if (!is.null(access_key)) {
-    sql <- 'SELECT project_id FROM projects WHERE access_key = ?'
-    project_id <- db_query(DB, sql, "SProj1", list(access_key))
-    if (is.null(project_id)) stop_not_found("Project not found.")
-  }
+select_project <- function (REQ, project_id) {
 
-  if (!is_project_readable(DB, project_id, user_id))
-    stop_forbidden("You do not have access to that project.")
-  
+  DB         <- REQ[['DB']]
+  session_id <- REQ[['SESSION']][['session_id']]
+
   # Create a new draft for this project.
   db_update(
-    DB       = DB, 
-    table    = 'sessions', 
-    id       = session_id, 
+    DB       = DB,
+    table    = 'sessions',
+    id       = session_id,
     err_code = "SProj2",
     draft_id = create_draft(DB, project_id) )
-  
+
   resume_session(REQ)
-  
+
   invisible()
 }
 
@@ -185,19 +168,19 @@ select_project <- function (REQ, project_id = NULL, access_key = NULL) {
 #' The session's user becomes the project's first editor. With no user in
 #' the session (first-run seeding) the project has no editors.
 #'
-#' @param imported   What `work_import()` returned: the three stored files
-#'                   and the project's details.
-#' @param is_public  Make the project readable by everyone.
+#' @param imported    What `work_import()` returned: the three stored files
+#'                    and the project's details.
+#' @param public_key  Make the project public, under this key.
 #' @return a project_id.
 #' @noRd
-add_project <- function (
-    REQ, imported, collection_id = NULL,
-    requested_access_key = NULL, is_public = FALSE ) {
+add_project <- function (REQ, imported, collection_id = NULL, public_key = NULL) {
 
   DB        <- REQ[['DB']]
   user_id   <- REQ[['SESSION']][['user_id']]
   full_name <- REQ[['SESSION']][['full_name']]
   details   <- imported[['details']]
+
+  if (!is.null(public_key)) check_public_key(DB, public_key)
 
   project_id <- db_insert(
     DB            = DB,
@@ -207,15 +190,16 @@ add_project <- function (
     orig_bf_id    = register_biom_file(DB, imported[['orig']]),
     full_bf_id    = register_biom_file(DB, imported[['full']]),
     rare_bf_id    = register_biom_file(DB, imported[['rare']]),
-    access_key    = create_access_key(DB, requested_access_key),
-    description   = details[['description']],
+    access_key    = new_access_key(DB),
+    public_key    = public_key,
+    # The description comes from the uploaded file, by way of pandoc.
+    description   = sanitize_html(details[['description']]),
     n_samples     = details[['n_samples']],
     n_taxa        = details[['n_taxa']],
     has_tree      = details[['has_tree']],
     median_depth  = details[['median_depth']],
     meta_colnames = details[['meta_colnames']] %>% toJSON(),
-    editors       = toJSON(full_name),
-    is_public     = is_public )
+    editors       = toJSON(full_name) )
 
   # Put into the user's top level collection by default.
   if (!is.null(user_id))
@@ -227,168 +211,157 @@ add_project <- function (
 
 #______________________________________________________________________________
 #' Copy an existing project to a working draft.
-#' 
+#'
 #' @return draft_id
 #' @noRd
 create_draft <- function (DB, project_id) {
-  
-  
+
+
   #________________________________________________________
   # Increment this project's number of views.
   #________________________________________________________
   sql <- "UPDATE projects SET n_views = n_views + 1 WHERE project_id = ?"
   db_query(DB, sql, "CDraf1", list(project_id))
-  
-  
+
+
   #________________________________________________________
   # Get the project data for copying to a draft.
   #________________________________________________________
   sql     <- "SELECT * FROM projects WHERE project_id = ?"
   project <- db_query(DB, sql, "CDraf2", list(project_id), req1 = TRUE)
-    
-  
+
+
   #________________________________________________________
   # Duplicate the project to a draft.
   #________________________________________________________
   draft_id <- db_insert(
-    DB         = DB, 
-    table      = "drafts", 
+    DB         = DB,
+    table      = "drafts",
     err_code   = "OProj2",
     project_id = project_id,
     full_bf_id = project[['full_bf_id']],
     rare_bf_id = project[['rare_bf_id']] )
-  
+
   return (draft_id)
 }
 
 
 
 #______________________________________________________________________________
-#' Generate a new random string starting with a letter, unique in DB. 
+# Project keys.
+#
+# Both kinds of key appear in the same place in URLs (`/<key>`), so no key
+# may be in use as either kind by another project.
+#______________________________________________________________________________
+
+# Path segments that mean something else to the router or to httpuv.
+reserved_keys <- c("api", "auth", "www", "tmp", "unsaved")
+
+# A public key: 4 to 20 lower-case letters, digits and inner hyphens.
+public_key_pattern <- "^[a-z0-9][a-z0-9\\-]{2,18}[a-z0-9]$"
+
+# Characters in a new private key. Twelve of 36 symbols is 62 bits: enough
+# that keys cannot be found by guessing over HTTP.
+access_key_length <- 12L
+
+
+#' Is a key already some project's private key, or the public key of a
+#' project other than `project_id`?
+#' @noRd
+key_in_use <- function (DB, key, project_id = NULL) {
+  sql <- "SELECT COUNT(*) FROM projects WHERE access_key = ? OR (public_key = ? AND project_id != ?)"
+  db_query(DB, sql, "KUse1", list(key, key, project_id %||% -1L)) > 0
+}
+
+
+#______________________________________________________________________________
+#' A new random private key that no project uses.
 #' @return an access_key
 #' @noRd
-create_access_key <- function (DB, requested_access_key = NULL) {
-  
-  
-  #________________________________________________________
-  # Ignore malformed requested_access_keys
-  #________________________________________________________
-  if (!is.null(requested_access_key) && sanity_check(requested_access_key, assert = FALSE)) {
-    access_key <- requested_access_key
-  } else {
-    access_key <- random_string(12)
-  }
-  
-  
-  #________________________________________________________
-  # Try again on key collision
-  #________________________________________________________
+new_access_key <- function (DB) {
+
   for (i in 1:10) {
-    
-    # This is a valid access_key; return it.
-    sql <- "SELECT COUNT(*) FROM projects WHERE access_key = ?"
-    if (db_query(DB, sql, "CAKey1", list(access_key)) == 0)
-      return (access_key)
-    
-    # Generate another random key.
-    access_key <- random_string(12)
+    access_key <- random_key(access_key_length)
+    if (!key_in_use(DB, access_key)) return (access_key)
   }
-  
+
   stop("Unable to generate a unique access key.")
 }
 
 
-
 #______________________________________________________________________________
-#' What a user may do with a project.
-#'
-#' A user can read a project they have been granted, and any public project.
-#' A user can change a project they have been granted as an editor.
-#' Administrators can change public projects.
-#'
-#' @param user_id  May be `NULL` for a visitor with no account.
-#' @return `"editor"`, `"viewer"` or `"none"`.
+#' Give the open project a new private key. Every link made with the old
+#' one stops working; people who were granted the project keep it.
+#' @return list(access_key)
 #' @noRd
-project_access <- function (DB, project_id, user_id = NULL) {
+api_new_key <- function (REQ) {
 
-  if (is.null(project_id) || is.na(project_id)) return ("none")
+  DB         <- REQ[['DB']]
+  access_key <- new_access_key(DB)
 
-  sql <- "SELECT is_public FROM projects WHERE project_id = ?"
-  is_public <- db_query(DB, sql, "PAcc1", list(project_id))
-  if (is.null(is_public)) return ("none")
+  db_update(DB, "projects", REQ[['SESSION']][['project_id']], "ANKey1", access_key = access_key)
+  resume_session(REQ)
 
-  is_editor <- NULL
-  is_admin  <- FALSE
-
-  if (!is.null(user_id)) {
-    sql <- "SELECT is_editor FROM permissions WHERE project_id = ? AND user_id = ?"
-    is_editor <- db_query(DB, sql, "PAcc2", list(project_id, user_id))
-
-    sql <- "SELECT is_admin FROM users WHERE user_id = ?"
-    is_admin <- isTRUE(db_query(DB, sql, "PAcc3", list(user_id)))
-  }
-
-  if (isTRUE(is_editor))        return ("editor")
-  if (is_public && is_admin)    return ("editor")
-  if (!is.null(is_editor))      return ("viewer")
-  if (is_public)                return ("viewer")
-
-  return ("none")
-}
-
-
-
-#______________________________________________________________________________
-#' Check if this user is allowed to view this project.
-#'
-#' @param access_key  If this is the project's access key, the project is
-#'        readable whoever is asking: the key works as a share link.
-#' @return TRUE/FALSE
-#' @noRd
-is_project_readable <- function (DB, project_id, user_id, access_key = NULL) {
-
-  if (project_access(DB, project_id, user_id) != "none")
-    return (TRUE)
-
-  if (is_scalar_character(access_key)) {
-    sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND access_key = ?"
-    res <- db_query(DB, sql, "PRead2", list(project_id, access_key))
-    if (res > 0) return (TRUE)
-  }
-
-  return (FALSE)
+  list(access_key = unbox(access_key))
 }
 
 
 #______________________________________________________________________________
-#' Check if this user may change a given project_id.
-#'
-#' @return TRUE/FALSE
+#' Stop unless a public key is well formed and free.
+#' @param project_id  The project that is to have the key.
 #' @noRd
-is_project_writable <- function (DB, project_id, user_id) {
-  identical(project_access(DB, project_id, user_id), "editor")
+check_public_key <- function (DB, public_key, project_id = NULL) {
+
+  if (!isTRUE(grepl(public_key_pattern, public_key, perl = TRUE)))
+    stop_user("A public key is 4 to 20 lower-case letters, digits and hyphens, and starts and ends with a letter or digit.")
+
+  if (public_key %in% reserved_keys)
+    stop_user("That public key is reserved. Please choose another.")
+
+  if (key_in_use(DB, public_key, project_id))
+    stop_user("That public key is already in use. Please choose another.")
+
+  invisible(TRUE)
 }
 
 
 #______________________________________________________________________________
-#' Make the open project public or private. Administrators only.
+#' Make the open project public or private.
+#'
+#' A project is public while it has a public key. Its private key is not
+#' changed by publishing or unpublishing, so share links keep working.
 #'
 #' @param is_public      Should everyone be able to read the project?
+#' @param public_key     The key to publish it under. Needed the first time;
+#'                       left out, a public project keeps the key it has.
 #' @param collection_id  The public collection to list it under, or `NULL`
 #'                       for the top of the public tree.
 #' @return list(BIOM, jstree_data)
 #' @noRd
-api_publish <- function (REQ, is_public, collection_id = NULL) {
+api_publish <- function (REQ, is_public, public_key = NULL, collection_id = NULL) {
 
   DB         <- REQ[['DB']]
   project_id <- REQ[['SESSION']][['project_id']]
 
-  if (!is_public) collection_id <- NULL
+  if (is_public) {
 
-  if (!is.null(collection_id)) {
-    sql <- "SELECT COUNT(*) FROM collections WHERE collection_id = ? AND user_id IS NULL"
-    if (db_query(DB, sql, "APub1", list(collection_id)) == 0)
-      stop_user("That is not a public collection.")
+    current    <- REQ[['SESSION']][['public_key']]
+    public_key <- public_key %||% if (!is.na(current)) current
+
+    if (is.null(public_key))
+      stop_user("Choose a public key to publish this project under.")
+
+    check_public_key(DB, public_key, project_id)
+
+    if (!is.null(collection_id)) {
+      sql <- "SELECT COUNT(*) FROM collections WHERE collection_id = ? AND user_id IS NULL"
+      if (db_query(DB, sql, "APub1", list(collection_id)) == 0)
+        stop_user("That is not a public collection.")
+    }
+
+  } else {
+    public_key    <- NULL
+    collection_id <- NULL
   }
 
   db_update(
@@ -396,7 +369,7 @@ api_publish <- function (REQ, is_public, collection_id = NULL) {
     table                = "projects",
     id                   = project_id,
     err_code             = "APub2",
-    is_public            = is_public,
+    public_key           = public_key,
     public_collection_id = collection_id )
 
   resume_session(REQ)

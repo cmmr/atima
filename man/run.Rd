@@ -7,6 +7,14 @@
 run(
   port = 8080,
   host = "127.0.0.1",
+  auth = "none",
+  public_url = NULL,
+  oidc_issuer = "https://auth.globus.org",
+  oidc_client_id = NULL,
+  oidc_client_secret = NULL,
+  admins = NULL,
+  forwarded_proto_header = NULL,
+  signin_days = 30,
   data_dir = tools::R_user_dir("atima", "data"),
   temp_dir = tempfile(pattern = "atima_"),
   workers = max(1, min(4, parallelly::availableCores()\%/\%2)),
@@ -16,7 +24,6 @@ run(
   max_upload_mb = 50,
   session_hours = 24,
   guest_days = 30,
-  smtp = NULL,
   open = interactive()
 )
 }
@@ -25,7 +32,45 @@ run(
 
 \item{host}{IP address to listen on. The default, \code{"127.0.0.1"},
 only accepts connections from this computer. Use
-\code{"0.0.0.0"} to listen on all interfaces.}
+\code{"0.0.0.0"} to listen on all interfaces; that needs
+\code{auth = "oidc"}.}
+
+\item{auth}{Who may use the server. \code{"none"}, the default, is for
+one person on their own computer: there are no
+accounts and nothing to sign in to, and \code{host} must be
+a loopback address. \code{"oidc"} is for a shared server:
+visitors sign in through an OpenID Connect provider.
+See the section on signing in.}
+
+\item{public_url}{With \code{auth = "oidc"}: the address people type to reach
+the server, such as \code{"https://atima.example.org"}.
+Needed unless the server is only used from this
+computer, when it defaults to \verb{http://localhost:<port>}.}
+
+\item{oidc_issuer}{The OpenID Connect provider's issuer URL. The default
+is Globus Auth; for ORCID use \code{"https://orcid.org"}.}
+
+\item{oidc_client_id, oidc_client_secret}{The client id and secret that
+the provider gave you when you registered this
+server with it. Prefer the environment variables
+\code{ATIMA_OIDC_CLIENT_ID} and \code{ATIMA_OIDC_CLIENT_SECRET}
+to writing the secret in a script.}
+
+\item{admins}{With \code{auth = "oidc"}: the provider's identifiers
+(\code{sub} claims) of the people who are administrators,
+as a character vector or one comma-separated string.
+Administrators can change public projects. The
+default, \code{NULL}, leaves administrators as they are in
+the database.}
+
+\item{forwarded_proto_header}{The name of a request header, set by a
+reverse proxy you control, that says whether the
+visitor used HTTPS; usually \code{"X-Forwarded-Proto"}. The
+default, \code{NULL}, trusts no such header. Not needed
+when \code{public_url} starts with \verb{https://}.}
+
+\item{signin_days}{How long a sign-in lasts before the browser has to
+sign in again.}
 
 \item{data_dir}{Directory for the database and stored BIOM files. It
 is created, and filled with two example projects, the
@@ -61,11 +106,6 @@ not been heard from for this many hours.}
 after this many days without a visit, along with any
 projects that only they could open.}
 
-\item{smtp}{A list of SMTP settings (\code{server}, \code{port}, \code{username},
-\code{password}, \code{fromaddr}, \code{ssl}) for account emails.
-Accepted but not used yet: no email is sent, and new
-accounts are created without email verification.}
-
 \item{open}{Open the app in a web browser once the server is up?}
 }
 \value{
@@ -92,6 +132,32 @@ option. The first of these that is set is used:
 \item the default shown below
 }
 }
+\section{Signing in}{
+
+With \code{auth = "none"} there is nothing to set up. The server refuses to
+start on an address other computers can reach, and only answers requests
+addressed to \code{localhost}, \verb{127.0.0.1} or \verb{[::1]}. Everything belongs to
+one local user, including projects that guests or password accounts
+made with an earlier version of atima. Anyone who can use this computer
+while the server runs can open the app.
+
+With \code{auth = "oidc"} atima keeps no passwords. Register the server with
+the provider as a web application (a confidential client) whose redirect
+URL is \verb{<public_url>/auth/callback}, and give \code{run()} the client id and
+secret. atima reads everything else from the provider's discovery
+document and uses the authorization code flow with PKCE. A person is
+recognised by the provider's identifier for them, never by their email
+address. Visitors who have not signed in are guests: they can explore
+public projects, and what they upload is kept for \code{guest_days} and
+becomes theirs when they sign in.
+
+The browser is recognised by one cookie. It cannot be read by scripts,
+is not sent with requests made by other sites, and is marked \code{Secure}
+whenever the site is served over HTTPS (see \code{public_url} and
+\code{forwarded_proto_header}). Serve a public server over HTTPS, through a
+reverse proxy.
+}
+
 \section{Database}{
 
 The database is the file \code{sqlite.db} in \code{data_dir}. When a newer version

@@ -181,9 +181,9 @@ test_that("exports are written once, atomically, under names that say what is in
 
   s <- local_open_project()
 
-  full <- db_query(s$DB, "SELECT full_bf_id FROM projects WHERE access_key = 'hmp50'", "T1")
-  rare <- db_query(s$DB, "SELECT rare_bf_id FROM projects WHERE access_key = 'hmp50'", "T2")
-  orig <- db_query(s$DB, "SELECT orig_bf_id FROM projects WHERE access_key = 'hmp50'", "T3")
+  full <- db_query(s$DB, "SELECT full_bf_id FROM projects WHERE public_key = 'hmp50'", "T1")
+  rare <- db_query(s$DB, "SELECT rare_bf_id FROM projects WHERE public_key = 'hmp50'", "T2")
+  orig <- db_query(s$DB, "SELECT orig_bf_id FROM projects WHERE public_key = 'hmp50'", "T3")
 
   url <- function (...) {
     resp <- s$post("/api/project/export", list(...))
@@ -284,7 +284,7 @@ test_that("changing a column's class and uploading a component change only the d
   expect_identical(response_json(resp)$error$message, "That file could not be read as tree.")
 
   # The saved project is untouched; the uploads did not pile up.
-  hmp50 <- db_query(s$DB, "SELECT meta_colnames FROM projects WHERE access_key = 'hmp50'", "T1")
+  hmp50 <- db_query(s$DB, "SELECT meta_colnames FROM projects WHERE public_key = 'hmp50'", "T1")
   expect_no_match(hmp50, "Batch")
   expect_length(list.files(s$temp, pattern = "^upload_"), 1)
 })
@@ -315,7 +315,8 @@ test_that("an upload becomes a project, and saving copies the draft into it", {
   expect_identical(orig$hash, paste(as.character(openssl::sha256(bytes))))
   expect_identical(read_file_raw(file.path(s$REQ$CONFIG$data_dir, "files", orig$file)), bytes)
   expect_identical(project$n_samples, rbiom::rarefy(rbiom::hmp50, depth = 1500)$n_samples)
-  expect_false(project$is_public)
+  expect_true(is.na(project$public_key))
+  expect_match(project$access_key, "^[a-z0-9]{12}$")
   expect_length(list.files(s$temp, pattern = "^upload_"), 0)
 
   # Something that is not a BIOM file leaves nothing behind in the database.
@@ -327,17 +328,25 @@ test_that("an upload becomes a project, and saving copies the draft into it", {
 
   # Rarefy the draft, then save: the project takes the draft's files.
   expect_identical(s$post("/api/project/rarefy", list(depth = 1200))$status, 200L)
-  resp <- s$post("/api/project/save", list(title = "My study, saved", access_key = "my-study", description = "<p>About</p>"))
+  resp <- s$post("/api/project/save", list(title = "My study, saved", description = "<p>About</p>"))
   expect_identical(resp$status, 200L)
   body <- response_json(resp)
-  expect_identical(body$BIOM[c("title", "access_key", "is_saved", "depth")], list(title = "My study, saved", access_key = "my-study", is_saved = TRUE, depth = 1200L))
+  expect_identical(
+    body$BIOM[c("title", "description", "access_key", "is_saved", "depth")],
+    list(title = "My study, saved", description = "<p>About</p>", access_key = project$access_key, is_saved = TRUE, depth = 1200L) )
 
-  # Save a copy under another key; a taken key gets a random one instead.
-  resp <- s$post("/api/project/save_as", list(title = "A copy", access_key = "hmp50", description = ""))
+  # Nobody chooses a private key: a request that tries is refused.
+  resp <- s$post("/api/project/save", list(title = "My study", access_key = "easy", description = ""))
+  expect_identical(resp$status, 400L)
+
+  # A copy is a new private project with a random key of its own.
+  resp <- s$post("/api/project/save_as", list(title = "A copy", description = ""))
   expect_identical(resp$status, 200L)
   body <- response_json(resp)
   expect_identical(body$BIOM$title, "A copy")
-  expect_false(body$BIOM$access_key %in% c("hmp50", "my-study"))
+  expect_match(body$BIOM$access_key, "^[a-z0-9]{12}$")
+  expect_false(identical(body$BIOM$access_key, project$access_key))
+  expect_false(body$BIOM$is_public)
   expect_identical(db_query(s$DB, "SELECT COUNT(*) FROM projects", "T4"), 4L)
 })
 

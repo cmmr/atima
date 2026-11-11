@@ -2,7 +2,7 @@
 # The front end's `BIOM` variable: everything the browser knows about the
 # project that is open in a session.
 #
-# Part of it comes from the database (title, access key, permissions) and
+# Part of it comes from the database (title, keys, permissions) and
 # part is derived from the BIOM files by a worker (`biom_summary()`). The
 # main process keeps the derived part of recently used projects in memory,
 # so that opening or reloading a project it has seen does not need a worker.
@@ -55,7 +55,10 @@ session_biom <- function (REQ, data) {
   BIOM <- list(
     title       = unbox(session[['title']]),
     description = unbox(session[['description']]),
-    access_key  = unbox(session[['access_key']]),
+    # The private key is a share link, so only people who have the project
+    # in their own tree are shown it.
+    access_key  = unbox(if (is.na(permission_id)) NA else session[['access_key']]),
+    public_key  = unbox(session[['public_key']]),
     project_key = unbox(session[['project_key']]),
     is_saved    = unbox(session[['is_saved']]),
     is_editor   = unbox(session[['is_editor']]),

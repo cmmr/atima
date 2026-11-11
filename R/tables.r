@@ -4,7 +4,8 @@
 # The `api_*()` handlers run in the main process and only describe a job.
 # `dt_page()`, `metadata_thead()` and `taxonomy_thead()` are the pure parts
 # that a worker applies to the data (`work_table_page()`,
-# `work_table_head()` in `R/worker.R`).
+# `work_table_head()` in `R/worker.R`). They build HTML from names and
+# values that came out of an uploaded file, so they escape all of them.
 #______________________________________________________________________________
 
 
@@ -97,7 +98,7 @@ api_metadata_change_class <- function (REQ, col_num) {
 #' @noRd
 metadata_thead <- function (df) {
 
-  colnames <- paste("<th>", colnames(df), "</th>")
+  colnames <- paste("<th>", html_escape(colnames(df)), "</th>")
   classes  <- sapply(
     X         = seq_len(ncol(df)),
     USE.NAMES = FALSE,
@@ -134,7 +135,7 @@ metadata_thead <- function (df) {
 #' @return A <thead/> html string.
 #' @noRd
 taxonomy_thead <- function (df) {
-  colnames <- paste("<th>", colnames(df), "</th>")
+  colnames <- paste("<th>", html_escape(colnames(df)), "</th>")
   colnames <- paste(colnames, collapse = "")
   sprintf("<thead><tr>%s</tr></thead>", colnames)
 }
@@ -143,8 +144,12 @@ taxonomy_thead <- function (df) {
 #______________________________________________________________________________
 #' Handle server-side paging of a datatable.
 #'
+#' DataTables puts the cell values it is sent into the page as HTML, so
+#' they are escaped here, after searching and sorting.
+#'
 #' @return list(draw, recordsTotal, recordsFiltered, data)
-#'         as per https://datatables.net/manual/server-side .
+#'         as per https://datatables.net/manual/server-side . The values in
+#'         `data` are HTML-escaped strings.
 #' @noRd
 dt_page <- function (
     df, draw=1L, start=0L, length=10L,
@@ -180,6 +185,7 @@ dt_page <- function (
   # Hand back just a page's worth of rows.
   rows <- seq_len(nrow(df))
   df   <- df[rows >= start & rows < start + length,,drop=FALSE]
+  df[] <- html_escape(df)
 
   return (list(
     draw            = unbox(as.integer(draw)),

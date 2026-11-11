@@ -4,15 +4,11 @@
 
 # Arguments that pass validation, for each route that needs any.
 valid_args <- list(
-  "POST /api/account/create"           = list(full_name = "Ada Lovelace", email = "ada@example.org", affiliation = "Engines"),
-  "POST /api/account/update"           = list(full_name = "Ada Lovelace", affiliation = "Engines", new_password = "", password = "old password"),
-  "POST /api/account/reset_password"   = list(email = "ada@example.org"),
-  "POST /api/account/sign_in"          = list(email = "ada@example.org", password = "a password"),
   "POST /api/project/upload"           = list(biom_file = list(filename = "study.biom", value = as.raw(1:10))),
   "POST /api/project/upload_component" = list(component = "metadata", component_file = list(filename = "md.csv", value = as.raw(1:10))),
   "POST /api/project/rarefy"           = list(depth = 1000),
-  "POST /api/project/save"             = list(title = "My study", access_key = "my-study", description = "<p>About</p>"),
-  "POST /api/project/save_as"          = list(title = "My study", access_key = "my-study", description = "<p>About</p>"),
+  "POST /api/project/save"             = list(title = "My study", description = "<p>About</p>"),
+  "POST /api/project/save_as"          = list(title = "My study", description = "<p>About</p>"),
   "POST /api/project/publish"          = list(is_public = TRUE),
   "POST /api/project/export"           = list(what = "metadata"),
   "POST /api/tree/select"              = list(node_id = "P1"),
@@ -71,6 +67,16 @@ test_that("every route is well formed and has a handler that takes its arguments
 
     expect_s3_class(r, "route")
     expect_true(r$permission %in% c("public", "session", "viewer", "editor", "admin"), info = r$endpoint)
+    expect_true(all(r$modes %in% c("none", "oidc")), info = r$endpoint)
+    if (!is.null(r$rule)) expect_true(r$rule %in% names(access_rules), info = r$endpoint)
+
+    # A route that acts on a tree node, or changes a grant, or is opened
+    # with a key, has a rule that checks it.
+    types <- vapply(r$args, function (spec) spec$type, character(1))
+    if ("node" %in% types)              expect_true(r$rule %in% c("tree", "tree_edit"), info = r$endpoint)
+    if (startsWith(r$path, "/unsaved")) expect_identical(r$rule, "draft_key")
+    if (r$path == "/:access_key/:file") expect_identical(r$rule, "project_key")
+    if (r$handler == "api_update_permissions") expect_identical(r$rule, "grant")
     expect_true(r$lane %in% c("fast", "compute"), info = r$endpoint)
     expect_true(r$method %in% c("GET", "POST"), info = r$endpoint)
 
@@ -202,6 +208,14 @@ test_that("every route refuses unknown arguments", {
 
     args <- valid_args[[r$endpoint]] %||% list()
 
+    # The page a provider sends browsers back to takes what it knows and
+    # ignores the rest.
+    if (!r$strict) {
+      expect_identical(r$endpoint, "GET /auth/callback")
+      expect_identical(validate_args(r, list(code = "abc", state = "xyz", session_state = "extra")), list(code = "abc", state = "xyz"))
+      next
+    }
+
     for (extra in list(list(DB = "x"), list(REQ = "x"), list(user_id_ = 1), list(`__proto__` = "x"))) {
       err <- expect_error(validate_args(r, c(args, extra)), class = "atima_http_error", info = r$endpoint)
       expect_identical(err$status, 400L, info = r$endpoint)
@@ -269,8 +283,8 @@ test_that("validate_args returns cleaned values and fills in defaults", {
 
   r <- match_route("POST", "/api/project/save")$route
   expect_identical(
-    validate_args(r, list(description = " <p>x</p> ", access_key = "my-key", title = "  My study ")),
-    list(title = "My study", access_key = "my-key", description = "<p>x</p>") )
+    validate_args(r, list(description = " <p>x</p> ", title = "  My study ")),
+    list(title = "My study", description = "<p>x</p>") )
 
   # Optional arguments with no default are left out, so the handler's own
   # default applies.
@@ -419,6 +433,7 @@ local_permission_setup <- function (env = parent.frame()) {
   DB  <- REQ$DB
 
   users <- list(
+    guest    = add_test_user(DB, "Guest 1", is_guest = TRUE),
     outsider = add_test_user(DB, "Olive Outsider"),
     viewer   = add_test_user(DB, "Victor Viewer"),
     editor   = add_test_user(DB, "Edith Editor"),
@@ -436,23 +451,29 @@ local_permission_setup <- function (env = parent.frame()) {
     sessions   = lapply(users, function (user_id) add_test_session(DB, user_id, project_id)) )
 }
 
-# Which callers each permission level lets through.
+# Which callers each permission level lets through. "nobody" has no
+# session; "guest" has not signed in and "outsider" has, and neither has
+# been granted the project; the administrator is also one of its editors.
 allowed <- list(
-  public  = c("nobody", "outsider", "viewer", "editor", "admin"),
-  session = c(          "outsider", "viewer", "editor", "admin"),
-  viewer  = c(                      "viewer", "editor", "admin"),
-  editor  = c(                                "editor", "admin"),
-  admin   = c(                                          "admin") )
+  public  = c("nobody", "guest", "outsider", "viewer", "editor", "admin"),
+  session = c(          "guest", "outsider", "viewer", "editor", "admin"),
+  viewer  = c(                               "viewer", "editor", "admin"),
+  editor  = c(                                         "editor", "admin"),
+  admin   = c(                                                   "admin") )
 
 
 test_that("every route enforces its permission level before calling its handler", {
 
   setup  <- local_permission_setup()
   called <- NULL
-  local_mocked_bindings(call_handler = function (route, REQ, args) {
-    called <<- route$endpoint
-    list(ok = TRUE)
-  })
+
+  # The rules that look at arguments are tested on their own (test-access.R).
+  local_mocked_bindings(
+    check_rule   = function (...) invisible(TRUE),
+    call_handler = function (route, REQ, args) {
+      called <<- route$endpoint
+      list(ok = TRUE)
+    })
 
   for (r in route_table()) {
     for (caller in allowed$public) {
@@ -462,7 +483,9 @@ test_that("every route enforces its permission level before calling its handler"
       resp    <- handle_request(route_request(r, valid_args[[r$endpoint]] %||% list(), session), setup$app)
       info    <- paste(r$endpoint, "as", caller)
 
-      if (caller %in% allowed[[r$permission]]) {
+      permitted <- caller %in% allowed[[r$permission]] && !(r$account && caller == "guest")
+
+      if (permitted) {
         expect_identical(resp$status, 200L, info = info)
         expect_identical(called, r$endpoint, info = info)
       } else {
@@ -539,7 +562,7 @@ test_that("access follows the project that is open in the session", {
   editor   <- add_test_session(DB, setup$users$editor,   public)
   admin    <- add_test_session(DB, setup$users$admin,    public)
 
-  expect_identical(status("/api/sharing/list", outsider), 200L)
+  expect_identical(status("/api/metadata/thead", outsider), 200L)
   expect_identical(status("/api/project/save", outsider, save_args), 403L)
   expect_identical(status("/api/project/save", editor,   save_args), 403L)
   expect_identical(status("/api/project/save", admin,    save_args), 200L)
@@ -548,7 +571,15 @@ test_that("access follows the project that is open in the session", {
   private <- add_test_project(DB, setup$users$editor)$project_id
   admin   <- add_test_session(DB, setup$users$admin, private)
   expect_identical(status("/api/sharing/list", admin), 403L)
-  expect_identical(status("/api/project/publish", admin, list(is_public = TRUE)), 200L)
+  expect_identical(status("/api/project/publish", admin, list(is_public = TRUE)), 403L)
+
+  # Publishing is for a project's editors, once they have signed in.
+  editor <- add_test_session(DB, setup$users$editor, private)
+  expect_identical(status("/api/project/publish", editor, list(is_public = TRUE)), 200L)
+  db_insert(DB, "permissions", "T0", user_id = setup$users$guest, project_id = private, is_editor = TRUE)
+  guest <- add_test_session(DB, setup$users$guest, private)
+  expect_identical(status("/api/project/save", guest, save_args), 200L)
+  expect_identical(status("/api/project/publish", guest, list(is_public = TRUE)), 403L)
 
   # Access is looked up on every request: a revoked grant stops working.
   viewer <- setup$sessions$viewer
@@ -628,7 +659,7 @@ test_that("a handler that fails leaves no changes in the database", {
 
   expect_identical(resp$status, 500L)
   expect_identical(db_query(DB, "SELECT title FROM projects", "T2"), "Test project")
-  expect_identical(db_query(DB, "SELECT COUNT(*) FROM users", "T3"), 4L)
+  expect_identical(db_query(DB, "SELECT COUNT(*) FROM users", "T3"), 5L)
 })
 
 

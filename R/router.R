@@ -6,7 +6,8 @@
 # (`R/routes.R`), loads the session, checks the permission the route asks
 # for, validates the arguments against the route's declarations, and only
 # then calls the handler. Handlers can therefore assume that their arguments
-# have the declared types and that the session has the declared permission.
+# have the declared types and that the caller is allowed to make the request.
+# The permission rules themselves are in `R/access.R`.
 #
 # A handler for a `fast` route returns its response. A handler for a
 # `compute` route may instead return a `job()` (see `R/jobs.R`): work for a
@@ -36,6 +37,17 @@ lanes             <- c("fast", "compute")
 #'     \item{`editor`}{a session that can change its open project.}
 #'     \item{`admin`}{a session whose user is an administrator.}
 #'   }
+#' @param account     Must the caller be signed in? A guest is refused. (The
+#'                    owner in `auth = "none"` mode counts as signed in.)
+#' @param rule        The name of an entry of `access_rules` (`R/access.R`)
+#'                    that checks the request's arguments, for routes whose
+#'                    permission depends on what is being acted on.
+#' @param modes       The authentication modes in which the route exists.
+#' @param strict      Refuse arguments that are not declared? Only switched
+#'                    off for the page an identity provider sends browsers
+#'                    back to, since providers add parameters of their own.
+#' @param html        Is the route a page that people see? Its errors are
+#'                    then sent as a small HTML page instead of JSON.
 #' @param lane        `"fast"` for database-only work, `"compute"` for
 #'                    anything that reads a BIOM file or calls rbiom. Only
 #'                    a `compute` handler may return a `job()`.
@@ -49,7 +61,9 @@ lanes             <- c("fast", "compute")
 #'                    too. Arguments that are not declared are refused.
 #' @return A list of class `route`.
 #' @noRd
-route <- function (endpoint, handler, permission, lane = "fast", args = list(), supersede = FALSE) {
+route <- function (
+    endpoint, handler, permission, lane = "fast", args = list(), supersede = FALSE,
+    account = FALSE, rule = NULL, modes = auth_modes, strict = TRUE, html = FALSE ) {
 
   parts <- strsplit(endpoint, " ", fixed = TRUE)[[1]]
 
@@ -62,6 +76,12 @@ route <- function (endpoint, handler, permission, lane = "fast", args = list(), 
     is_one_of(lane, lanes),
     is_bool(supersede),
     !supersede || lane == "compute",
+    is_bool(account),
+    !account || permission != "public",
+    is.null(rule) || is_one_of(rule, names(access_rules)),
+    is.character(modes), length(modes) > 0, all(modes %in% auth_modes),
+    is_bool(strict),
+    is_bool(html),
     is.list(args),
     length(args) == 0 || (!is.null(names(args)) && all(grepl("^[a-z_]+$", names(args)))),
     all(vapply(args, inherits, logical(1), "arg_spec")) )
@@ -79,6 +99,11 @@ route <- function (endpoint, handler, permission, lane = "fast", args = list(), 
     permission  = permission,
     lane        = lane,
     supersede   = supersede,
+    account     = account,
+    rule        = rule,
+    modes       = modes,
+    strict      = strict,
+    html        = html,
     args        = args ))
 }
 
@@ -108,6 +133,21 @@ arg_string <- function (min = 0L, max = 10000L, pattern = NULL, trim = TRUE, ...
     if (nchar(x) < min) stop("must be at least ", min, " characters")
     if (nchar(x) > max) stop("must be at most ", max, " characters")
     if (!is.null(pattern) && !grepl(pattern, x, perl = TRUE)) stop("has an invalid format")
+    x
+  })
+}
+
+#' A string of HTML that a user wrote, such as a project description. It is
+#' reduced to harmless formatting (`sanitize_html()`), so what the handler
+#' gets, and stores, is safe to put into a page.
+#' @param max  Limit on the number of characters, before and after cleaning.
+#' @noRd
+arg_html <- function (max = 10000L, ...) {
+  arg_spec("html", ..., check = function (x) {
+    if (!is.character(x) || length(x) != 1 || is.na(x)) stop("must be a string")
+    if (nchar(x) > max) stop("must be at most ", max, " characters")
+    x <- sanitize_html(x)
+    if (nchar(x) > max) stop("must be at most ", max, " characters")
     x
   })
 }
@@ -189,10 +229,12 @@ arg_node <- function (kinds = "CPG", root = FALSE, ...) {
 #' Routes are tried in table order, so a literal path must be listed before
 #' a parameterised one that would also match it.
 #'
+#' @param mode  The authentication mode the server runs in. Routes that do
+#'              not exist in that mode are skipped.
 #' @return `list(route, params)`. Stops with a 404, or a 405 if the path
 #'         exists under another method.
 #' @noRd
-match_route <- function (method, path, routes = route_table()) {
+match_route <- function (method, path, routes = route_table(), mode = NULL) {
 
   if (!is_scalar_character(path)) stop_not_found("Not found.")
 
@@ -204,6 +246,7 @@ match_route <- function (method, path, routes = route_table()) {
   for (r in routes) {
 
     if (length(r[['segments']]) != length(segments)) next
+    if (!is.null(mode) && !(mode %in% r[['modes']]))   next
 
     is_param <- startsWith(r[['segments']], ":")
     if (!all(is_param | r[['segments']] == segments)) next
@@ -248,7 +291,7 @@ validate_args <- function (route, args) {
       stop_user("Argument '", keys[[anyDuplicated(keys)]], "' was given twice.")
 
     unknown <- setdiff(keys, names(specs))
-    if (length(unknown) > 0)
+    if (length(unknown) > 0 && route[['strict']])
       stop_user("Unknown argument '", log_truncate(unknown[[1]], 40L), "'.")
   }
 
@@ -309,6 +352,19 @@ check_permission <- function (REQ, route) {
       admin  = "This action needs an administrator.",
       "Not allowed." ))
 
+  if (route[['account']] && !isFALSE(session[['is_guest']]))
+    stop_forbidden("Please sign in to do this.")
+
+  invisible(TRUE)
+}
+
+
+#______________________________________________________________________________
+#' Apply the rule a route names, if any, to the validated arguments.
+#' @noRd
+check_rule <- function (REQ, route, args) {
+  rule <- route[['rule']]
+  if (!is.null(rule)) access_rules[[rule]](REQ, args)
   invisible(TRUE)
 }
 
@@ -343,19 +399,22 @@ handle_request <- function (request, app) {
     CONFIG  = app[['config']],
     POOL    = app[['pool']],
     MEMO    = app[['memo']],
+    AUTH    = app[['auth']],
     METHOD  = request[['REQUEST_METHOD']],
     PATH    = request[['PATH_INFO']],
-    URL     = paste0("http://", request[['HTTP_HOST']]),
-    CLIENT  = request_client(request),
+    CLIENT  = request_client(request, app[['config']]),
     SESSION = list() ))
 
 
   #________________________________________________________
-  # Route, session, permission, arguments, handler.
+  # Route, session, permission, arguments, rule, handler.
   #________________________________________________________
   out <- request_stage(REQ, {
 
-    matched <- match_route(REQ[['METHOD']], REQ[['PATH']])
+    check_host(REQ, request)
+    check_origin(REQ, request)
+
+    matched <- match_route(REQ[['METHOD']], REQ[['PATH']], mode = REQ[['CONFIG']][['auth']])
     route   <- matched[['route']]
 
     REQ[['ROUTE']] <- route
@@ -367,6 +426,8 @@ handle_request <- function (request, app) {
 
     args <- c(request_args(request), matched[['params']])
     args <- validate_args(route, args)
+
+    check_rule(REQ, route, args)
 
     # Nothing a handler writes is kept unless the handler finishes.
     out <- db_transaction(REQ[['DB']], call_handler(route, REQ, args))
@@ -467,9 +528,10 @@ request_done <- function (REQ, started, resp) {
 
 
 #______________________________________________________________________________
-#' The credentials a request carries: auth cookie, session key and address.
+#' The credentials a request carries: auth cookie, session key and address,
+#' and whether it came over HTTPS.
 #' @noRd
-request_client <- function (request) {
+request_client <- function (request, config = list()) {
 
   cookies <- list()
   if (isTRUE(nzchar(request[['HTTP_COOKIE']]))) {
@@ -486,9 +548,14 @@ request_client <- function (request) {
   if (!isTRUE(grepl("^[a-zA-Z0-9]{64}$", auth_token)))    auth_token  <- NULL
   if (!isTRUE(grepl("^[a-zA-Z0-9]{1,40}$", session_key))) session_key <- NULL
 
+  oidc_login <- cookies[['oidc_login']]
+  if (!isTRUE(grepl("^[a-zA-Z0-9]{43}$", oidc_login)))    oidc_login  <- NULL
+
   list(
     auth_token  = auth_token,
     session_key = session_key,
+    oidc_login  = oidc_login,
+    https       = request_is_https(request, config),
     ip_address  = request[['REMOTE_ADDR']] %||% "" )
 }
 
@@ -530,9 +597,11 @@ request_args <- function (request) {
       stop_user("The request body must be a set of named arguments.")
   }
 
+  # In a query string, "key=" and a bare "key" are an empty value.
   if (isTRUE(nzchar(request[['QUERY_STRING']])))
     args <- c(args, tryCatch(
-      expr  = as.list(parse_query(request[['QUERY_STRING']])),
+      expr  = lapply(as.list(parse_query(request[['QUERY_STRING']])), function (value) {
+        if (length(value) == 1 && is.na(value)) "" else value }),
       error = function (e) stop_user("The query string could not be read.") ))
 
   return (args)

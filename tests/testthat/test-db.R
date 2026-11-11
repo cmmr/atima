@@ -61,7 +61,21 @@ test_that("the schema has the public-project columns, delete rules and indexes",
   REQ    <- local_test_req()
   schema <- db_schema_summary(REQ$DB)
 
-  expect_true(all(c("is_public", "public_collection_id") %in% schema$projects$columns$name))
+  expect_true(all(c("public_key", "public_collection_id") %in% schema$projects$columns$name))
+
+  # Nothing about passwords is left, and users have an identity instead.
+  expect_false(any(c("password", "alt_password", "n_attempts", "locked_utc") %in% schema$users$columns$name))
+  expect_true(all(c("issuer", "sub") %in% schema$users$columns$name))
+  expect_true("expires_utc" %in% schema$auth_tokens$columns$name)
+
+  unique_index <- function (table, columns) {
+    idx <- schema[[table]]$indexes
+    any(idx$columns == columns & idx$unique == 1)
+  }
+  expect_true(unique_index("users", "issuer,sub"))
+  expect_true(unique_index("projects", "access_key"))
+  expect_true(unique_index("projects", "public_key"))
+  expect_false(unique_index("users", "email"))
 
   rule <- function (table, from) {
     fk <- schema[[table]]$foreign_keys
@@ -154,10 +168,26 @@ test_that("a 5.0.x database is upgraded in place", {
   expect_identical(q("SELECT email FROM users WHERE user_id = 1001")[[1]], "ada@example.org")
   expect_identical(q("SELECT n_views FROM projects WHERE project_id = 10001")[[1]], 12L)
 
-  # "User 0" permissions became public flags, with their place in the tree.
-  projects <- q("SELECT project_id, is_public, public_collection_id FROM projects ORDER BY 1")
-  expect_identical(projects$is_public, c(1L, 0L, 1L))
+  # "User 0" permissions made a project public, with its place in the tree.
+  # A public project now goes by its old address as its public key, and has
+  # a new random private key. A private project with a long key keeps it.
+  projects <- q("SELECT project_id, access_key, public_key, public_collection_id FROM projects ORDER BY 1")
+  expect_identical(projects$public_key, c("hmp50", NA, "toplevel"))
   expect_identical(projects$public_collection_id, c(4L, NA, NA))
+  expect_identical(projects$access_key[[2]], "Xk3pQ9wLm2Za")
+  expect_match(projects$access_key[c(1, 3)], "^[a-z0-9]{12}$")
+  expect_identical(anyDuplicated(projects$access_key), 0L)
+
+  # Accounts keep their rows, but have no identity to sign in with yet.
+  users <- q("SELECT user_id, issuer, sub, is_guest, is_admin FROM users ORDER BY 1")
+  expect_identical(users$is_guest, c(0L, 0L, 1L))
+  expect_identical(users$is_admin, c(1L, 0L, 0L))
+  expect_true(all(is.na(users$issuer)) && all(is.na(users$sub)))
+
+  # The cookie of a password account stops working; a guest's now expires.
+  tokens <- q("SELECT auth_token_id, user_id, expires_utc FROM auth_tokens")
+  expect_identical(tokens$user_id, 1003L)
+  expect_gt(as.numeric(as.POSIXct(tokens$expires_utc, tz = "UTC")), as.numeric(Sys.time()) + 29 * 86400)
 
   # "User 0" collections became public collections.
   collections <- q("SELECT collection_id, user_id, parent_collection_id FROM collections ORDER BY 1")
@@ -178,7 +208,8 @@ test_that("a 5.0.x database is upgraded in place", {
   sessions <- q("SELECT * FROM sessions ORDER BY session_id")
   expect_identical(sessions$session_key,   c("1abcdefgh", "2abcdefgh"))
   expect_identical(sessions$user_id,       c(1001L, 1003L))
-  expect_identical(sessions$auth_token_id, c(1L, NA))
+  expect_identical(sessions$auth_token_id, c(NA_integer_, NA_integer_))
+  expect_false(is.na(sessions$logout_utc[[1]]))
   expect_identical(sessions$draft_id,      c(2L, NA))
 
   last_access <- q("SELECT * FROM last_access")
@@ -194,6 +225,74 @@ test_that("a 5.0.x database is upgraded in place", {
   expect_identical(project_access(DB, 10002L, 1002L), "viewer")
   expect_identical(project_access(DB, 10002L, 1003L), "none")
   expect_identical(project_access(DB, 10002L, NULL),  "none")
+})
+
+
+test_that("the upgrade to version 4 drops passwords and replaces guessable private keys", {
+
+  data_dir <- withr::local_tempdir(pattern = "atima_v3_")
+  DB       <- DBI::dbConnect(RSQLite::SQLite(), file.path(data_dir, "sqlite.db"))
+  withr::defer(DBI::dbDisconnect(DB))
+
+  # A version 3 database, as step 4 left it, with what version 4 changes.
+  db_migrate(DB, data_dir, db_migrations()[1:3, ])
+  expect_identical(db_version(DB), 3L)
+
+  run <- function (sql) DBI::dbExecute(DB, sql)
+  q   <- function (sql) DBI::dbGetQuery(DB, sql)
+
+  run("INSERT INTO users (user_id, full_name, email, password, alt_password, n_attempts, is_guest) VALUES (1, 'Ada Lovelace', 'ada@example.org', 'a-stored-password-hash', 'a-reset-password-hash', 2, 0)")
+  run("INSERT INTO users (user_id, full_name, email, is_guest) VALUES (2, 'Ada Lovelace', 'ada+2@example.org', 0)")
+  run("INSERT INTO users (user_id, full_name) VALUES (3, 'Guest 3')")
+  run("INSERT INTO biom_files (biom_file_id, file, hash) VALUES (1, 'a.biom', 'a')")
+
+  keys <- c(short = "abcd", eleven = "elevenchars", long = "Xk3pQ9wLm2Za", custom = "my-long-custom-key", public = "hmp50")
+  for (i in seq_along(keys))
+    run(sprintf(
+      "INSERT INTO projects (project_id, title, orig_bf_id, full_bf_id, rare_bf_id, access_key, is_public) VALUES (%i, 'P', 1, 1, 1, '%s', %i)",
+      i, keys[[i]], names(keys)[[i]] == "public" ))
+
+  run("INSERT INTO permissions (user_id, project_id) VALUES (1, 1)")
+  run("INSERT INTO auth_tokens (auth_token_id, auth_token_sha, user_id) VALUES (1, 'sha-user', 1)")
+  run("INSERT INTO auth_tokens (auth_token_id, auth_token_sha, user_id) VALUES (2, 'sha-guest', 3)")
+
+  db_migrate(DB, data_dir)
+  expect_identical(db_version(DB), latest_version())
+
+  # Every row is still there; the password columns are not, anywhere.
+  users <- q("SELECT * FROM users ORDER BY user_id")
+  expect_identical(users$full_name, c("Ada Lovelace", "Ada Lovelace", "Guest 3"))
+  expect_identical(users$email, c("ada@example.org", "ada+2@example.org", NA))
+  expect_false(any(grepl("password|attempts|locked", names(users))))
+  expect_no_match(paste(unlist(q("SELECT sql FROM sqlite_master")), collapse = " "), "password")
+  expect_identical(q("SELECT user_id FROM permissions")[[1]], 1L)
+
+  # The hashes are kept in the backup, for claiming the account later.
+  backup <- list.files(data_dir, pattern = "^sqlite\\.db\\.v3\\..*\\.bak$", full.names = TRUE)
+  expect_length(backup, 1)
+  old <- DBI::dbConnect(RSQLite::SQLite(), backup)
+  withr::defer(DBI::dbDisconnect(old))
+  expect_identical(DBI::dbGetQuery(old, "SELECT password FROM users WHERE user_id = 1")[[1]], "a-stored-password-hash")
+
+  # Two accounts may now have one email address.
+  expect_no_error(run("UPDATE users SET email = 'ada@example.org' WHERE user_id = 2"))
+
+  # ...but not one identity.
+  run("UPDATE users SET issuer = 'https://issuer.test', sub = 'sub-1' WHERE user_id = 1")
+  expect_error(run("UPDATE users SET issuer = 'https://issuer.test', sub = 'sub-1' WHERE user_id = 2"), "UNIQUE")
+
+  # Private keys shorter than twelve characters were replaced; longer ones,
+  # which old links may use, were kept. The public project's address is now
+  # its public key, and it has a private key like everyone else.
+  projects <- q("SELECT access_key, public_key FROM projects ORDER BY project_id")
+  expect_identical(projects$public_key, c(NA, NA, NA, NA, "hmp50"))
+  expect_identical(projects$access_key[3:4], c("Xk3pQ9wLm2Za", "my-long-custom-key"))
+  expect_match(projects$access_key[c(1, 2, 5)], "^[a-z0-9]{12}$")
+  expect_false(any(projects$access_key %in% keys[c("short", "eleven", "public")]))
+  expect_identical(anyDuplicated(projects$access_key), 0L)
+
+  # Only the guest is still signed in.
+  expect_identical(q("SELECT user_id FROM auth_tokens")[[1]], 3L)
 })
 
 
@@ -500,9 +599,9 @@ test_that("a new database is seeded with public example projects", {
 
   db_seed(DB, REQ$CONFIG)
 
-  projects <- db_query(DB, "SELECT access_key, is_public, n_samples FROM projects ORDER BY project_id", "T1")
-  expect_identical(projects$access_key, c("hmp50", "gems"))
-  expect_identical(projects$is_public,  c(TRUE, TRUE))
+  projects <- db_query(DB, "SELECT access_key, public_key, n_samples FROM projects ORDER BY project_id", "T1")
+  expect_identical(projects$public_key, c("hmp50", "gems"))
+  expect_match(projects$access_key, "^[a-z0-9]{12}$")
   expect_true(all(projects$n_samples > 0))
 
   # Public projects belong to nobody.

@@ -23,6 +23,7 @@ importFrom(methods,
   is
 )
 importFrom(openssl,
+  rand_bytes,
   rand_num,
   sha256
 )
@@ -50,10 +51,6 @@ importFrom(rlang,
   is_scalar_integer,
   is_scalar_integerish,
   is_string
-)
-importFrom(sodium,
-  password_store,
-  password_verify
 )
 importFrom(stats,median)
 importFrom(tools,R_user_dir)

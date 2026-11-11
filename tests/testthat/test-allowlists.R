@@ -65,7 +65,7 @@ test_that("permission strings are restricted", {
       regexp = "is_one_of(permissions", fixed = TRUE, info = permissions )
 
     expect_error(
-      can_grant(DB = NULL, user_id = 5L, grantor_user_id = 6L, project_id = 1L, permissions = permissions),
+      check_grant(DB = NULL, user_id = 5L, grantor_user_id = 6L, project_id = 1L, permissions = permissions),
       regexp = "is_one_of(permissions", fixed = TRUE, info = permissions )
   }
 

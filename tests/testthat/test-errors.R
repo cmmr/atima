@@ -2,20 +2,6 @@
 # server log.
 
 
-# Send the server log to a file for the rest of the calling test, and return
-# a function that reads it back as a list of entries.
-local_log <- function (env = parent.frame()) {
-  file <- withr::local_tempfile(.local_envir = env)
-  withr::local_options(atima.log = file, .local_envir = env)
-  function () {
-    if (!file.exists(file)) return (list())
-    lapply(readLines(file), jsonlite::fromJSON, simplifyVector = FALSE)
-  }
-}
-
-log_errors <- function (entries) Filter(function (e) e$event == "error", entries)
-
-
 test_that("log_event writes one JSON object per line", {
 
   read_log <- local_log()
@@ -172,7 +158,8 @@ test_that("every request is logged with its route, status and user", {
   project <- add_test_project(setup_req$DB, ada)$project_id
   session <- add_test_session(setup_req$DB, ada, project)
 
-  handle_request(fake_request("GET", "/some-secret-key/rare.json"), test_app(setup_req))
+  key <- db_query(setup_req$DB, "SELECT access_key FROM projects", "T1")
+  handle_request(fake_request("GET", paste0("/", key, "/rare.json")), test_app(setup_req))
   handle_request(fake_request("POST", "/api/session/heartbeat", list(), session), test_app(setup_req))
 
   entries <- Filter(function (e) e$event == "request", read_log())

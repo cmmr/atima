@@ -7,7 +7,8 @@
 #   1. Sessions that have signed out, or whose browser has not been heard
 #      from for `session_ttl` seconds.
 #   2. Drafts (unsaved working copies) that no session has open.
-#   3. Guest users not seen for `guest_ttl` seconds who have no session.
+#   3. Guest users not seen for `guest_ttl` seconds who have no session,
+#      and auth tokens that have expired.
 #   4. Private projects that no user has in their tree any more.
 #   5. `biom_files` rows that no project or draft refers to.
 #   6. Files in `<data_dir>/files` that have no `biom_files` row and are
@@ -44,7 +45,10 @@ cleanup_run <- function (DB, config, now = Sys.time()) {
   removed <- db_transaction(DB, list(
     sessions   = cleanup_sessions(DB, session_cutoff),
     drafts     = cleanup_drafts(DB),
-    guests     = cleanup_guests(DB, guest_cutoff),
+    # Without accounts nobody new is a guest. Guests found there are from
+    # before an upgrade, and what they own is the local user's own work.
+    guests     = if (identical(config[['auth']], "none")) 0L else cleanup_guests(DB, guest_cutoff),
+    tokens     = cleanup_tokens(DB, now),
     projects   = cleanup_projects(DB),
     biom_files = cleanup_biom_files(DB) ))
 
@@ -145,12 +149,22 @@ cleanup_guests <- function (DB, cutoff) {
 
 
 #______________________________________________________________________________
+#' Rule 3, second part: auth tokens that have expired. A browser that still
+#' holds one starts again as a guest, or signs in again.
+#' @return The number of tokens deleted.
+#' @noRd
+cleanup_tokens <- function (DB, now) {
+  delete_where(DB, "auth_tokens", "expires_utc IS NULL OR expires_utc < ?", list(sql_time(now)))
+}
+
+
+#______________________________________________________________________________
 #' Rule 4: private projects that are in nobody's tree: left behind by
 #' "delete project", or by the removal of the only guest who had them.
 #' @return The number of projects deleted.
 #' @noRd
 cleanup_projects <- function (DB) {
-  delete_where(DB, "projects", "is_public = 0 AND project_id NOT IN (SELECT project_id FROM permissions)")
+  delete_where(DB, "projects", "public_key IS NULL AND project_id NOT IN (SELECT project_id FROM permissions)")
 }
 
 

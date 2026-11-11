@@ -4,7 +4,9 @@
 #' See `route()` for the meaning of each field. API routes are POSTs under
 #' `/api/<area>/<action>`; their arguments arrive as a JSON object, or as a
 #' multipart form when a file is uploaded. `viewer` and `editor` refer to the
-#' project that is open in the caller's session.
+#' project that is open in the caller's session. `account = TRUE` means the
+#' caller must be signed in, and `rule` names a check on the arguments; the
+#' permission model as a whole is described in `R/access.R`.
 #'
 #' The lane is `compute` for anything that may read a BIOM file or call
 #' rbiom, and `fast` for work that only touches the database. A `compute`
@@ -30,17 +32,13 @@ route_table <- function () {
     search  = arg_json(optional = TRUE),
     order   = arg_json(optional = TRUE) )
 
-  # Free text typed by the user for an account. The account handlers give
-  # friendlier messages than the router for values that are too short.
-  account_text <- function (...) arg_string(max = 200L, ...)
-
   list(
 
     #__________________________________________________________________________
     # Sessions
 
     route("POST /api/session/init", "api_init_session", "public", "compute", args = list(
-      access_key = arg_string(max = 20L, optional = TRUE) )),
+      access_key = arg_string(max = 40L, optional = TRUE) )),
 
     route("POST /api/session/heartbeat", "api_heartbeat", "session", "fast"),
 
@@ -48,30 +46,22 @@ route_table <- function () {
 
 
     #__________________________________________________________________________
-    # Accounts (replaced in step 5)
+    # Signing in and out. These only exist when the server has accounts.
+    # The two GET routes are pages the browser itself goes to, on the way to
+    # and from the identity provider (`R/auth-oidc.R`).
 
-    route("POST /api/account/create", "api_create_account", "session", "fast", args = list(
-      full_name   = account_text(),
-      email       = account_text(),
-      affiliation = account_text(),
-      password    = account_text(trim = FALSE, optional = TRUE) )),
+    route("GET /auth/login", "auth_login", "public", "fast", modes = "oidc", html = TRUE, args = list(
+      return_to = arg_string(max = 100L, default = "/") )),
 
-    route("POST /api/account/update", "api_update_account", "session", "fast", args = list(
-      full_name    = account_text(),
-      affiliation  = account_text(),
-      new_password = account_text(trim = FALSE),
-      password     = account_text(trim = FALSE) )),
+    route("GET /auth/callback", "auth_callback", "public", "fast", modes = "oidc", html = TRUE, strict = FALSE, args = list(
+      code              = arg_string(max = 4000L, optional = TRUE),
+      state             = arg_string(max = 200L,  optional = TRUE),
+      error             = arg_string(max = 200L,  optional = TRUE),
+      error_description = arg_string(max = 2000L, optional = TRUE) )),
 
-    route("POST /api/account/details", "api_account_details", "session", "fast"),
+    route("POST /api/account/sign_out", "api_sign_out", "session", "fast", modes = "oidc"),
 
-    route("POST /api/account/reset_password", "api_reset_password", "session", "fast", args = list(
-      email = account_text() )),
-
-    route("POST /api/account/sign_in", "api_sign_in", "session", "compute", args = list(
-      email    = account_text(),
-      password = account_text(trim = FALSE) )),
-
-    route("POST /api/account/sign_out", "api_log_out", "session", "compute"),
+    route("POST /api/account/details", "api_account_details", "session", "fast", account = TRUE, modes = "oidc"),
 
 
     #__________________________________________________________________________
@@ -89,16 +79,17 @@ route_table <- function () {
 
     route("POST /api/project/save", "api_save", "editor", "compute", args = list(
       title       = arg_string(min = 3L, max = 100L),
-      access_key  = arg_string(min = 4L, max = 20L, pattern = access_key_pattern),
-      description = arg_string(max = 5000L) )),
+      description = arg_html(max = 5000L) )),
 
     route("POST /api/project/save_as", "api_save_as", "viewer", "compute", args = list(
       title       = arg_string(min = 3L, max = 100L),
-      access_key  = arg_string(min = 4L, max = 20L, pattern = access_key_pattern),
-      description = arg_string(max = 5000L) )),
+      description = arg_html(max = 5000L) )),
 
-    route("POST /api/project/publish", "api_publish", "admin", "compute", args = list(
+    route("POST /api/project/new_key", "api_new_key", "editor", "fast"),
+
+    route("POST /api/project/publish", "api_publish", "editor", "compute", account = TRUE, args = list(
       is_public     = arg_bool(),
+      public_key    = arg_string(min = 4L, max = 20L, pattern = public_key_pattern, optional = TRUE),
       collection_id = arg_int(min = 1L, optional = TRUE) )),
 
     route("POST /api/project/export", "api_export", "viewer", "compute", args = list(
@@ -110,41 +101,44 @@ route_table <- function () {
 
 
     #__________________________________________________________________________
-    # The project tree. These act on whichever node is named, so each
-    # handler checks that the node belongs to the caller.
+    # The project tree. These act on whichever node is named, so the `tree`
+    # rule checks that each node belongs to the caller; `tree_edit` also
+    # asks for editing rights on a project node.
 
-    route("POST /api/tree/select", "api_jstree_select", "session", "compute", args = list(
+    route("POST /api/tree/select", "api_jstree_select", "session", "compute", rule = "tree", args = list(
       node_id = arg_node("PG") )),
 
-    route("POST /api/tree/create", "api_jstree_create", "session", "fast", args = list(
+    route("POST /api/tree/create", "api_jstree_create", "session", "fast", rule = "tree", args = list(
       node_id = arg_node("CP", root = TRUE) )),
 
-    route("POST /api/tree/rename", "api_jstree_rename", "session", "fast", args = list(
+    route("POST /api/tree/rename", "api_jstree_rename", "session", "fast", rule = "tree_edit", args = list(
       node_id = arg_node("CP"),
       text    = arg_string(min = 3L, max = 100L) )),
 
-    route("POST /api/tree/leave", "api_jstree_leave", "session", "fast", args = list(
+    route("POST /api/tree/leave", "api_jstree_leave", "session", "fast", rule = "tree", args = list(
       node_id = arg_node("P") )),
 
-    route("POST /api/tree/delete", "api_jstree_delete", "session", "fast", args = list(
+    route("POST /api/tree/delete", "api_jstree_delete", "session", "fast", rule = "tree_edit", args = list(
       node_id = arg_node("CP") )),
 
-    route("POST /api/tree/move", "api_jstree_move", "session", "fast", args = list(
+    route("POST /api/tree/move", "api_jstree_move", "session", "fast", rule = "tree", args = list(
       node_id        = arg_node("CP"),
       parent_node_id = arg_node("C", root = TRUE) )),
 
 
     #__________________________________________________________________________
-    # Sharing the open project
+    # Sharing the open project with other users. Only for people who are
+    # signed in, so not at all when the server has no accounts. The `grant`
+    # rule decides whose access the caller may change, and how.
 
-    route("POST /api/sharing/user_search", "api_sharing_user_search", "session", "fast", args = list(
+    route("POST /api/sharing/user_search", "api_sharing_user_search", "session", "fast", account = TRUE, modes = "oidc", args = list(
       query = arg_string(min = 1L, max = 99L, pattern = "^[A-Za-z0-9@_ .\\-]+$") )),
 
-    route("POST /api/sharing/editors", "api_get_editors", "viewer", "fast"),
+    route("POST /api/sharing/editors", "api_get_editors", "viewer", "fast", account = TRUE, modes = "oidc"),
 
-    route("POST /api/sharing/list", "api_sharing_with", "viewer", "fast"),
+    route("POST /api/sharing/list", "api_sharing_with", "viewer", "fast", account = TRUE, modes = "oidc"),
 
-    route("POST /api/sharing/update", "api_update_permissions", "viewer", "fast", args = list(
+    route("POST /api/sharing/update", "api_update_permissions", "viewer", "fast", account = TRUE, modes = "oidc", rule = "grant", args = list(
       user_id     = arg_int(min = 1L),
       permissions = arg_choice(c("none", "view", "edit", "any")) )),
 
@@ -187,15 +181,16 @@ route_table <- function () {
 
     #__________________________________________________________________________
     # BIOM file downloads, fetched by R scripts that have no cookie. The key
-    # in the URL is the permission: a project's access key, or the session
-    # key of an unsaved draft. (Share-link rules are revisited in step 5.)
+    # in the URL is the permission: a project's public or private key, or
+    # the session key of an unsaved draft. The rules check that the key
+    # exists.
 
-    route("GET /unsaved/:session_key/:file", "download_draft_biom", "public", "compute", args = list(
+    route("GET /unsaved/:session_key/:file", "download_draft_biom", "public", "compute", rule = "draft_key", args = list(
       session_key = arg_string(min = 1L, max = 40L, pattern = "^[A-Za-z0-9]+$"),
       file        = arg_string(pattern = biom_file_pattern) )),
 
-    route("GET /:access_key/:file", "download_project_biom", "public", "compute", args = list(
-      access_key = arg_string(min = 4L, max = 20L, pattern = access_key_pattern),
+    route("GET /:access_key/:file", "download_project_biom", "public", "compute", rule = "project_key", args = list(
+      access_key = arg_string(min = 4L, max = 40L, pattern = access_key_pattern),
       file       = arg_string(pattern = biom_file_pattern) )),
 
 
@@ -211,7 +206,8 @@ route_table <- function () {
 }
 
 
-# A project's access key: 4 to 20 letters, digits and inner hyphens.
+# A project key in a URL, public or private: letters, digits and inner
+# hyphens. (What a new public key may look like is `public_key_pattern`.)
 access_key_pattern <- "^[A-Za-z0-9](?:[A-Za-z0-9\\-]*[A-Za-z0-9])?$"
 
 # Names a BIOM download may have: <rare|full>.<format>[.<compression>]

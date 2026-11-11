@@ -4,7 +4,7 @@
 #' @importFrom httpuv runServer staticPathOptions
 #' @importFrom jsonlite fromJSON toJSON unbox
 #' @importFrom methods formalArgs is
-#' @importFrom openssl rand_num sha256
+#' @importFrom openssl rand_bytes rand_num sha256
 #' @importFrom pandoc pandoc_convert
 #' @importFrom parallelly availableCores
 #' @importFrom rbiom adiv_matrix as_rbiom bdiv_distmat ggsave list_metrics
@@ -13,7 +13,6 @@
 #' @importFrom rlang %||% exprs_auto_name
 #'   is_scalar_character is_scalar_integer is_scalar_integerish is_string
 #' @importFrom RSQLite SQLite
-#' @importFrom sodium password_store password_verify
 #' @importFrom stats median
 #' @importFrom tools R_user_dir
 #' @importFrom utils adist browseURL hasName head

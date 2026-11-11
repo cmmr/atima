@@ -5,9 +5,10 @@
 #   GET /unsaved/<session_key>/full.json
 #
 # These URLs appear in the R code that atima shows next to a plot, so they
-# are fetched by R scripts that carry no cookie. Whoever knows a project's
-# access key may read it, which is the same rule `api_init_session()`
-# applies when a browser opens a project by its key.
+# are fetched by R scripts that carry no cookie. The key in the URL is the
+# permission: a project's public or private key, or the key of the session
+# whose working copy it is. The router checks it (the `project_key` and
+# `draft_key` rules in `R/access.R`) before these handlers run.
 #______________________________________________________________________________
 
 
@@ -20,17 +21,10 @@ download_project_biom <- function (REQ, access_key, file) {
   DB <- REQ[['DB']]
 
   sql <- paste0(
-    "SELECT project_id, full_bf_id, rare_bf_id, title, description",
-    " FROM projects WHERE access_key = ?" )
-  project <- db_query(DB, sql, "DPBiom1", list(access_key), simplify = FALSE)
-
-  if (nrow(project) != 1)
-    stop_not_found("Project not found.")
-
-  project <- as.list(project)
-
-  if (!is_project_readable(DB, project[['project_id']], user_id = NULL, access_key = access_key))
-    stop_not_found("Project not found.")
+    "SELECT full_bf_id, rare_bf_id, title, description",
+    " FROM projects WHERE project_id = ?" )
+  project_id <- key_project(DB, access_key)[['project_id']]
+  project    <- db_query(DB, sql, "DPBiom1", list(project_id), req1 = TRUE)
 
   biom_response(REQ, project, file)
 }
@@ -54,12 +48,9 @@ download_draft_biom <- function (REQ, session_key, file) {
     "   JOIN drafts   USING (draft_id)",
     "   JOIN projects USING (project_id)",
     " WHERE session_key = ? AND logout_utc IS NULL" )
-  draft <- db_query(DB, sql, "DDBiom1", list(session_key), simplify = FALSE)
+  draft <- db_query(DB, sql, "DDBiom1", list(session_key), req1 = TRUE)
 
-  if (nrow(draft) != 1)
-    stop_not_found("Project not found.")
-
-  biom_response(REQ, as.list(draft), file)
+  biom_response(REQ, draft, file)
 }
 
 

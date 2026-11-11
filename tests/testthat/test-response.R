@@ -33,7 +33,7 @@ test_that("response() accepts header objects in any position", {
     header("x-session-key" = "12abcdefgh", expose = TRUE) )
 
   expect_identical(resp$status, 200L)
-  expect_identical(resp$headers[["Set-Cookie"]], "token=abc123; Max-Age=34560000; HttpOnly")
+  expect_identical(resp$headers[["Set-Cookie"]], "token=abc123; Max-Age=34560000; SameSite=Lax; HttpOnly")
   expect_identical(resp$headers[["x-session-key"]], "12abcdefgh")
   expect_identical(resp$headers[["Access-Control-Expose-Headers"]], "x-session-key")
 

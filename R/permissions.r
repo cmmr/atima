@@ -1,5 +1,17 @@
 
 #______________________________________________________________________________
+# Sharing the open project with other users.
+#
+# What other users are shown about a person is their name, their
+# affiliation and a partly hidden email address (`redact_emails()`). Someone
+# who signed in through a provider that gives no email (ORCID) has none.
+#
+# Who may change whose grant is decided by the router, with the `grant`
+# rule in `R/access.R`.
+#______________________________________________________________________________
+
+
+#______________________________________________________________________________
 #' Find users matching a user-entered query string.
 #' For a server-side selectize drop-down.
 #' @return list(users = list(user_id, full_name, affiliation, email))
@@ -16,7 +28,8 @@ api_sharing_user_search <- function (REQ, query) {
   
   
   # Fuzzy matching using Levenshtein string distance.
-  strings <- paste(res[['full_name']], res[['affiliation']], res[['email']])
+  blank   <- function (x) ifelse(is.na(x), "", x)
+  strings <- paste(res[['full_name']], blank(res[['affiliation']]), blank(res[['email']]))
   dists   <- adist(x = query, y = strings, partial = TRUE, ignore.case = TRUE)
   
   
@@ -86,7 +99,8 @@ api_sharing_with <- function (REQ) {
 
 
 #______________________________________________________________________________
-#' Allow a user to modify another user's project permissions.
+#' Change another user's grant on the open project. The router has already
+#' checked that the caller may make this change.
 #' @return list()
 #' @noRd
 api_update_permissions <- function (REQ, user_id, permissions) {
@@ -94,19 +108,6 @@ api_update_permissions <- function (REQ, user_id, permissions) {
   DB              <- REQ[['DB']]
   project_id      <- REQ[['SESSION']][['project_id']]
   grantor_user_id <- REQ[['SESSION']][['user_id']]
-  
-  
-  #________________________________________________________
-  # Verify grantor permissions.
-  #________________________________________________________
-  can_grant(
-    DB              = DB, 
-    user_id         = user_id, 
-    grantor_user_id = grantor_user_id, 
-    project_id      = project_id, 
-    permissions     = permissions, 
-    assert          = TRUE )
-  
   
   update_permissions(
     DB              = DB, 
@@ -188,138 +189,13 @@ update_permissions <- function (DB, user_id, project_id, permissions, grantor_us
 
 
 #______________________________________________________________________________
-#' Check if a user is allowed to alter another user's project permissions.
-#' @return redacted_email
-#' @noRd
-can_grant <- function (DB, user_id, grantor_user_id, project_id, permissions, assert = FALSE) {
-  
-  stopifnot(is_scalar_integer(user_id))
-  stopifnot(is_scalar_integer(grantor_user_id))
-  stopifnot(is_scalar_integer(project_id))
-  stopifnot(is_one_of(permissions, c("none", "view", "edit", "any")))
-  stopifnot(is_bool(assert))
-  
-  
-  
-  #________________________________________________________
-  # Don't allow grants to or from guests.
-  #________________________________________________________
-  
-  sql <- "SELECT is_guest FROM users WHERE user_id = ?"
-
-  if (!isFALSE(db_query(DB, sql, "VGran1", list(user_id)))) {
-    if (assert) stop_user("Cannot grant permissions to a guest account.")
-    return (FALSE)
-  }
-
-  if (!isFALSE(db_query(DB, sql, "VGran2", list(grantor_user_id)))) {
-    if (assert) stop_user("Cannot grant permissions from a guest account.")
-    return (FALSE)
-  }
-  
-  
-  
-  #________________________________________________________
-  # Don't give users view access to public projects.
-  #________________________________________________________
-  
-  if (permissions %in% c("view", "any")) {
-    
-    sql <- "SELECT is_public FROM projects WHERE project_id = ?"
-    if (isTRUE(db_query(DB, sql, "VGran3", list(project_id)))) {
-      if (assert) stop_user("Public projects are already viewable by everyone.")
-      return (FALSE)
-    }
-  }
-  
-  
-  
-  #________________________________________________________
-  # Check grantor's permission level.
-  #________________________________________________________
-  
-  sql <- "SELECT is_editor FROM permissions WHERE user_id = ? and project_id = ?"
-  gperm <- db_query(DB, sql, "VGran4", list(grantor_user_id, project_id))
-  gperm <- ifelse(is.null(gperm), "none", ifelse(gperm, "edit", "view"))
-  
-  if (gperm == "edit")
-    return (TRUE)
-  
-  if (gperm == "none") {
-    if (assert) stop_forbidden("You do not have granting permissions.")
-    return (FALSE)
-  }
-  
-  if (permissions == "edit") {
-    if (assert) stop_forbidden("Insufficient rights to grant editor permissions.")
-    return (FALSE)
-  }
-  
-  stopifnot(identical(gperm, "view"))
-  stopifnot(is_one_of(permissions, c("none", "view", "any")))
-  
-  
-  
-  #________________________________________________________
-  # User's current permission level.
-  #________________________________________________________
-  
-  sql <- "SELECT is_editor FROM permissions WHERE user_id = ? and project_id = ?"
-  uperm <- db_query(DB, sql, "VGran5", list(user_id, project_id))
-  uperm <- ifelse(is.null(uperm), "none", ifelse(uperm, "edit", "view"))
-  
-  if (uperm == "none") return (TRUE)
-  
-  if (uperm == "edit") {
-    if (assert) stop_forbidden("Insufficient rights to modify an editor's permissions.")
-    return (FALSE)
-  }
-  
-  stopifnot(identical(uperm, "view"))
-  
-  
-  
-  #________________________________________________________
-  # Both user and grantor have 'view' permissions.
-  #________________________________________________________
-  
-  if (permissions %in% c("view", "any")) {
-    if (assert) stop_user("User already has view permissions.")
-    return (FALSE)
-  }
-  
-  stopifnot(identical(permissions, "none"))
-  
-  
-  
-  #________________________________________________________
-  # One viewer is trying to remove another viewer's rights.
-  #________________________________________________________
-  
-  sql <- paste0(
-    "SELECT grantor_user_id FROM permissions",
-    " WHERE user_id = ? AND project_id = ?" )
-  res <- db_query(DB, sql, "VGran6", list(user_id, project_id))
-  
-  if (identical(res, grantor_user_id)) {
-    return (TRUE)
-    
-  } else {
-    if (assert) stop_forbidden("Action not allowed.")
-    return (FALSE)
-  }
-  
-}
-
-
-
-
-#______________________________________________________________________________
 #' Partially redact the username of email addresses with asterisks.
 #' @return redacted_email
 #' @noRd
 redact_emails <- function (emails) {
-  sapply(emails, function (email) {
+  vapply(emails, FUN.VALUE = character(1), USE.NAMES = FALSE, function (email) {
+
+    if (is.na(email)) return (NA_character_)
   
     x <- strsplit(email, '@', fixed = TRUE)[[1]]
     if (length(x) != 2) return (email)

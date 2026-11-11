@@ -144,6 +144,15 @@ error_response <- function (e, REQ = NULL, calls = NULL) {
     params   = params,
     calls    = if (status >= 500L) format_calls(e[['stack']] %||% calls) )
 
+  # A page that a person is looking at gets something readable.
+  if (isTRUE(REQ[['ROUTE']][['html']]))
+    return (response(status = status, body = paste0(
+      '<!DOCTYPE html><html><head><meta charset="utf-8"><title>atima</title></head><body>',
+      '<p>', html_escape(message), '</p>',
+      '<p>Error id: ', html_escape(id), '</p>',
+      '<p><a href="/">Back to atima</a></p>',
+      '</body></html>' )))
+
   response(
     body   = list(error = list(message = unbox(message), id = unbox(id))),
     status = status )
