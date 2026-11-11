@@ -14,8 +14,8 @@ running the server.
 
 > **Status: under renovation.** atima 5 is being rebuilt and is not ready for
 > use. The R back end starts and answers API requests, but the web interface
-> in this repository is a partly connected redesign, and the account, worker
-> and deployment code is about to be replaced. Do not expose it to a network.
+> in this repository is a partly connected redesign, and the account and
+> deployment code is about to be replaced. Do not expose it to a network.
 
 
 ## Installation
@@ -57,16 +57,27 @@ default is used if none is set.
 | `port`          | `ATIMA_PORT`          | `atima.port`          | `8080`                                | Port to listen on.                                   |
 | `host`          | `ATIMA_HOST`          | `atima.host`          | `"127.0.0.1"`                         | Address to listen on. The default accepts connections from this computer only. |
 | `data_dir`      | `ATIMA_DATA_DIR`      | `atima.data_dir`      | `tools::R_user_dir("atima", "data")`  | Database, stored BIOM files and cache.               |
-| `temp_dir`      | `ATIMA_TEMP_DIR`      | `atima.temp_dir`      | a new directory under `tempdir()`     | Temporary files, figures and exports.                |
+| `temp_dir`      | `ATIMA_TEMP_DIR`      | `atima.temp_dir`      | a new directory under `tempdir()`     | Temporary files, figures and exports. Must be outside `data_dir`; old files here are deleted. |
+| `workers`       | `ATIMA_WORKERS`       | `atima.workers`       | half the CPU cores, 1 to 4            | Worker processes. Each runs one job (a plot, an upload, an export) at a time. |
+| `max_cpus`      | `ATIMA_MAX_CPUS`      | `atima.max_cpus`      | CPU cores divided by `workers`        | CPU cores one job may use.                           |
+| `time_limit`    | `ATIMA_TIME_LIMIT`    | `atima.time_limit`    | `60`                                  | Longest a job may run, in seconds.                   |
 | `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `atima.cache_size_mb` | `100`                                 | Upper limit for the cache of computed results, in MB. |
 | `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `atima.max_upload_mb` | `50`                                  | Largest upload accepted, in MB.                      |
+| `session_hours` | `ATIMA_SESSION_HOURS` | `atima.session_hours` | `24`                                  | A browser tab not heard from for this long loses its session, unsaved changes and temporary files. |
+| `guest_days`    | `ATIMA_GUEST_DAYS`    | `atima.guest_days`    | `30`                                  | A guest who has not visited for this long is forgotten, with the projects only they could open. |
 | `open`          | `ATIMA_OPEN`          | `atima.open`          | `interactive()`                       | Open a browser once the server is up.                |
 
-`run()` also accepts `workers`, `max_cpus`, `time_limit` and `smtp` (and the
-matching `ATIMA_*` variables, including `ATIMA_SMTP_SERVER`,
-`ATIMA_SMTP_PORT`, `ATIMA_SMTP_USERNAME`, `ATIMA_SMTP_PASSWORD`,
-`ATIMA_SMTP_FROMADDR` and `ATIMA_SMTP_SSL`). These are checked but have no
-effect yet: every request runs in the main R process, and no email is sent.
+The R session that calls `run()` answers requests and owns the database.
+Everything that reads a BIOM file or calls rbiom runs in the worker
+processes, so the server keeps answering while a plot is drawn. With
+`workers = 1`, jobs run one after another, which suits a single user on a
+laptop. A job that runs past `time_limit` is stopped. When the server is
+interrupted it cancels running jobs, stops the workers and closes the
+database.
+
+`run()` also accepts `smtp` (and `ATIMA_SMTP_SERVER`, `ATIMA_SMTP_PORT`,
+`ATIMA_SMTP_USERNAME`, `ATIMA_SMTP_PASSWORD`, `ATIMA_SMTP_FROMADDR` and
+`ATIMA_SMTP_SSL`). It is checked but has no effect yet: no email is sent.
 
 See `?atima::run` for details.
 

@@ -9,11 +9,13 @@ run(
   host = "127.0.0.1",
   data_dir = tools::R_user_dir("atima", "data"),
   temp_dir = tempfile(pattern = "atima_"),
-  workers = parallelly::availableCores(),
-  max_cpus = parallelly::availableCores(),
+  workers = max(1, min(4, parallelly::availableCores()\%/\%2)),
+  max_cpus = NULL,
   time_limit = 60,
   cache_size_mb = 100,
   max_upload_mb = 50,
+  session_hours = 24,
+  guest_days = 30,
   smtp = NULL,
   open = interactive()
 )
@@ -30,18 +32,34 @@ is created, and filled with two example projects, the
 first time the server starts.}
 
 \item{temp_dir}{Directory for temporary files, including the figures
-and exports that browsers download.}
+and exports that browsers download. It must not be
+\code{data_dir}, or inside it: old files here are deleted.}
 
-\item{workers, max_cpus, time_limit}{Reserved for the worker pool: the
-number of worker processes, the CPU cores one job may
-use, and the longest a job may run, in seconds. They
-are checked but not used yet; all requests currently
-run one at a time in the main R process.}
+\item{workers}{Number of worker processes, each of which runs one job
+(a plot, an upload, an export, ...) at a time. The
+default is half the available CPU cores, at least 1
+and at most 4. With \code{workers = 1}, jobs run one after
+another, which suits a single user.}
+
+\item{max_cpus}{CPU cores one job may use. The default, \code{NULL},
+divides the available cores among the workers.}
+
+\item{time_limit}{The longest a job may run, in seconds. A job that
+takes longer is stopped and the user is told so.}
 
 \item{cache_size_mb}{Upper limit, in megabytes, for the cache of
-computed results kept in \code{data_dir}.}
+computed results kept in \code{data_dir}. Half is for
+atima's own cache and half for rbiom's.}
 
 \item{max_upload_mb}{Largest upload to accept, in megabytes.}
+
+\item{session_hours}{A session is closed, and its unsaved changes and
+temporary files are deleted, when its browser tab has
+not been heard from for this many hours.}
+
+\item{guest_days}{A guest (someone who has not signed in) is forgotten
+after this many days without a visit, along with any
+projects that only they could open.}
 
 \item{smtp}{A list of SMTP settings (\code{server}, \code{port}, \code{username},
 \code{password}, \code{fromaddr}, \code{ssl}) for account emails.
@@ -52,7 +70,8 @@ accounts are created without email verification.}
 }
 \value{
 Does not return; the server runs until the R session is
-interrupted.
+interrupted. It then cancels running jobs, stops the worker
+processes and closes the database.
 }
 \description{
 Starts a web server that lets users upload BIOM files and explore them
@@ -60,6 +79,10 @@ with 'rbiom' plots in their browser. Projects are stored in an SQLite
 database and a set of files under \code{data_dir}.
 }
 \details{
+The R session that calls \code{run()} answers requests and owns the database.
+Everything that reads a BIOM file or calls 'rbiom' is done by a pool of
+worker processes, so the server keeps answering while a plot is drawn.
+
 Every argument can also be set with an environment variable or an R
 option. The first of these that is set is used:
 \enumerate{
@@ -75,6 +98,26 @@ The database is the file \code{sqlite.db} in \code{data_dir}. When a newer versi
 of atima needs to change its structure, the server first saves a copy as
 \verb{sqlite.db.v<N>.<date>.bak} in the same directory, then upgrades the
 database in place.
+}
+
+\section{Jobs}{
+
+A request that needs a worker waits in a queue if all workers are busy.
+A new plot, rarefaction or table page from a browser tab replaces that
+tab's earlier request of the same kind if it is still waiting or running.
+A job that passes \code{time_limit}, or is replaced, is interrupted; if it has
+not stopped five seconds later, its worker process is ended and a new one
+takes its place.
+}
+
+\section{Cleanup}{
+
+When the server starts, and every ten minutes after that, it deletes
+closed and expired sessions, working copies that no session has open,
+guests who have not returned, private projects that nobody has in their
+project tree any more, stored files that nothing refers to, and old
+temporary files. See \code{session_hours} and \code{guest_days}. Saved projects
+that belong to a signed-in user are never deleted.
 }
 
 \section{Server log}{
