@@ -4,6 +4,7 @@
 local_test_req <- function (env = parent.frame()) {
 
   data_dir <- withr::local_tempdir(pattern = "atima_test_", .local_envir = env)
+  temp_dir <- withr::local_tempdir(pattern = "atima_temp_", .local_envir = env)
   dir.create(file.path(data_dir, "files"))
   dir.create(file.path(data_dir, "cache"))
 
@@ -12,14 +13,86 @@ local_test_req <- function (env = parent.frame()) {
 
   as.environment(list(
     DB      = DB,
-    CONFIG  = list(data_dir = data_dir, temp_dir = data_dir, cache_size = 1e8),
+    CONFIG  = list(
+      data_dir    = normalizePath(data_dir, winslash = "/"),
+      temp_dir    = normalizePath(temp_dir, winslash = "/"),
+      cache_size  = 1e8,
+      max_cpus    = 1L,
+      session_ttl = 24 * 3600,
+      guest_ttl   = 30 * 86400 ),
+    MEMO    = memo_new(),
     SESSION = list() ))
 }
 
 
-# The `app` argument of handle_request() for a test REQ.
-test_app <- function (REQ) {
-  list(db = REQ$DB, config = REQ$CONFIG)
+# The `app` argument of handle_request() for a test REQ. Without a `pool`,
+# jobs run in the test process.
+test_app <- function (REQ, pool = NULL) {
+  list(db = REQ$DB, config = REQ$CONFIG, pool = pool, memo = REQ$MEMO)
+}
+
+
+# A worker pool with a compute profile of its own. Called at the top of a
+# test file, it serves every test in the file and is stopped when the file
+# ends. Under devtools::test() the workers load atima from source, as the
+# test process did; under R CMD check they use the installed package.
+local_test_pool <- function (workers = 2L, time_limit = 5, grace = 1, ..., env = parent.frame()) {
+
+  profile <- paste0("atima-test-", random_string(8))
+
+  testthat::skip_on_cran()
+
+  init <- NULL
+
+  if (pkgload::is_dev_package("atima")) {
+    init <- function () {
+      if (!isNamespaceLoaded("atima"))
+        pkgload::load_all(path, quiet = TRUE, attach = FALSE, helpers = FALSE, attach_testthat = FALSE)
+    }
+    environment(init) <- list2env(list(path = pkgload::pkg_path()), parent = baseenv())
+  }
+
+  pool <- pool_start(workers = workers, time_limit = time_limit, grace = grace, init = init, profile = profile, ...)
+  withr::defer(pool_stop(pool), envir = env)
+
+  pool
+}
+
+
+# Wait for a promise, keeping the event loop turning. Returns
+# list(value = ) or list(error = ), or fails if it takes too long.
+await <- function (promise, seconds = 60) {
+
+  result <- NULL
+
+  promises::then(
+    promise,
+    onFulfilled = function (value) result <<- list(value = value),
+    onRejected  = function (error) result <<- list(error = error) )
+
+  deadline <- Sys.time() + seconds
+  while (is.null(result) && Sys.time() < deadline) later::run_now(timeoutSecs = 0.05)
+
+  if (is.null(result)) stop("The promise did not settle within ", seconds, " seconds.")
+
+  result
+}
+
+
+# Wait until `condition()` is TRUE, keeping the event loop turning.
+wait_until <- function (condition, seconds = 30) {
+  deadline <- Sys.time() + seconds
+  while (!condition() && Sys.time() < deadline) later::run_now(timeoutSecs = 0.05)
+  condition()
+}
+
+
+# A job for a worker that evaluates `expr` there. `eval` is found from the
+# package namespace like any worker function, so tests need no hook in the
+# package to run something slow, something that fails, or something that
+# takes the worker down.
+eval_job <- function (expr, finish = function (result) result) {
+  job("eval", list(expr = expr), finish)
 }
 
 

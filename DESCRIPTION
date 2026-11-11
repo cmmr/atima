@@ -9,14 +9,14 @@ Authors@R: c(
       role    = c("aut", "cre"),
       comment = c(ORCID = "0000-0002-2479-2044")),
     person(
-      "Alkek Center for Metagenomics and Microbiome Research", 
+      "Alkek Center for Metagenomics and Microbiome Research",
       role = c("cph", "fnd") ))
 Description:
     Provides a web interface for uploading 'BIOM' files and generating
-    interactive plots visualizing trends in alpha diversity, beta diversity, 
-    and taxa abundances through customizable box plots, PCoA ordinations, and 
-    heatmaps. Statistical annotations are added to denote significant 
-    correlations with metadata, enabling quick assessment of many variables. 
+    interactive plots visualizing trends in alpha diversity, beta diversity,
+    and taxa abundances through customizable box plots, PCoA ordinations, and
+    heatmaps. Statistical annotations are added to denote significant
+    correlations with metadata, enabling quick assessment of many variables.
     Generated data and figures can be exported as Excel-compatible spreadsheets
     and publication quality PDFs.
 URL: https://github.com/cmmr/atima, https://cmmr.github.io/atima/index.html
@@ -32,10 +32,13 @@ Imports:
     DBI,
     httpuv,
     jsonlite,
+    later,
     methods,
+    mirai (>= 2.5.0),
     openssl,
     pandoc,
     parallelly,
+    promises,
     rbiom (>= 4.0.0),
     rlang,
     RSQLite,
@@ -46,6 +49,8 @@ Imports:
     webutils
 Suggests:
     blastula,
+    curl,
+    pkgload,
     testthat (>= 3.0.0),
     withr
 Remotes:

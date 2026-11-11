@@ -19,11 +19,19 @@
 #'
 #' @param status  The HTTP status code for the response.
 #' @param ...     Pasted together to make the message.
+#' @param detail  More about the cause, for the server log only.
 #' @noRd
-stop_http <- function (status, ...) {
-  stop(structure(
+stop_http <- function (status, ..., detail = NULL) {
+  stop(http_condition(status, paste0(...), detail))
+}
+
+#' The condition `stop_http()` raises, for code that needs to pass one on
+#' instead of stopping.
+#' @noRd
+http_condition <- function (status, message, detail = NULL) {
+  structure(
     class = c("atima_http_error", "error", "condition"),
-    list(message = paste0(...), call = NULL, status = as.integer(status)) ))
+    list(message = message, call = NULL, status = as.integer(status), detail = detail) )
 }
 
 #' The request itself is wrong: a bad argument or an impossible action.
@@ -53,7 +61,8 @@ stop_not_found <- function (...) stop_http(404L, ...)
 #' @param message  What to tell the user went wrong.
 #' @param code     The code to run.
 #' @param detail   Append the original error message? Leave it out when the
-#'                 message could name server files; it is logged instead.
+#'                 message could name server files; it then travels with
+#'                 the condition and is written to the log only.
 #' @return The value of `code`.
 #' @noRd
 with_user_errors <- function (message, code, detail = TRUE) {
@@ -67,8 +76,7 @@ with_user_errors <- function (message, code, detail = TRUE) {
 
       if (detail) stop_user(message, " ", log_truncate(original, 500L))
 
-      log_event("info", "user_error", message = message, detail = log_truncate(original, 2000L))
-      stop_user(message)
+      stop_http(400L, message, detail = log_truncate(original, 2000L))
     })
 }
 
@@ -134,7 +142,7 @@ error_response <- function (e, REQ = NULL, calls = NULL) {
     detail   = if (!is.null(e[['detail']])) log_truncate(e[['detail']], 2000L),
     sql      = if (!is.null(e[['sql']]))    log_truncate(e[['sql']],    2000L),
     params   = params,
-    calls    = if (status >= 500L) format_calls(calls) )
+    calls    = if (status >= 500L) format_calls(e[['stack']] %||% calls) )
 
   response(
     body   = list(error = list(message = unbox(message), id = unbox(id))),

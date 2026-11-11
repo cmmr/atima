@@ -10,13 +10,13 @@
 #' @importFrom rbiom adiv_matrix as_rbiom bdiv_distmat ggsave list_metrics
 #'   rarefy sample_sums taxa_matrix taxa_means write_biom write_tree
 #'   %>% %<>%
-#' @importFrom rlang %||% exprs_auto_name hash hash_file
+#' @importFrom rlang %||% exprs_auto_name
 #'   is_scalar_character is_scalar_integer is_scalar_integerish is_string
 #' @importFrom RSQLite SQLite
 #' @importFrom sodium password_store password_verify
 #' @importFrom stats median
 #' @importFrom tools R_user_dir
-#' @importFrom utils adist browseURL getFromNamespace hasName head
+#' @importFrom utils adist browseURL hasName head
 #'   object.size packageVersion tail write.csv
 #' @importFrom webutils parse_http parse_query
 NULL

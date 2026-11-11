@@ -202,12 +202,12 @@ test_that("with_user_errors turns a failure into a message for the user", {
   expect_identical(err$status, 400L)
   expect_identical(conditionMessage(err), "The plot could not be made. Invalid `md` option(s): Nope")
 
-  # With detail = FALSE the original message is logged, not shown.
+  # With detail = FALSE the original message is kept for the log, not shown.
   err <- expect_error(
     with_user_errors("That file could not be read.", detail = FALSE, stop("cannot open C:/server/path/x.biom")),
     class = "atima_http_error" )
   expect_identical(conditionMessage(err), "That file could not be read.")
-  expect_match(read_log()[[1]]$detail, "C:/server/path/x.biom", fixed = TRUE)
+  expect_match(err$detail, "C:/server/path/x.biom", fixed = TRUE)
 
   # An error that already has a status keeps it.
   err <- expect_error(with_user_errors("Never shown.", stop_forbidden("No.")), class = "atima_http_error")
