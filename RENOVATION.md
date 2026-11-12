@@ -1001,9 +1001,13 @@ release; "basic" vs. "advanced" grouping of controls.
   choices that need an optional package are marked (`choices_needs`);
   entries say which counts they want (`counts`); `bhattacharyya` and
   `aitchison`, which give infinite or missing distances, stop with a
-  message that says so. Left with Daniel: ecodive 2.3.1's `aitchison()`
-  returns NaN for every pair, so that metric is offered and always
-  refused until ecodive is fixed.
+  message that says so. `aitchison` did that for every pair with ecodive
+  2.3.1; ecodive 2.3.2 fixes it, and with it all four beta plots,
+  `bdiv_clusters` and the distance export work through atima's routes
+  (checked by hand, not in the test suite, which must also pass with an
+  older ecodive). ecodive warns that it replaced zeros with a
+  pseudocount of half the smallest count; rbiom's plots have no argument
+  for it, and atima's users are not told.
 - What atima does with those (after the step, same day):
   `plot_sample_set(fn)` reads rbiom's `counts` (`"unrarefied"` means the
   full file), so nothing in atima lists which functions get which file.
