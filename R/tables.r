@@ -90,6 +90,35 @@ api_metadata_change_class <- function (REQ, col_num) {
 
 
 #______________________________________________________________________________
+#' Group the samples into clusters and add them to the working copy's
+#' metadata as a new categorical field, which plots can then color, facet
+#' or test by.
+#'
+#' @param cluster_fn    `"taxa_clusters"` or `"bdiv_clusters"`.
+#' @param cluster_args  Its arguments, as `check_fn_args()` returned them.
+#' @param name          The new field's name.
+#' @return list(BIOM)
+#' @noRd
+api_add_clusters <- function (REQ, cluster_fn, name, cluster_args = list()) {
+
+  job(
+    fn   = "work_add_clusters",
+    args = list(
+      ctx          = worker_ctx(REQ[['CONFIG']]),
+      full         = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+      rare         = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
+      cluster_fn   = cluster_fn,
+      cluster_args = cluster_args,
+      name         = name,
+      checked      = !is.null(known_summary(REQ)) ),
+    finish = function (result) {
+      update_draft(REQ, full = result[['full']], rare = result[['rare']])
+      list(BIOM = biom_reply(REQ, result[['data']]))
+    })
+}
+
+
+#______________________________________________________________________________
 #' Construct the HTML to define the double header row for the
 #' METADATA DataTable. Two header rows: Column Name and Column Class.
 #'

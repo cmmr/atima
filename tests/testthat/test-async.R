@@ -257,6 +257,16 @@ test_that("real routes give the same answers through workers as in-process", {
   image <- file.path(REQ$CONFIG$temp_dir, sub("^/tmp/", "", response_json(resp)$image_url))
   expect_identical(readBin(image, "raw", 4), as.raw(c(0x89, 0x50, 0x4e, 0x47)))
 
+  # A function rbiom 4 added, checked against the schema in this process
+  # and drawn in a worker; a bad option never gets that far.
+  resp <- post("/api/plot", list(plot_fn = "taxa_forest", plot_args = list(stat.by = "Sex", rank = "Genus"), depth = 1183, attrs = TRUE))
+  expect_identical(resp$status, 200L)
+  expect_match(response_json(resp)$code$stats, "taxa_da")
+
+  resp <- post("/api/plot", list(plot_fn = "taxa_forest", plot_args = list(stat.by = "Sex", cpus = 64), depth = 1183))
+  expect_identical(resp$status, 400L)
+  expect_match(response_json(resp)$error$message, "option 'cpus'")
+
   resp <- post("/api/project/rarefy", list(depth = 2000))
   expect_identical(response_json(resp)$BIOM$depth, 2000L)
 

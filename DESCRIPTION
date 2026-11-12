@@ -52,6 +52,7 @@ Imports:
     xml2
 Suggests:
     curl,
+    openxlsx,
     pkgload,
     testthat (>= 3.0.0),
     withr

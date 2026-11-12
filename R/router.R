@@ -114,11 +114,18 @@ route <- function (
 # Each `arg_*()` returns an `arg_spec`: whether the argument may be left out,
 # a default for when it is, and a `check` function that returns the cleaned
 # value or stops with a short message.
+#
+# Most checks look at the value alone. One declared with `context = TRUE` is
+# called as `check(value, REQ, args)`, where `args` are the arguments
+# declared before it, already checked. That is for values whose meaning
+# depends on another argument (the options of the plot function named in
+# `plot_fn`) or on the open project (a metadata field).
 #______________________________________________________________________________
 
-arg_spec <- function (type, check, optional = FALSE, default = NULL) {
+arg_spec <- function (type, check, optional = FALSE, default = NULL, context = FALSE) {
   structure(class = "arg_spec", list(
-    type = type, check = check, optional = isTRUE(optional) || !is.null(default), default = default ))
+    type = type, check = check, optional = isTRUE(optional) || !is.null(default), default = default,
+    context = isTRUE(context) ))
 }
 
 #' A single string.
@@ -185,8 +192,8 @@ arg_choice <- function (choices, ...) {
   })
 }
 
-#' Structured JSON (an object or array) whose contents the handler, or a
-#' later schema, is responsible for.
+#' Structured JSON (an object or array) whose contents the handler is
+#' responsible for. Only for what DataTables sends with a page request.
 #' @noRd
 arg_json <- function (...) {
   arg_spec("json", ..., check = function (x) {
@@ -204,6 +211,80 @@ arg_file <- function (...) {
       stop("must be an uploaded file")
     if (length(x[['value']]) == 0) stop("is an empty file")
     x[c('filename', 'value')]
+  })
+}
+
+#' The summary of the project open in the request's session, if the main
+#' process has it in memory. It does after any request that showed the
+#' project, so in practice always, except just after a restart.
+#' @noRd
+known_summary <- function (REQ) {
+  if (is.null(REQ) || is.null(REQ[['SESSION']][['full_bf_id']])) return (NULL)
+  memo_get(REQ)
+}
+
+#' The arguments for an rbiom function, checked against the schema
+#' (`R/schema.R`): only parameters a remote caller may set, each with a
+#' valid value for the open project. What the handler gets is the arguments
+#' as rbiom reads them.
+#'
+#' If the project's summary is not in memory, only the checks that need no
+#' data are made here, and the handler has the worker make the rest before
+#' it does anything else (`worker_check()`).
+#'
+#' @param fn_arg  The name of the argument that names the function. It must
+#'                be declared before this one.
+#' @noRd
+arg_fn_args <- function (fn_arg, ...) {
+  arg_spec("fn_args", context = TRUE, ..., check = function (x, REQ = NULL, args = list()) {
+    fn <- args[[fn_arg]]
+    if (!is_one_of(fn, names(schema_functions))) stop("cannot be checked without a valid '", fn_arg, "'")
+    summary <- known_summary(REQ)
+    if (is.null(summary)) return (check_fn_args_static(fn, x))
+    check_fn_args(fn, x, summary)
+  })
+}
+
+#' The image settings of a plot request; see `check_save_args()`.
+#' @noRd
+arg_save_args <- function (...) {
+  arg_spec("save_args", ..., check = function (x) check_save_args(x))
+}
+
+#' The sample filter of a plot request; see `check_subset_args()`.
+#' @noRd
+arg_subset_args <- function (...) {
+  arg_spec("subset_args", context = TRUE, ..., check = function (x, REQ = NULL, args = list()) {
+    check_subset_args(x, known_summary(REQ))
+  })
+}
+
+#' A taxonomic rank of the open project. `"otu"` is accepted for `".otu"`.
+#' @noRd
+arg_rank <- function (...) {
+  arg_spec("rank", context = TRUE, ..., check = function (x, REQ = NULL, args = list()) {
+    if (!is.character(x) || length(x) != 1 || is.na(x) || !nzchar(x) || nchar(x) > 100) stop("must be the name of a rank")
+    if (tolower(x) == "otu") x <- ".otu"
+    summary <- known_summary(REQ)
+    if (!is.null(summary) && !x %in% as.character(unlist(summary[['ranks']])))
+      stop("is not a rank of this project")
+    x
+  })
+}
+
+#' A diversity metric that rbiom knows, by its id. One that needs a
+#' phylogenetic tree is refused if the open project has none.
+#' @param fn,param  The rbiom function and parameter whose choices to use.
+#' @noRd
+arg_metric <- function (fn, param, ...) {
+  arg_spec("metric", context = TRUE, ..., check = function (x, REQ = NULL, args = list()) {
+    metrics <- Filter(function (p) p[['name']] == param, rbiom_schema()[[fn]][['params']])[[1]][['choices']]
+    ids     <- vapply(metrics, function (m) m[['id']], character(1))
+    if (!is_one_of(x, ids)) stop("is not one of the allowed values")
+    summary <- known_summary(REQ)
+    if (!is.null(summary) && !isTRUE(as.logical(summary[['tree']])) && isTRUE(metrics[[match(x, ids)]][['phylo']]))
+      stop("needs a phylogenetic tree, which this project does not have")
+    x
   })
 }
 
@@ -273,10 +354,12 @@ match_route <- function (method, path, routes = route_table(), mode = NULL) {
 #'
 #' @param route  A `route`.
 #' @param args   The named list of arguments that came with the request.
+#' @param REQ    The request environment, for the checks that depend on the
+#'               open project.
 #' @return The cleaned arguments, with defaults filled in, in declaration
 #'         order. Stops with a 400 that names the offending argument.
 #' @noRd
-validate_args <- function (route, args) {
+validate_args <- function (route, args, REQ = NULL) {
 
   specs <- route[['args']]
 
@@ -309,11 +392,21 @@ validate_args <- function (route, args) {
     }
 
     clean[key] <- list(tryCatch(
-      expr  = spec[['check']](value),
-      error = function (e) stop_user("Argument '", key, "' ", conditionMessage(e), ".") ))
+      expr  = if (spec[['context']]) spec[['check']](value, REQ, clean) else spec[['check']](value),
+      error = function (e) stop_arg(key, e) ))
   }
 
   return (clean)
+}
+
+
+#' Stop with the 400 that reports a bad argument.
+#' @param key  The argument's name.
+#' @param e    The error its check raised.
+#' @noRd
+stop_arg <- function (key, e) {
+  if (inherits(e, "atima_http_error")) stop(e)
+  stop_user("Argument '", key, "' ", conditionMessage(e), ".")
 }
 
 
@@ -425,7 +518,7 @@ handle_request <- function (request, app) {
     check_permission(REQ, route)
 
     args <- c(request_args(request), matched[['params']])
-    args <- validate_args(route, args)
+    args <- validate_args(route, args, REQ)
 
     check_rule(REQ, route, args)
 

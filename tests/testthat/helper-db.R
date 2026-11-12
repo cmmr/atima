@@ -277,3 +277,38 @@ local_log <- function (env = parent.frame()) {
 }
 
 log_errors <- function (entries) Filter(function (e) e$event == "error", entries)
+
+
+# The names of the metadata fields in a `BIOM` reply.
+field_names <- function (BIOM) vapply(BIOM$fields, function (f) f$name, character(1))
+
+
+# A seeded database and a guest session on hmp50. Jobs run in the test
+# process.
+local_open_project <- function (env = parent.frame()) {
+
+  skip_if_not(pandoc::pandoc_available(), "pandoc is not installed")
+
+  REQ <- local_test_req(env)
+  db_seed(REQ$DB, REQ$CONFIG)
+
+  app  <- test_app(REQ)
+  resp <- handle_request(fake_request("POST", "/api/session/init", list()), app)
+
+  session <- list(
+    auth_token  = sub("^auth_token=([A-Za-z0-9]+);.*$", "\\1", resp$headers[['Set-Cookie']]),
+    session_key = resp$headers[['x-session-key']] )
+
+  list(
+    REQ     = REQ,
+    DB      = REQ$DB,
+    app     = app,
+    session = session,
+    BIOM    = response_json(resp)$BIOM,
+    post    = function (path, args = list()) handle_request(fake_request("POST", path, args, session), app),
+    upload  = function (file, name, ...) {
+      form <- multipart_body(list(biom_file = list(filename = name, value = read_file_raw(file)), ...))
+      handle_request(fake_request("POST", "/api/project/upload", form$body, session, content_type = form$content_type), app)
+    },
+    temp    = file.path(REQ$CONFIG$temp_dir, session$session_key) )
+}

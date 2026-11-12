@@ -65,7 +65,8 @@ job_value <- function (outcome) {
         message = error[['message']],
         call    = NULL,
         status  = as.integer(error[['status']]),
-        detail  = error[['detail']] )))
+        detail  = error[['detail']],
+        code    = error[['code']] )))
 
   outcome[['value']]
 }

@@ -18,11 +18,6 @@
 #' @noRd
 route_table <- function () {
 
-  plot_fns <- c(
-    "adiv_boxplot", "adiv_corrplot", "bdiv_boxplot", "bdiv_heatmap",
-    "bdiv_ord_plot", "rare_multiplot", "taxa_stacked", "taxa_boxplot",
-    "taxa_corrplot", "taxa_heatmap" )
-
   # Arguments that DataTables sends with every server-side page request.
   dt_args <- list(
     columns = arg_json(optional = TRUE),
@@ -68,7 +63,8 @@ route_table <- function () {
     # The open project
 
     route("POST /api/project/upload", "api_upload_biom", "session", "compute", args = list(
-      biom_file = arg_file() )),
+      biom_file = arg_file(),
+      inflate   = arg_bool(default = FALSE) )),
 
     route("POST /api/project/upload_component", "api_upload_component", "viewer", "compute", args = list(
       component      = arg_choice(c("metadata", "taxonomy", "tree")),
@@ -93,11 +89,11 @@ route_table <- function () {
       collection_id = arg_int(min = 1L, optional = TRUE) )),
 
     route("POST /api/project/export", "api_export", "viewer", "compute", args = list(
-      what       = arg_choice(c("original", "metadata", "taxonomy", "tree", "biom", "alpha", "beta", "taxa")),
+      what       = arg_choice(c("original", "metadata", "taxonomy", "tree", "biom", "alpha", "beta", "taxa", "xlsx")),
       sample_set = arg_choice(c("full", "rare"), default = "full"),
       format     = arg_choice(c("json", "hdf5", "tab"), default = "json"),
-      method     = arg_string(min = 1L, max = 20L, pattern = "^[A-Za-z0-9\\-]+$", default = "bray"),
-      rank       = arg_string(min = 1L, max = 20L, pattern = "^[A-Za-z0-9\\-]+$", default = "otu") )),
+      method     = arg_metric("bdiv_distmat", "bdiv", default = "bray"),
+      rank       = arg_rank(default = ".otu") )),
 
 
     #__________________________________________________________________________
@@ -162,20 +158,29 @@ route_table <- function () {
     route("POST /api/metadata/minmax", "api_metadata_minmax", "viewer", "compute", args = list(
       field = arg_string(min = 1L, max = 200L, trim = FALSE) )),
 
+    route("POST /api/metadata/add_clusters", "api_add_clusters", "viewer", "compute", args = list(
+      cluster_fn   = arg_choice(schema_fns("clusters")),
+      cluster_args = arg_fn_args("cluster_fn", optional = TRUE),
+      name         = arg_string(min = 1L, max = 50L, pattern = "^[A-Za-z][A-Za-z0-9 _\\-]*$") )),
+
     route("POST /api/taxonomy/table", "api_taxonomy_dt", "viewer", "compute", supersede = TRUE, args = dt_args),
 
     route("POST /api/taxonomy/thead", "api_taxonomy_thead", "viewer", "compute"),
 
 
     #__________________________________________________________________________
-    # Plots
+    # Plots. The schema says which rbiom functions can be named and what
+    # their arguments may be (`R/schema.R`); `plot_args`, `save_args` and
+    # `subset_args` are checked against it here, before any worker is used.
+
+    route("POST /api/schema", "api_schema", "public", "fast"),
 
     route("POST /api/plot", "api_plot", "viewer", "compute", supersede = TRUE, args = list(
-      plot_fn     = arg_choice(plot_fns),
-      plot_args   = arg_json(),
+      plot_fn     = arg_choice(schema_fns("plot")),
+      plot_args   = arg_fn_args("plot_fn"),
       depth       = arg_int(min = 1L),
-      save_args   = arg_json(optional = TRUE),
-      subset_args = arg_json(optional = TRUE),
+      save_args   = arg_save_args(default = check_save_args(list())),
+      subset_args = arg_subset_args(optional = TRUE),
       attrs       = arg_bool(default = FALSE) )),
 
 

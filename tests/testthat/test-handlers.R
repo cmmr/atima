@@ -3,31 +3,6 @@
 # process here; test-async.R runs the same routes through worker processes.
 
 
-# A seeded database and a guest session on hmp50.
-local_open_project <- function (env = parent.frame()) {
-
-  skip_if_not(pandoc::pandoc_available(), "pandoc is not installed")
-
-  REQ <- local_test_req(env)
-  db_seed(REQ$DB, REQ$CONFIG)
-
-  app  <- test_app(REQ)
-  resp <- handle_request(fake_request("POST", "/api/session/init", list()), app)
-
-  session <- list(
-    auth_token  = sub("^auth_token=([A-Za-z0-9]+);.*$", "\\1", resp$headers[['Set-Cookie']]),
-    session_key = resp$headers[['x-session-key']] )
-
-  list(
-    REQ     = REQ,
-    DB      = REQ$DB,
-    app     = app,
-    session = session,
-    BIOM    = response_json(resp)$BIOM,
-    post    = function (path, args = list()) handle_request(fake_request("POST", path, args, session), app),
-    temp    = file.path(REQ$CONFIG$temp_dir, session$session_key) )
-}
-
 
 test_that("the main process never loads a BIOM file or calls rbiom", {
 
@@ -50,7 +25,9 @@ test_that("the main process never loads a BIOM file or calls rbiom", {
     write_biom   = forbidden("write_biom"),
     sample_sums  = forbidden("sample_sums"),
     taxa_means   = forbidden("taxa_means"),
-    list_metrics = forbidden("list_metrics"),
+    fn_check_data = forbidden("fn_check_data"),
+    biom_inflate = forbidden("biom_inflate"),
+    write_xlsx   = forbidden("write_xlsx"),
     adiv_matrix  = forbidden("adiv_matrix"),
     bdiv_distmat = forbidden("bdiv_distmat"),
     taxa_matrix  = forbidden("taxa_matrix"),
@@ -70,8 +47,14 @@ test_that("a project summary is computed once and then served from memory", {
 
   expect_identical(s$BIOM$depth, 1183L)
   expect_true(s$BIOM$tree)
-  expect_identical(unlist(s$BIOM$cols), c(".sample", "Age", "BMI", "Body Site", "Sex"))
-  expect_identical(s$BIOM$col_types$Sex, "cat")
+  expect_identical(field_names(s$BIOM), c(".sample", "Age", "BMI", "Body Site", "Sex"))
+  expect_identical(s$BIOM$fields[[5]], list(name = "Sex", class = "categorical", levels = list("Female", "Male")))
+  expect_identical(s$BIOM$fields[[2]], list(name = "Age", class = "numeric", min = 21L, max = 40L))
+  expect_identical(unlist(s$BIOM$ranks), c(".otu", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus"))
+  expect_true("Firmicutes" %in% unlist(s$BIOM$taxa$Phylum))
+
+  # Lists that do not depend on the project are in the schema, not here.
+  expect_false(any(grepl("_options$", setdiff(names(s$BIOM), "depth_options"))))
 
   # A second session on the same project needs no worker at all.
   local_mocked_bindings(worker_run = function (...) stop("a worker was used"))
@@ -162,7 +145,7 @@ test_that("a plot is drawn into the session's directory and described in the res
   # rbiom's own message reaches the user for a bad option.
   resp <- s$post("/api/plot", list(plot_fn = "adiv_boxplot", plot_args = list(x = "No Such Field"), depth = 1500))
   expect_identical(resp$status, 400L)
-  expect_match(response_json(resp)$error$message, "^The plot could not be made\\.")
+  expect_match(response_json(resp)$error$message, "^Argument 'plot_args' is not valid\\. Invalid `x` option")
 
   # Bad image settings and subsets are refused.
   bad <- list(
@@ -259,7 +242,7 @@ test_that("changing a column's class and uploading a component change only the d
   resp <- s$post("/api/metadata/change_class", list(col_num = 2))
   expect_identical(resp$status, 200L)
   body <- response_json(resp)
-  expect_identical(body$BIOM$col_types$Age, "cat")
+  expect_identical(body$BIOM$fields[[2]][c("name", "class")], list(name = "Age", class = "categorical"))
   expect_identical(body$BIOM$depth, 1183L)
   expect_false(body$BIOM$is_saved)
   expect_identical(s$post("/api/metadata/change_class", list(col_num = 99))$status, 400L)
@@ -274,7 +257,7 @@ test_that("changing a column's class and uploading a component change only the d
   resp <- handle_request(fake_request("POST", "/api/project/upload_component", form$body, s$session, content_type = form$content_type), s$app)
   expect_identical(resp$status, 200L)
   body <- response_json(resp)
-  expect_true("Batch" %in% unlist(body$BIOM$cols))
+  expect_true("Batch" %in% field_names(body$BIOM))
   expect_identical(body$BIOM$depth, 1183L)
 
   # A file that is not metadata is refused, without naming server paths.

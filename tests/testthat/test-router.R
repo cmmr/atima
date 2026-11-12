@@ -22,6 +22,7 @@ valid_args <- list(
   "POST /api/metadata/change_class"    = list(col_num = 2),
   "POST /api/metadata/levels"          = list(field = "Body Site"),
   "POST /api/metadata/minmax"          = list(field = "Age"),
+  "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
   "GET /unsaved/:session_key/:file"    = list(session_key = "12abcDEF", file = "rare.json"),
   "GET /:access_key/:file"             = list(access_key = "hmp50", file = "full.tab.gz"),
@@ -280,6 +281,8 @@ test_that("validate_args returns cleaned values and fills in defaults", {
   expect_identical(
     validate_args(r, list(what = "taxa", rank = "Genus")),
     list(what = "taxa", sample_set = "full", format = "json", method = "bray", rank = "Genus") )
+  expect_identical(validate_args(r, list(what = "taxa"))$rank, ".otu")
+  expect_identical(validate_args(r, list(what = "taxa", rank = "OTU"))$rank, ".otu")
 
   r <- match_route("POST", "/api/project/save")$route
   expect_identical(
@@ -290,7 +293,8 @@ test_that("validate_args returns cleaned values and fills in defaults", {
   # default applies.
   r <- match_route("POST", "/api/plot")$route
   args <- validate_args(r, list(plot_fn = "taxa_heatmap", plot_args = list(), depth = "250"))
-  expect_identical(names(args), c("plot_fn", "plot_args", "depth", "attrs"))
+  expect_identical(names(args), c("plot_fn", "plot_args", "depth", "save_args", "attrs"))
+  expect_identical(args$save_args, list(device = "png", width = 400, height = 300, units = "px", dpi = 100, scale = 1))
   expect_identical(args$depth, 250L)
   expect_identical(args$attrs, FALSE)
 })
@@ -377,8 +381,8 @@ test_that("allow-lists in the route table are enforced", {
   plot <- valid_args[["POST /api/plot"]]
   for (plot_fn in c("system", "write_biom", "adiv_boxplot; q()", "ggsave", "", "ADIV_BOXPLOT", "rbiom::adiv_boxplot"))
     refused("/api/plot", utils::modifyList(plot, list(plot_fn = plot_fn)), plot_fn)
-  for (plot_fn in c("adiv_boxplot", "bdiv_ord_plot", "rare_multiplot", "taxa_heatmap"))
-    expect_no_error(check("/api/plot", utils::modifyList(plot, list(plot_fn = plot_fn))))
+  for (plot_fn in c("adiv_boxplot", "bdiv_ord_plot", "rare_multiplot", "taxa_heatmap", "taxa_forest", "bdiv_corrplot", "rare_stacked"))
+    expect_no_error(check("/api/plot", list(plot_fn = plot_fn, plot_args = list(), depth = 1000)))
 
   # Each allowed plot function is one rbiom really exports.
   plot_fns <- environment(match_route("POST", "/api/plot")$route$args$plot_fn$check)$choices
@@ -394,8 +398,14 @@ test_that("allow-lists in the route table are enforced", {
     refused("/api/project/export", list(what = what), what)
   refused("/api/project/export", list(what = "biom", format = "exe"))
   refused("/api/project/export", list(what = "alpha", sample_set = "all"))
-  for (rank in c("../etc", "a_b", "a/b", "a b", ""))
-    expect_error(check("/api/project/export", list(what = "taxa", rank = rank)), class = "atima_http_error", info = rank)
+  for (method in c("nosuch", "Bray", "bray; q()", "", "../etc"))
+    refused("/api/project/export", list(what = "beta", method = method), method)
+  for (rank in list("", strrep("a", 101), c("Genus", "Phylum"), 3))
+    expect_error(check("/api/project/export", list(what = "taxa", rank = rank)), class = "atima_http_error")
+
+  # Clustering functions
+  for (cluster_fn in c("adiv_boxplot", "kmeans", "taxa_clusters()", ""))
+    refused("/api/metadata/add_clusters", list(cluster_fn = cluster_fn, name = "Cluster"), cluster_fn)
 
   # Sharing
   for (permissions in c("owner", "admin", "EDIT", "", "view,edit"))

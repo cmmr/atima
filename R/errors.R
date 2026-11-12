@@ -20,18 +20,21 @@
 #' @param status  The HTTP status code for the response.
 #' @param ...     Pasted together to make the message.
 #' @param detail  More about the cause, for the server log only.
+#' @param code    A fixed word the browser can act on, for the few errors it
+#'                answers with something other than showing the message. It
+#'                is sent as `error.code`.
 #' @noRd
-stop_http <- function (status, ..., detail = NULL) {
-  stop(http_condition(status, paste0(...), detail))
+stop_http <- function (status, ..., detail = NULL, code = NULL) {
+  stop(http_condition(status, paste0(...), detail, code))
 }
 
 #' The condition `stop_http()` raises, for code that needs to pass one on
 #' instead of stopping.
 #' @noRd
-http_condition <- function (status, message, detail = NULL) {
+http_condition <- function (status, message, detail = NULL, code = NULL) {
   structure(
     class = c("atima_http_error", "error", "condition"),
-    list(message = message, call = NULL, status = as.integer(status), detail = detail) )
+    list(message = message, call = NULL, status = as.integer(status), detail = detail, code = code) )
 }
 
 #' The request itself is wrong: a bad argument or an impossible action.
@@ -108,7 +111,8 @@ stop_db <- function (err_code, parent, sql = NULL, params = NULL) {
 #' @param calls  The call stack at the point of the error, from
 #'               `sys.calls()`.
 #' @return A `response()` whose body is
-#'         `{"error": {"message": <string>, "id": <string>}}`.
+#'         `{"error": {"message": <string>, "id": <string>}}`, with a
+#'         `code` as well if the error has one.
 #' @noRd
 error_response <- function (e, REQ = NULL, calls = NULL) {
 
@@ -153,8 +157,10 @@ error_response <- function (e, REQ = NULL, calls = NULL) {
       '<p><a href="/">Back to atima</a></p>',
       '</body></html>' )))
 
+  code <- if (inherits(e, "atima_http_error") && is_scalar_character(e[['code']])) list(code = unbox(e[['code']]))
+
   response(
-    body   = list(error = list(message = unbox(message), id = unbox(id))),
+    body   = list(error = c(list(message = unbox(message), id = unbox(id)), code)),
     status = status )
 }
 

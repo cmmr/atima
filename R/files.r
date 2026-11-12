@@ -18,9 +18,14 @@ save_upload <- function (REQ, upload) {
 
 #______________________________________________________________________________
 #' Accept a new biom file from the user; switch to that project.
+#'
+#' @param inflate  Scale counts that are not whole numbers up to whole
+#'                 numbers? Without it such a file is refused with the error
+#'                 code `confirm_inflate` and a message that explains what
+#'                 scaling does, for the browser to put to the user.
 #' @return list(BIOM, jstree_node)
 #' @noRd
-api_upload_biom <- function (REQ, biom_file) {
+api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
 
   infile <- save_upload(REQ, biom_file)
 
@@ -31,7 +36,7 @@ api_upload_biom <- function (REQ, biom_file) {
 
   job(
     fn     = "work_import",
-    args   = list(ctx = worker_ctx(REQ[['CONFIG']]), infile = infile, title = title),
+    args   = list(ctx = worker_ctx(REQ[['CONFIG']]), infile = infile, title = title, inflate = inflate),
     finish = function (imported) {
 
       unlink(infile)
@@ -94,15 +99,16 @@ api_upload_component <- function (REQ, component, component_file) {
 #'
 #' @param what        `original` (the file as uploaded), `metadata`,
 #'                    `taxonomy`, `tree`, `biom`, `alpha` (diversity),
-#'                    `beta` (distance matrix) or `taxa` (abundances).
+#'                    `beta` (distance matrix), `taxa` (abundances) or
+#'                    `xlsx` (an Excel workbook of all of these).
 #' @param sample_set  `full` or `rare` (rarefied). `beta` is always
-#'                    rarefied and `original` never is.
+#'                    rarefied, `original` never is, and `xlsx` holds both.
 #' @param format      For `biom`: `json`, `hdf5` or `tab`.
-#' @param method      For `beta`: the distance metric.
-#' @param rank        For `taxa`: the taxonomic rank.
+#' @param method      For `beta`: the distance metric, one of rbiom's ids.
+#' @param rank        For `taxa`: a taxonomic rank of the project.
 #' @return list(download_url)
 #' @noRd
-api_export <- function (REQ, what, sample_set = "full", format = "json", method = "bray", rank = "otu") {
+api_export <- function (REQ, what, sample_set = "full", format = "json", method = "bray", rank = ".otu") {
 
   DB          <- REQ[['DB']]
   project_id  <- REQ[['SESSION']][['project_id']]
@@ -113,18 +119,29 @@ api_export <- function (REQ, what, sample_set = "full", format = "json", method 
   project <- db_query(DB, sql, "AExpo1", list(project_id), req1 = TRUE)
 
   if (what == "beta")     sample_set <- "rare"
+  if (what == "xlsx")     sample_set <- "full"
   if (what == "original") sample_set <- "orig"
 
   biom_file_id <- project[[paste0(sample_set, '_bf_id')]]
+  rare_file_id <- project[['rare_bf_id']]
 
-  # A file name that says what is inside.
-  file_ext <- switch(what, original = "biom", tree = "tre", biom = format, "csv")
+  # A file name that says what is inside. A rank is the user's own word, so
+  # only its letters, digits and hyphens go into the name.
+  file_ext <- switch(what, original = "biom", tree = "tre", biom = format, xlsx = "xlsx", "csv")
 
-  terms <- c(
-    what,
-    if (what == "beta") method,
-    if (what == "taxa") rank,
-    if (sample_set != "orig") sample_set )
+  rank_term <- rank
+  if (!grepl("^[A-Za-z0-9\\-]+$", rank))
+    rank_term <- paste0(
+      gsub("[^A-Za-z0-9\\-]+", "", rank),
+      substr(as.character(sha256(charToRaw(enc2utf8(rank)))), 1, 8) )
+
+  terms <- switch(
+    EXPR     = what,
+    original = what,
+    beta     = c(what, method, sample_set),
+    taxa     = c(what, rank_term, sample_set),
+    xlsx     = c(what, "rare", rare_file_id),   # its rarefied sheets depend on the depth
+    c(what, sample_set) )
 
   filepath   <- sprintf("%i/%s_%i.%s", biom_file_id, paste(terms, collapse = "_"), biom_file_id, file_ext)
   server_uri <- paste0(server_temp, "/", filepath)
@@ -147,6 +164,7 @@ api_export <- function (REQ, what, sample_set = "full", format = "json", method 
       method      = method,
       rank        = rank,
       title       = project[['title']],
-      description = project[['description']] ),
+      description = project[['description']],
+      rare        = if (what == "xlsx") biom_path(REQ, rare_file_id) ),
     finish = function (result) resp )
 }

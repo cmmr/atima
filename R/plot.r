@@ -1,53 +1,23 @@
 #______________________________________________________________________________
 #' Generate a plot for the active project.
 #'
-#' The main-process part: tidy the arguments, then hand the drawing to
-#' `work_plot()` (`R/worker-plot.R`).
+#' The main-process part. The router has already checked every argument
+#' against the schema (`R/schema.R`), so all that is left is to hand the
+#' drawing to `work_plot()` (`R/worker-plot.R`).
+#'
+#' @param plot_fn      The name of an exposed rbiom plot function.
+#' @param plot_args    Its arguments, as `check_fn_args()` returned them.
+#' @param depth        The rarefaction depth the browser is showing.
+#' @param save_args    Image settings, from `check_save_args()`.
+#' @param subset_args  The samples to keep, from `check_subset_args()`.
+#' @param attrs        Also return the statistics table and the R code?
 #'
 #' @return list(image_url, width, height, ..., BIOM (if the depth changed),
 #'         and with `attrs`: stats_table, code, stats_title)
 #' @noRd
 api_plot <- function (
     REQ, plot_fn, plot_args, depth,
-    save_args = list(), subset_args = list(), attrs = FALSE) {
-
-  # `plot_fn` is one of the names listed in the route table, so it is safe
-  # to look up in rbiom. The contents of `plot_args` and `subset_args` are
-  # checked by rbiom and the worker (and by the step 6 schema).
-  plot_args   <- as.list(plot_args)
-  save_args   <- plot_save_args(as.list(save_args))
-  subset_args <- as.list(subset_args)
-
-
-  #________________________________________________________
-  # Numbers are integers by default; change to numeric.
-  #________________________________________________________
-  for (i in seq_along(plot_args))
-    if (is.integer(plot_args[[i]]))
-      plot_args[[i]] %<>% as.numeric()
-
-
-  #________________________________________________________
-  # JSON passes named c() as a list(). Change back to c().
-  #________________________________________________________
-  for (i in c('color.by', 'shape.by', 'pattern.by'))
-    if (hasName(plot_args, i))
-      for (j in seq_along(plot_args[[i]]))
-        if (is.list(plot_args[[i]][[j]][['values']]))
-          plot_args[[i]][[j]][['values']] %<>% unlist()
-
-
-  #________________________________________________________
-  # Simplify *.by args.
-  #________________________________________________________
-  for (i in grep("\\.by$", names(plot_args)))
-    for (j in seq_along(plot_args[[i]])) {
-      val <- plot_args[[i]][[j]]
-      if (is.list(val) && length(val) == 1)
-        if (hasName(val, 'values') || hasName(val, 'range'))
-          plot_args[[i]][[j]] <- val[[1]]
-    }
-
+    save_args = check_save_args(list()), subset_args = list(), attrs = FALSE) {
 
   job(
     fn   = "work_plot",
@@ -61,7 +31,8 @@ api_plot <- function (
       save_args   = save_args,
       subset_args = subset_args,
       depth       = depth,
-      attrs       = isTRUE(attrs) ),
+      attrs       = isTRUE(attrs),
+      checked     = !is.null(known_summary(REQ)) ),
     finish = function (result) {
 
       resp <- list()
@@ -71,6 +42,10 @@ api_plot <- function (
       if (!is.null(result[['rare']])) {
         update_draft(REQ, rare = result[['rare']])
         resp[['BIOM']] <- biom_reply(REQ, result[['data']])
+
+      } else if (!is.null(result[['data']])) {
+        # The worker had to look the summary up to check the arguments.
+        memo_set(REQ, result[['data']])
       }
 
       resp %<>% c(list(
@@ -85,12 +60,10 @@ api_plot <- function (
 
       if (isTRUE(attrs)) {
 
-        sample_set <- ifelse(plot_fn == "rare_multiplot", "full", "rare")
-
         resp[['stats_table']] <- result[['stats_table']]
         resp[['stats_title']] <- result[['stats_title']]
         resp[['code']]        <- c(
-          list('file' = unbox(sprintf("%s/%s.json", REQ[['SESSION']][['draft_key']], sample_set))),
+          list('file' = unbox(sprintf("%s/%s.json", REQ[['SESSION']][['draft_key']], plot_sample_set(plot_fn)))),
           result[['code']] )
       }
 
@@ -99,31 +72,10 @@ api_plot <- function (
 }
 
 
-#______________________________________________________________________________
-#' Check the image settings a plot request came with, and fill in defaults.
-#' @return A list of arguments for `ggsave()`.
+#' Which of a project's two BIOM files a plot function is given: the
+#' rarefaction plots show the counts before rarefying, everything else after.
+#' @return `"full"` or `"rare"`.
 #' @noRd
-plot_save_args <- function (save_args) {
-
-  save_params <- setdiff(formalArgs(ggsave), c("bg", "limitsize", "filename", "path", "plot", "..."))
-  save_args   <- save_args[intersect(names(save_args), save_params)]
-
-  save_args[['scale']]  <- ifelse(is.null(save_args[['scale']]),  1,   as.numeric(save_args[['scale']]))
-  save_args[['width']]  <- ifelse(is.null(save_args[['width']]),  400, as.numeric(save_args[['width']]))
-  save_args[['height']] <- ifelse(is.null(save_args[['height']]), 300, as.numeric(save_args[['height']]))
-  save_args[['dpi']]    <- ifelse(is.null(save_args[['dpi']]),    300, as.numeric(save_args[['dpi']]))
-  if (is.null(save_args[['device']])) save_args[['device']] <- "png"
-  if (is.null(save_args[['units']]))  save_args[['units']]  <- "px"
-
-  if (!is_one_of(save_args[['device']], c("eps", "ps", "tex", "pdf", "jpeg", "tiff", "png", "bmp", "svg", "wmf")))
-    stop_user("Unknown image format.")
-
-  if (!is_one_of(save_args[['units']], c("in", "cm", "mm", "px")))
-    stop_user("Unknown image size units.")
-
-  for (i in seq_len(length(save_args)))
-    if (length(save_args[[i]]) != 1 || is.na(save_args[[i]]))
-      stop_user("Invalid image setting '", names(save_args)[[i]], "'.")
-
-  save_args
+plot_sample_set <- function (plot_fn) {
+  if (identical(schema_functions[[plot_fn]][['area']], "rarefaction")) "full" else "rare"
 }

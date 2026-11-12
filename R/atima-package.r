@@ -7,8 +7,9 @@
 #' @importFrom openssl rand_bytes rand_num sha256
 #' @importFrom pandoc pandoc_convert
 #' @importFrom parallelly availableCores
-#' @importFrom rbiom adiv_matrix as_rbiom bdiv_distmat ggsave list_metrics
-#'   rarefy sample_sums taxa_matrix taxa_means write_biom write_tree
+#' @importFrom rbiom adiv_matrix as_rbiom bdiv_distmat biom_inflate fn_check
+#'   fn_check_data fn_schema ggsave list_palettes rarefy sample_sums
+#'   taxa_matrix taxa_means write_biom write_tree write_xlsx
 #'   %>% %<>%
 #' @importFrom rlang %||% exprs_auto_name
 #'   is_scalar_character is_scalar_integer is_scalar_integerish is_string

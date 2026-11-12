@@ -26,7 +26,7 @@
 #'                when an interrupted job has really stopped, and which
 #'                process to end, and what to tidy up, if it has not.
 #' @return `list(value = <result>, tempdir)`, or
-#'         `list(error = list(status, message, detail), tempdir)` for an
+#'         `list(error = list(status, message, detail, code), tempdir)` for an
 #'         error meant for the user. Any other error is left to propagate.
 #' @noRd
 worker_run <- function (fn, args, marker = NULL) {
@@ -41,7 +41,8 @@ worker_run <- function (fn, args, marker = NULL) {
     atima_http_error = function (e) list(error = list(
       status  = e[['status']],
       message = conditionMessage(e),
-      detail  = e[['detail']] )))
+      detail  = e[['detail']],
+      code    = e[['code']] )))
 
   c(outcome, list(tempdir = worker_litter()))
 }
@@ -82,6 +83,16 @@ worker_init <- function (ctx) {
 #' @noRd
 worker_cache <- function (ctx) {
   cache_at(file.path(ctx[['cache_dir']], "atima"), ctx[['cache_size']] / 2)
+}
+
+
+#' Make a check of an argument that the main process had to leave to the
+#' worker. A failure is reported as the router would have reported it.
+#' @param key   The argument's name.
+#' @param code  A call to one of the `check_*()` functions in `R/schema.R`.
+#' @noRd
+worker_check <- function (key, code) {
+  tryCatch(code, error = function (e) stop_arg(key, e))
 }
 
 
@@ -140,77 +151,78 @@ biom_to_details <- function (biom) {
 
 
 #______________________________________________________________________________
-#' What the browser needs to know about a project's data: rarefaction
-#' depths, metrics, ranks, taxa, and the metadata fields with their types
-#' and values. This is the BIOM-derived part of the front end's `BIOM`
+#' What the browser, and the checks in `R/schema.R`, need to know about a
+#' project's data. This is the BIOM-derived part of the front end's `BIOM`
 #' variable; `session_biom()` adds the rest in the main process.
+#'
+#' The lists a control offers that do not depend on the data (metrics,
+#' ordination and clustering methods, palettes) are in the schema, not here.
+#' The names and values in a summary come from the user's file: they are
+#' sent as JSON text and must be treated as text by whatever shows them.
+#'
+#' @return
+#' \describe{
+#'   \item{`tree`}{Does the project have a phylogenetic tree?}
+#'   \item{`depth`, `depth_options`}{The current rarefaction depth, and the
+#'     depths that would each drop a different set of samples.}
+#'   \item{`fields`}{The metadata fields in column order, each
+#'     `list(name, class = "categorical", levels)` or
+#'     `list(name, class = "numeric", min, max)`. The classes are rbiom's
+#'     (`rbiom::fn_check_data()`).}
+#'   \item{`ranks`}{The taxonomic ranks.}
+#'   \item{`taxa`}{For each rank, its taxa, most abundant first.}
+#' }
 #' @noRd
 biom_summary <- function (full_biom, rare_biom) {
 
   D <- list()
 
-  metadata    <- rare_biom$metadata
-  sample_sums <- sample_sums(full_biom)
-
-  has_tree    <- !is.null(rare_biom$tree)
-  D[['tree']] <- unbox(has_tree)
+  D[['tree']] <- unbox(!is.null(rare_biom$tree))
 
   # Current and possible rarefaction depths.
   D[['depth']]         <- unbox(rare_biom$depth)
-  D[['depth_options']] <- sort(unique(sample_sums))
+  D[['depth_options']] <- sort(unique(sample_sums(full_biom)))
 
-  # Available metrics.
-  phylo <- if (has_tree) NULL else FALSE
-  D[['adiv_options']]  <- list_metrics('alpha', 'name', phylo = phylo)
-  D[['bdiv_options']]  <- list_metrics('beta',  'name', phylo = phylo)
-  D[['clust_options']] <- c('average', 'ward', 'mcquitty', 'single', 'median', 'complete', 'centroid')
-  D[['dist_options']]  <- c('euclidean', 'maximum', 'manhattan', 'canberra', 'binary', 'minkowski')
-  D[['ord_options']]   <- c('PCoA', 'tSNE', 'NMDS', 'UMAP')
+  # Metadata fields, with their values or range.
+  metadata <- rare_biom$metadata
+  classes  <- fn_check_data(rare_biom)[['fields']]
 
-  # taxa = list(Phylum = c(...), OTU = c(...), ...)
-  D[['rank_options']] <- rare_biom$ranks
-  D[['taxa_options']] <- list()
-  for (i in rare_biom$ranks)
-    D[['taxa_options']][[i]] <- names(taxa_means(rare_biom, i))
+  D[['fields']] <- lapply(colnames(metadata), function (name) {
 
-  # Metadata field names, types, and options/ranges.
-  D[['cols']]        <- colnames(metadata)
-  D[['col_types']]   <- list()
-  D[['col_options']] <- list()
+    values <- metadata[[name]]
+    kind   <- classes[[name]][['class']]
 
-  for (col_name in colnames(metadata)) {
-
-    col_vals <- metadata[[col_name]]
-
-    if (is.character(col_vals)) {
-      D[['cols_cat']] %<>% c(col_name)
-      D[['col_types']][[col_name]]   <- unbox("cat")
-      D[['col_options']][[col_name]] <- sort(unique(col_vals))
-
-    } else if (is.factor(col_vals)) {
-      D[['cols_cat']] %<>% c(col_name)
-      D[['col_types']][[col_name]]   <- unbox("cat")
-      D[['col_options']][[col_name]] <- levels(col_vals)
-
-    } else if (is.numeric(col_vals)) {
-      D[['cols_num']] %<>% c(col_name)
-      D[['col_types']][[col_name]]   <- unbox("num")
-      D[['col_options']][[col_name]] <- list(
-        min = unbox(min(col_vals, na.rm = TRUE)),
-        max = unbox(max(col_vals, na.rm = TRUE)) )
+    if (identical(kind, "numeric")) {
+      values <- values[is.finite(values)]
+      return (list(
+        name  = unbox(name),
+        class = unbox(kind),
+        min   = unbox(if (length(values) > 0) min(values) else NA),
+        max   = unbox(if (length(values) > 0) max(values) else NA) ))
     }
-  }
 
-  D[['cols_num']] %<>% if.null(list())
+    list(
+      name   = unbox(name),
+      class  = unbox(kind),
+      levels = if (is.factor(values)) levels(values) else sort(unique(as.character(values))) )
+  })
+
+  # taxa = list(Phylum = c(...), .otu = c(...), ...)
+  D[['ranks']] <- rare_biom$ranks
+  D[['taxa']]  <- list()
+  for (rank in rare_biom$ranks)
+    D[['taxa']][[rank]] <- names(taxa_means(rare_biom, rank))
 
   return (D)
 }
 
 
-#' The cached summary for a pair of stored files.
+#' The cached summary for a pair of stored files. The number in the key is
+#' the version of the summary's layout; change it when `biom_summary()`
+#' returns something different.
 #' @noRd
 cached_summary <- function (ctx, full, rare, full_biom = NULL, rare_biom = NULL) {
-  key <- sprintf("data_%s_%s", sub("\\.biom$", "", basename(full)), sub("\\.biom$", "", basename(rare)))
+  key <- sprintf("data2_%s_%s", sub("\\.biom$", "", basename(full)), sub("\\.biom$", "", basename(rare)))
   with_cache(worker_cache(ctx), key, biom_summary(
     full_biom = full_biom %||% read_biom(ctx, full),
     rare_biom = rare_biom %||% read_biom(ctx, rare) ))
@@ -259,11 +271,17 @@ work_details <- function (ctx, full, rare) {
 #______________________________________________________________________________
 #' Turn an uploaded file into a project's three stored files.
 #'
-#' @param infile  The uploaded file.
-#' @param title   A title to use instead of the one inside the file.
+#' @param infile   The uploaded file.
+#' @param title    A title to use instead of the one inside the file.
+#' @param inflate  What to do with counts that are not whole numbers, such
+#'                 as relative abundances. rbiom cannot rarefy those. `TRUE`
+#'                 scales each sample up to whole numbers
+#'                 (`rbiom::biom_inflate()`); `FALSE` refuses the file with
+#'                 the error code `confirm_inflate`, so that the browser can
+#'                 ask the user and send the file again.
 #' @return list(orig, full, rare, data, details)
 #' @noRd
-work_import <- function (ctx, infile, title = NULL) {
+work_import <- function (ctx, infile, title = NULL, inflate = FALSE) {
 
   worker_init(ctx)
 
@@ -274,6 +292,23 @@ work_import <- function (ctx, infile, title = NULL) {
 
   full_biom$sequences <- NULL
   if (!is.null(title)) full_biom$id <- title
+
+  counts <- full_biom$counts@x
+
+  if (any(counts %% 1 != 0)) {
+
+    if (!isTRUE(inflate))
+      stop_http(400L, code = "confirm_inflate", paste(
+        "The counts in this file are not whole numbers (they look like relative abundances).",
+        "atima can scale each sample up to whole numbers, using an estimate of its original",
+        "number of reads. The estimate can be wrong: rare taxa may be lost or over-counted,",
+        "so richness and other metrics that depend on rare taxa, rarefaction depths and",
+        "count-based tests become unreliable. Upload the original counts if you have them." ))
+
+    full_biom <- with_user_errors(
+      message = "The counts in this file could not be scaled to whole numbers.",
+      code    = biom_inflate(full_biom) )
+  }
 
   rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
 
@@ -389,9 +424,11 @@ rarefy_to <- function (ctx, full, rare, depth) {
 #' @param dest   The file to write.
 #' @param what,format,method,rank  See `api_export()`.
 #' @param title,description  Written into an exported BIOM file.
+#' @param rare   For `xlsx`: the project's rarefied BIOM file, whose depth
+#'               the workbook's rarefied sheets use.
 #' @return `NULL`
 #' @noRd
-work_export <- function (ctx, src, dest, what, format, method, rank, title, description) {
+work_export <- function (ctx, src, dest, what, format, method, rank, title, description, rare = NULL) {
 
   worker_init(ctx)
 
@@ -407,7 +444,10 @@ work_export <- function (ctx, src, dest, what, format, method, rank, title, desc
   if (what == "tree" && is.null(biom$tree))
     stop_user("This project has no phylogenetic tree.")
 
-  atomic_write(dest, function (tmp) switch(
+  # `method` and `rank` were checked against rbiom's lists and, when the
+  # main process knew the project, against the project. What is left for
+  # rbiom to refuse is reported in its own words.
+  with_user_errors("The export could not be made.", atomic_write(dest, function (tmp) switch(
     EXPR     = what,
     metadata = write.csv(biom$metadata, tmp, row.names = FALSE),
     taxonomy = write.csv(biom$taxonomy, tmp, row.names = FALSE),
@@ -415,9 +455,70 @@ work_export <- function (ctx, src, dest, what, format, method, rank, title, desc
     biom     = write_biom(annotate_biom(biom, title, description), tmp, format = format),
     alpha    = write.csv(with_cpus(ctx, adiv_matrix, list(biom)), tmp),
     beta     = write.csv(as.matrix(with_cpus(ctx, bdiv_distmat, list(biom, method))), tmp),
-    taxa     = write.csv(taxa_matrix(biom, rank), tmp) ))
+    taxa     = write.csv(taxa_matrix(biom, rank), tmp),
+    xlsx     = export_xlsx(annotate_biom(biom, title, description), tmp, read_biom(ctx, rare)$depth) )))
 
   NULL
+}
+
+
+#' Write a project as an Excel workbook: counts, rarefied counts, metadata,
+#' alpha diversity, taxonomy, and abundances at each rank.
+#' @param file   The file to write. It need not end in `.xlsx`.
+#' @param depth  The rarefaction depth for the rarefied sheets.
+#' @noRd
+export_xlsx <- function (biom, file, depth) {
+
+  # openxlsx picks the format from the file's extension.
+  xlsx <- tempfile(fileext = ".xlsx")
+  on.exit(unlink(xlsx), add = TRUE)
+
+  write_xlsx(biom, xlsx, depth = depth)
+  file.copy(xlsx, file, overwrite = TRUE)
+}
+
+
+#______________________________________________________________________________
+#' Group a project's samples into clusters and add the result to its
+#' metadata as a categorical field.
+#'
+#' @param cluster_fn    `"taxa_clusters"` or `"bdiv_clusters"`.
+#' @param cluster_args  Its arguments.
+#' @param name          The new field's name.
+#' @param checked       Were `cluster_args` checked against the project in
+#'                      the main process?
+#' @return list(full, rare, data)
+#' @noRd
+work_add_clusters <- function (ctx, full, rare, cluster_fn, cluster_args, name, checked = TRUE) {
+
+  worker_init(ctx)
+
+  if (!isTRUE(checked))
+    cluster_args <- worker_check("cluster_args", check_fn_args(cluster_fn, cluster_args, cached_summary(ctx, full, rare)))
+
+  full_biom <- read_biom(ctx, full)
+  rare_biom <- read_biom(ctx, rare)
+
+  if (tolower(name) %in% tolower(full_biom$fields))
+    stop_user("This project already has a metadata field called '", name, "'.")
+
+  # Clusters are found among the rarefied samples, like everything else
+  # that compares samples. A sample that rarefying dropped is in no cluster.
+  clusters <- with_user_errors("The samples could not be clustered.", with_cpus(
+    ctx  = ctx,
+    fn   = base::getExportedValue("rbiom", cluster_fn),
+    args = c(list(biom = rare_biom), cluster_args) ))
+
+  # Named, not numbered, so that the field stays categorical when the
+  # project is saved and read again.
+  labels <- paste("Cluster", as.character(clusters))
+  names(labels) <- names(clusters)
+
+  md <- full_biom$metadata
+  md[[name]] <- unname(labels[as.character(md[['.sample']])])
+  full_biom$metadata <- md
+
+  store_pair(ctx, full_biom, rarefy(full_biom, depth = rare_biom$depth, cpus = ctx[['cpus']]))
 }
 
 

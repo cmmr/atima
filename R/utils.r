@@ -25,15 +25,6 @@ if.na <- function (x, replacement) {
 }
 
 #______________________________________________________________________________
-#' Shorthand for replacing NULLs with something else.
-#' @noRd
-if.null <- function (x, replacement) {
-  if (!is.null(x))               return (x)
-  if (!is.function(replacement)) return (replacement)
-  return (replacement())
-}
-
-#______________________________________________________________________________
 #' Shorthand for replacing empty character strings with something else.
 #' @noRd
 if.blank <- function (x, replacement) {

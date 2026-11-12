@@ -9,14 +9,16 @@
 #' @param ctx          The worker context.
 #' @param full,rare    The project's stored BIOM files.
 #' @param out_dir      The session's temporary directory, for the image.
-#' @param plot_fn      The name of an rbiom plot function, from the route
-#'                     table's list.
+#' @param plot_fn      The name of an exposed rbiom plot function.
 #' @param plot_args    Its arguments.
-#' @param save_args    Arguments for `ggsave()`, from `plot_save_args()`.
+#' @param save_args    Arguments for `ggsave()`, from `check_save_args()`.
 #' @param subset_args  `list(cat = list(<field> = <values>), num =
 #'                     list(<field> = c(lo, hi)))`: samples to keep.
 #' @param depth        The rarefaction depth the browser is showing.
 #' @param attrs        Also return the statistics table and the R code?
+#' @param checked      Were `plot_args` and `subset_args` checked against the
+#'                     project in the main process? If not, they are checked
+#'                     here first, and the summary used is returned as `data`.
 #'
 #' @return `list(file)`, the image's name inside `out_dir`. If the project
 #'         had to be rarefied to `depth` first, also `rare` and `data` (see
@@ -25,11 +27,23 @@
 #' @noRd
 work_plot <- function (
     ctx, full, rare, out_dir, plot_fn, plot_args, save_args,
-    subset_args = list(), depth = NULL, attrs = FALSE ) {
+    subset_args = list(), depth = NULL, attrs = FALSE, checked = TRUE ) {
 
   worker_init(ctx)
 
   result <- list()
+
+
+  #________________________________________________________
+  # Finish checking the arguments, if the main process did
+  # not have what it takes.
+  #________________________________________________________
+  if (!isTRUE(checked)) {
+    data        <- cached_summary(ctx, full, rare)
+    plot_args   <- worker_check("plot_args",   check_fn_args(plot_fn, plot_args, data))
+    subset_args <- worker_check("subset_args", check_subset_args(subset_args, data))
+    result[['data']] <- data
+  }
 
 
   #________________________________________________________
@@ -47,7 +61,7 @@ work_plot <- function (
   #________________________________________________________
   # The BIOM object, limited to the samples asked for.
   #________________________________________________________
-  biom <- read_biom(ctx, if (plot_fn == "rare_multiplot") full else rare)
+  biom <- read_biom(ctx, if (plot_sample_set(plot_fn) == "full") full else rare)
   biom <- subset_biom(biom, subset_args)
 
   plot_args[['biom']] <- biom
@@ -83,7 +97,16 @@ work_plot <- function (
     device )
 
   atomic_write(file.path(out_dir, file), function (tmp) {
-    do.call(ggsave, c(list(filename = tmp), save_args))
+    tryCatch(
+      # (A failed drawing also warns that its device was closed.)
+      expr  = suppressWarnings(do.call(ggsave, c(list(filename = tmp), save_args))),
+      error = function (e) {
+        # No room is left for the panels once the legend, labels and
+        # caption are in place: that is the request's doing.
+        if (grepl("zero dimension|margins too large|too small", conditionMessage(e)))
+          stop_user("The image is too small for this figure. Make it larger, or lower its resolution.")
+        stop(e)
+      })
   })
 
   result[['file']] <- file
@@ -153,7 +176,7 @@ subset_biom <- function (biom, subset_args) {
       x <- biom$metadata
       x[[col_name]] %<>% factor(levels = col_values)
       x <- x[!is.na(x[[col_name]]),,drop=FALSE]
-      biom$metadata <- x
+      biom <- keep_samples(biom, x)
     }
 
   if (is.list(num_args))
@@ -172,8 +195,18 @@ subset_biom <- function (biom, subset_args) {
       vals <- x[[col_name]]
       vals[which(vals < col_range[[1]] | vals > col_range[[2]])] <- NA
       x <- x[!is.na(vals),,drop=FALSE]
-      biom$metadata <- x
+      biom <- keep_samples(biom, x)
     }
 
   return (biom)
+}
+
+
+#' Give an rbiom object a metadata table with fewer rows. rbiom drops the
+#' samples that are no longer in it, and warns that it did; here that is the
+#' whole point.
+#' @noRd
+keep_samples <- function (biom, metadata) {
+  suppressWarnings(biom$metadata <- metadata)
+  biom
 }
