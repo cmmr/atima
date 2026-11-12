@@ -37,18 +37,21 @@ export function show(container, what) {
 
   const table = serverTable({ pageRoute: `/api/${what}/table`, headRoute: `/api/${what}/thead`, onhead });
 
+  const unsaved = h('p.hint', { hidden: store.get('biom').is_saved }, 'This is your working copy, with its unsaved changes.');
+
   fill(container, h('div.page',
     h('div.page-head',
       h('h1', page.title),
       h('div.card-actions',
         button(`Replace the ${what}`, () => uploadComponent(what), { icon: 'upload', title: page.file }))),
     h('p.hint', page.hint),
-    store.get('biom').is_saved ? null : h('p.hint', 'This is your working copy, with its unsaved changes.'),
+    unsaved,
     h('div.card', table)));
 
   return {
     // A new field, another class or another project: read the table again.
     onBiom(biom, before) {
+      unsaved.hidden = biom.is_saved;
       if (!before || biom.node_id !== before.node_id || JSON.stringify(biom.fields) !== JSON.stringify(before.fields) ||
           JSON.stringify(biom.ranks) !== JSON.stringify(before.ranks)) table.reload();
     },

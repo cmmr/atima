@@ -68,7 +68,9 @@ export function show(container) {
                 h('option', { value: 'view', selected: !user.is_editor, disabled: biom.is_public }, 'Can view'),
                 h('option', { value: 'edit', selected: user.is_editor }, 'Can edit'))
             : (user.is_editor ? 'Can edit' : 'Can view')),
-          h('td', button('', () => update(user, 'none', {
+          // A viewer can only take back view access (that they gave: the
+          // server checks); an editor can remove anyone but the last editor.
+          h('td', !biom.is_editor && user.is_editor ? null : button('', () => update(user, 'none', {
             title: `Take away ${user.full_name}'s access?`,
             text: ['They lose the project from their own list.',
                    'If they kept the share link, it still works until you make a new link.'],
@@ -105,7 +107,9 @@ export function show(container) {
         biom.is_public ? h('p.hint', 'This project is public: everyone can view it. Listed here are the people who can edit it.') : null,
         people),
 
-      h('div.card',
+      // Everyone can view a public project already, and only an editor
+      // can let someone else edit it.
+      biom.is_public && !biom.is_editor ? null : h('div.card',
         h('h2', 'Add someone'),
         h('p.hint', biom.is_editor
           ? 'Find a person who has signed in to this server before.'

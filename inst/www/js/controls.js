@@ -66,9 +66,13 @@ function singleOptions(p, choices, env) {
   const def = p.default === undefined ? null : p.default;
   const inChoices = choices.some(c => same(c.value, def)) || choices.some(c => same(c.value, canonicalDefault(p, env)));
 
+  // Where a rule says "one of these parameters", leaving one empty needs no
+  // explanation beyond "None"; the rule itself is shown above the controls.
+  const inRule = (env.def.rules || []).some(rule => (rule.one_of || rule.any_of || []).includes(p.name));
+
   if (p.default_expr)             options.push({ value: UNSET, label: noDot(p.default_note) || 'Default' });
   else if (!inChoices && !p.required)
-    options.push({ value: UNSET, label: def === null ? (p.null ? noDot(p.null) : 'None') : `Default (${S.describe(p, def, env.biom)})` });
+    options.push({ value: UNSET, label: def === null ? (p.null && !inRule ? noDot(p.null) : 'None') : `Default (${S.describe(p, def, env.biom)})` });
 
   if (p.null !== undefined && (p.default_expr || def !== null))
     options.push({ value: null, label: noDot(p.null) || 'None' });
@@ -367,12 +371,12 @@ const editors = {
       if (levels) {
         const map = {};
         levels.forEach((lv, i) => { map[lv] = start && typeof start === 'object' && !Array.isArray(start) && lv in start ? start[lv] : starter(i); });
-        extra.append(levels.map(lv => one(map[lv], v => { map[lv] = v; emit({ ...map }); }, lv)));
+        extra.append(...levels.map(lv => one(map[lv], v => { map[lv] = v; emit({ ...map }); }, lv)));
         return map;
       }
       const n    = p.max_n || 3;
       const list = Array.from({ length: n }, (_, i) => (Array.isArray(start) && start[i] !== undefined ? start[i] : starter(i)));
-      extra.append(list.map((v, i) => one(v, nv => { list[i] = nv; emit([...list]); }, `${i + 1}`)));
+      extra.append(...list.map((v, i) => one(v, nv => { list[i] = nv; emit([...list]); }, `${i + 1}`)));
       return list;
     };
 
