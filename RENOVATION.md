@@ -1366,7 +1366,7 @@ Decisions for Daniel: review of the control layout once a first version runs.
   every one of the 14 plot functions drawn at least once; a `when` rule
   (shapes appears with the dot layer); the `one_of` rule of
   `taxa_forest`; a required field chosen automatically; statistics and R
-  code tabs; palettes with swatches, and a color per group; a numeric
+  code tabs; palettes with swatches, a color and a shape per group; a numeric
   sample filter; depth change; `bdiv_clusters` adding a field; metadata
   and taxonomy tables, sorting header, numeric/categorical switch;
   upload, including the `confirm_inflate` exchange; replacing the
@@ -1383,8 +1383,8 @@ Decisions for Daniel: review of the control layout once a first version runs.
   downloaded figure or export (the requests succeeded and the export's
   contents were read back, but the save itself was not observed); a 503
   (queue full); the heartbeat and a session expiring after 24 hours;
-  `navigator`-level abort on closing the tab; shapes and patterns chosen
-  by hand; `taxa_clusters`; Excel and BIOM exports; tree upload; the
+  the abort sent when the tab closes; patterns chosen by hand;
+  `taxa_clusters`; Excel and BIOM exports; tree upload; the
   description editor's buttons; sharing as a viewer of a private
   project; any browser other than Chromium, and narrow windows; sign-in
   against Globus Auth or ORCID themselves.
