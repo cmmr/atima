@@ -36,9 +36,18 @@ error_of <- function (promise, ...) {
 # Wait until every worker is free and nothing is queued.
 pool_idle <- function () wait_until(function () pool$busy == 0L && length(pool$jobs) == 0L)
 
+# The process ids of the pool's workers. A worker that has only just
+# connected, or is still unwinding a job that was stopped, may not answer a
+# roll call (or answers with an error value), so call until both do.
 worker_pids <- function () {
-  pids <- unlist(mirai::collect_mirai(mirai::everywhere(Sys.getpid(), .compute = pool$profile)))
-  sort(pids)
+  pids <- integer(0)
+  wait_until(seconds = 10, condition = function () {
+    answers <- mirai::collect_mirai(mirai::everywhere(Sys.getpid(), .compute = pool$profile))
+    answers <- Filter(function (x) !mirai::is_error_value(x), answers)
+    pids   <<- sort(unlist(answers))
+    length(pids) == 2L
+  })
+  pids
 }
 
 connections <- function () mirai::status(.compute = pool$profile)$connections
@@ -134,8 +143,9 @@ test_that("a newer job with the same key cancels the running one", {
 
   marker <- withr::local_tempfile()
 
-  first  <- submit(bquote(local({ on.exit(writeLines("stopped", .(marker))); Sys.sleep(30) })), session_id = 1L, key = "1 /api/plot")
+  first  <- submit(bquote(local({ on.exit(writeLines("stopped", .(marker))); writeLines("running", .(marker)); Sys.sleep(30) })), session_id = 1L, key = "1 /api/plot")
   expect_true(wait_until(function () length(list.files(pool$marker_dir)) == 1L))
+  expect_true(wait_until(function () file.exists(marker)))   # it is running, not just handed over
 
   second <- submit(quote("second result"), session_id = 1L, key = "1 /api/plot")
 

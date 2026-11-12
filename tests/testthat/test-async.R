@@ -108,7 +108,7 @@ test_that("a new request to a superseding route cancels the session's running on
 
   local_handlers(list(
     "/api/plot" = function (REQ, args) eval_job(
-      expr   = if (args$depth == 1) bquote(local({ on.exit(writeLines("stopped", .(marker))); Sys.sleep(30) })) else quote("drawn"),
+      expr   = if (args$depth == 1) bquote(local({ on.exit(writeLines("stopped", .(marker))); writeLines("running", .(marker)); Sys.sleep(30) })) else quote("drawn"),
       finish = function (result) list(result = unbox(result)) ),
     "/api/project/export" = function (REQ, args) eval_job(quote({ Sys.sleep(1); "exported" }), function (result) list(result = unbox(result))) ))
 
@@ -117,6 +117,7 @@ test_that("a new request to a superseding route cancels the session's running on
 
   first  <- plot(1)
   expect_true(wait_until(function () length(list.files(pool$marker_dir)) == 1L))
+  expect_true(wait_until(function () file.exists(marker)))   # it is running, not just handed over
 
   # Another session's plot, and this session's export, are left alone.
   other_session <- add_test_session(s$DB, s$user, s$project)
