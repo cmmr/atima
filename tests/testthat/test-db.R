@@ -612,3 +612,52 @@ test_that("a new database is seeded with public example projects", {
   files <- db_query(DB, "SELECT file FROM biom_files", "T4")
   expect_true(all(file.exists(file.path(REQ$CONFIG$data_dir, "files", files))))
 })
+
+
+test_that("a time is stored as text, and a row read from the database can be written back", {
+
+  # Found in the browser (step 7): db_query() returns `*_utc` columns as
+  # times, and a time bound to a statement was stored as a number.
+  REQ <- local_test_req()
+  DB  <- REQ$DB
+
+  user <- add_test_user(DB, "Ada")
+  when <- as.POSIXct("2026-01-02 03:04:05", tz = "UTC")
+  db_query(DB, "UPDATE users SET seen_utc = ? WHERE user_id = ?", "T1", list(when, user))
+
+  stored <- DBI::dbGetQuery(DB, "SELECT typeof(seen_utc) AS type, seen_utc FROM users")
+  expect_identical(stored$type, "text")
+  expect_identical(stored$seen_utc, "2026-01-02 03:04:05")
+
+  # Read it, write what was read, read it again.
+  row <- db_query(DB, "SELECT * FROM users WHERE user_id = ?", "T2", list(user))
+  expect_s3_class(row$seen_utc, "POSIXct")
+  db_update(DB, "users", user, "T3", seen_utc = row$seen_utc)
+  expect_identical(db_query(DB, "SELECT seen_utc FROM users WHERE user_id = ?", "T4", list(user)), when)
+})
+
+
+test_that("the upgrade to version 5 repairs creation dates that were stored as numbers", {
+
+  data_dir <- withr::local_tempdir(pattern = "atima_v4_")
+  DB       <- DBI::dbConnect(RSQLite::SQLite(), file.path(data_dir, "sqlite.db"))
+  withr::defer(DBI::dbDisconnect(DB))
+
+  db_migrate(DB, data_dir, db_migrations()[1:4, ])
+  expect_identical(db_version(DB), 4L)
+
+  run <- function (sql) DBI::dbExecute(DB, sql)
+  run("INSERT INTO biom_files (biom_file_id, file, hash) VALUES (1, 'a.biom', 'a')")
+  run("INSERT INTO projects (project_id, title, orig_bf_id, full_bf_id, rare_bf_id, access_key, created_utc) VALUES (1, 'Original', 1, 1, 1, 'aaaaaaaaaaaa', '2026-11-12 22:22:19')")
+  run("INSERT INTO projects (project_id, title, orig_bf_id, full_bf_id, rare_bf_id, access_key, created_utc) VALUES (2, 'Copy', 1, 1, 1, 'bbbbbbbbbbbb', 1794520213)")
+
+  db_migrate(DB, data_dir)
+  expect_identical(db_version(DB), latest_version())
+
+  dates <- DBI::dbGetQuery(DB, "SELECT typeof(created_utc) AS type, created_utc FROM projects ORDER BY project_id")
+  expect_identical(dates$type, c("text", "text"))
+  expect_identical(dates$created_utc, c("2026-11-12 22:22:19", "2026-11-12 21:50:13"))
+
+  # The query that failed reads them now.
+  expect_s3_class(db_query(DB, "SELECT created_utc FROM projects", "T1"), "POSIXct")
+})

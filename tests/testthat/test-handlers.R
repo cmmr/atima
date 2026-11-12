@@ -328,6 +328,21 @@ test_that("an upload becomes a project, and saving copies the draft into it", {
   expect_false(identical(body$BIOM$access_key, project$access_key))
   expect_false(body$BIOM$is_public)
   expect_identical(db_query(s$DB, "SELECT COUNT(*) FROM projects", "T4"), 4L)
+
+  # Found in the browser (step 7): the copy's creation date was stored as a
+  # number, and from then on its owner's project tree, and with it every
+  # page load, failed. The date is text, and it is the copy's own.
+  dates <- DBI::dbGetQuery(s$DB, "SELECT typeof(created_utc) AS type, created_utc FROM projects ORDER BY project_id")
+  expect_identical(unique(dates$type), "text")
+  expect_match(dates$created_utc, "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$")
+
+  # A copy of the copy, then a new tab: the tree lists all three.
+  expect_identical(s$post("/api/project/save_as", list(title = "A second copy", description = ""))$status, 200L)
+  resp <- handle_request(fake_request("POST", "/api/session/init", list(), session = s$session), s$app)
+  expect_identical(resp$status, 200L)
+  expect_setequal(
+    vapply(response_json(resp)$tree$private, function (node) node$text, ""),
+    c("My study, saved", "A copy", "A second copy") )
 })
 
 

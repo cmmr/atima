@@ -281,7 +281,11 @@ db_query <- function (DB, sql, err_code, params = NULL, simplify = TRUE, req1 = 
   sql  <- trimws(gsub("[\n\r\t\ ]+", " ", sql))
   verb <- toupper(strsplit(substr(sql, 1, 10), ' ', fixed = TRUE)[[1]][[1]])
 
-  if (!is.null(params)) params <- unname(as.list(params))
+  # A time is stored as text, the way SQLite's CURRENT_TIMESTAMP writes it.
+  # Bound as it is, it would be stored as a number of seconds, which the
+  # conversion of `*_utc` columns below cannot read back.
+  if (!is.null(params))
+    params <- lapply(unname(as.list(params)), function (p) if (inherits(p, "POSIXct")) sql_time(p) else p)
 
   result <- tryCatch(
 

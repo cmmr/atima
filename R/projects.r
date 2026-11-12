@@ -87,13 +87,14 @@ api_save_as <- function (REQ, title, description) {
       sql     <- "SELECT * FROM projects WHERE project_id = ?"
       project <- db_query(DB, sql, "ASAs2", list(session[['project_id']]), req1 = TRUE)
 
-      # Merge into a new project record.
+      # Merge into a new project record. The copy is made now, whenever the
+      # original was.
       project_id <- db_insert(
         DB            = DB,
         table         = "projects",
         err_code      = "ASAs3",
         project_id    = NULL,
-        defaults      = project,
+        defaults      = project[setdiff(names(project), "created_utc")],
         title         = title,
         full_bf_id    = session[['full_bf_id']],
         rare_bf_id    = session[['rare_bf_id']],
