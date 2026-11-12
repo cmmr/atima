@@ -996,6 +996,39 @@ release; "basic" vs. "advanced" grouping of controls.
   steps' curl smoke test was not repeated), anything in a browser, and
   the wording of the inflate warning, which is mine and should be read by
   Daniel.
+- `R CMD check --no-manual --as-cran` on Windows: 0 errors, 0 warnings,
+  1 note, the CRAN incoming note (new submission, the `Remotes` field,
+  the README's `http://127.0.0.1:8080` URL, the pkgdown URL that is not
+  published yet). None of it comes from this step; CI turns the incoming
+  check off.
+- rbiom tells `taxa_forest` callers "`biom` is rarefied. LinDA models
+  sequencing depth itself, so unrarefied counts are better". atima gives
+  `taxa_forest` (and `taxa_da`) the rarefied sample set like every other
+  taxa plot. Whether those two should get the full counts is Daniel's
+  call; nothing was changed.
+- The worker pool tests (`test-jobs.R`, `test-async.R`) were unreliable
+  on Linux, most of all with R 4.5, and CI failed there after this step
+  was pushed. The cause is older than this step: the commit before it
+  (9560f9d) fails the same way 3 times out of 3 in a `rocker/r-ver:4.5`
+  container. Two races, both in the tests, not in `R/jobs.R`: a worker
+  that has just connected, or is still unwinding a stopped job, may not
+  answer `mirai::everywhere()`, so a roll call came back short; and a job
+  could be replaced after it was handed to a worker but before its code
+  ran, so its `on.exit` never fired. Fixed in b45f4fa and 18b39ff
+  (`worker_pids()` retries; tests wait for the job's own "running"
+  marker). After that: CI green on all four jobs, and 76 of 78 runs of
+  the two files pass in the R 4.5 container with no failed expectation.
+- Still open, for step 10: the other 2 of those 78 runs hung. One
+  stopped between `test-jobs.R:368` and `:372`, which is `pool_stop()` on
+  a pool with one running and one queued job (`mirai::stop_mirai()` then
+  `mirai::daemons(0)`; mirai 2.7.4, nanonext 1.10.4). It did not come
+  back in 60 further runs with trace messages in `pool_stop()`, so which
+  call blocks is not known. Not seen on Windows or with R 4.6. If it is
+  real it would show as a server that does not exit on shutdown while a
+  job is running, and as a CI job that runs until GitHub's time limit;
+  a `timeout-minutes` on the CI job would bound the latter. One earlier
+  run in the same container also had 16 failures starting at
+  `test-jobs.R:186`; it was not captured in detail and did not recur.
 
 ## Step 7: Front end: schema-driven controls
 
@@ -1495,6 +1528,11 @@ tables; whether a later version may change data (upload, save).
   (SVG figures). The load test should include `taxa_forest` and the
   permutation tests at their default 999 permutations, which are the
   slowest requests the schema allows.
+- From step 6: on Linux, stopping a pool that has a running job hung
+  twice in 78 test runs (R 4.5 container; details in step 6's notes).
+  Test shutdown under load on the server's own platform (stop the server
+  while jobs run and while jobs are queued, many times), and give the CI
+  job a `timeout-minutes`.
 
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
