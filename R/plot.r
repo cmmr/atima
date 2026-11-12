@@ -72,10 +72,12 @@ api_plot <- function (
 }
 
 
-#' Which of a project's two BIOM files a plot function is given: the
-#' rarefaction plots show the counts before rarefying, everything else after.
+#' Which of a project's two BIOM files an rbiom function is given. rbiom says
+#' which counts each function wants: the rarefaction plots need the depths
+#' before rarefying, and the differential abundance model accounts for depth
+#' itself; everything else compares samples at one depth.
 #' @return `"full"` or `"rare"`.
 #' @noRd
 plot_sample_set <- function (plot_fn) {
-  if (identical(schema_functions[[plot_fn]][['area']], "rarefaction")) "full" else "rare"
+  if (identical(rbiom_schema()[[plot_fn]][['counts']], "unrarefied")) "full" else "rare"
 }

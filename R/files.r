@@ -118,6 +118,10 @@ api_export <- function (REQ, what, sample_set = "full", format = "json", method 
   sql     <- "SELECT * FROM projects WHERE project_id = ?"
   project <- db_query(DB, sql, "AExpo1", list(project_id), req1 = TRUE)
 
+  # rbiom writes workbooks with a package it only suggests.
+  if (what == "xlsx" && !has_package(rbiom_schema()[['write_xlsx']][['needs']]))
+    stop_user("This server cannot make Excel files: the openxlsx package is not installed.")
+
   if (what == "beta")     sample_set <- "rare"
   if (what == "xlsx")     sample_set <- "full"
   if (what == "original") sample_set <- "orig"

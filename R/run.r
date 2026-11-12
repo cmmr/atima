@@ -276,6 +276,9 @@ run <- function(
   db <- db_open(data_dir)
   on.exit(db_close(db), add = TRUE, after = FALSE)
 
+  # Stops here if the installed rbiom is too old to describe its functions.
+  rbiom_schema()
+
   storage_adopt_legacy(db, file.path(data_dir, 'files'))
 
   message(' - Starting ', workers, ' worker process', if (workers > 1) 'es', ' (', max_cpus, ' CPU', if (max_cpus > 1) 's', ' each)')

@@ -133,7 +133,7 @@ schema_hidden <- character(0)
 
 
 # Computed once per process. rbiom's descriptions do not change while it is
-# loaded.
+# loaded, and neither does the set of installed packages that matters here.
 schema_env <- new.env(parent = emptyenv())
 
 schema_once <- function (key, code) {
@@ -152,7 +152,63 @@ schema_once <- function (key, code) {
 #'         `rules` and `params`.
 #' @noRd
 rbiom_schema <- function () {
-  schema_once("rbiom", fromJSON(fn_schema(json = TRUE), simplifyVector = FALSE))
+  schema_once("rbiom", {
+
+    schema <- fromJSON(rbiom_schema_json(), simplifyVector = FALSE)
+
+    # rbiom's version number does not change while 4.0.0 is being written,
+    # so the only way to tell a build that is too old is to look.
+    if (is.null(schema[['taxa_forest']][['counts']]))
+      stop(call. = FALSE,
+        "The installed rbiom is too old for this version of atima: its fn_schema() ",
+        "does not say which counts a function takes. Install the current rbiom from cmmr/rbiom.")
+
+    schema
+  })
+}
+
+#' rbiom's description as JSON text, and a hash of it. The hash changes when
+#' rbiom's schema does, and also when ecodive's list of metrics does, which
+#' rbiom reads when asked; rbiom's version number may stay the same.
+#' @noRd
+rbiom_schema_json <- function () {
+  schema_once("rbiom_json", as.character(fn_schema(json = TRUE)))
+}
+
+rbiom_schema_hash <- function () {
+  schema_once("rbiom_hash", paste(as.character(sha256(charToRaw(enc2utf8(rbiom_schema_json())))), collapse = ""))
+}
+
+
+#' Is an R package installed where this process can load it?
+#' @noRd
+has_package <- function (pkg) {
+  all(nzchar(vapply(as.character(unlist(pkg)), function (p) system.file(package = p), character(1))))
+}
+
+
+#______________________________________________________________________________
+#' The choices of a function's parameters that this server cannot offer,
+#' because they need a package rbiom only suggests and it is not installed.
+#'
+#' @return A list named by parameter, each a character vector of package
+#'         names, named by the choice that needs it. Empty when every
+#'         choice can be used.
+#' @noRd
+schema_unavailable <- function (fn) {
+
+  schema_once(paste0("unavailable_", fn), {
+
+    out <- list()
+
+    for (p in rbiom_schema()[[fn]][['params']]) {
+      needs <- unlist(p[['choices_needs']])
+      needs <- needs[!vapply(needs, has_package, logical(1))]
+      if (length(needs) > 0) out[[p[['name']]]] <- needs
+    }
+
+    out
+  })
 }
 
 
@@ -181,13 +237,24 @@ schema_params <- function (fn) {
       !isTRUE(p[['r_only']]) && is.null(p[['deprecated']]) && !(p[['name']] %in% schema_hidden) })
 
     # A parameter that needs a package the server lacks cannot be used.
-    params <- Filter(x = params, function (p) {
-      is.null(p[['needs']]) || nzchar(system.file(package = p[['needs']])) })
+    params <- Filter(x = params, function (p) is.null(p[['needs']]) || has_package(p[['needs']]))
 
     names(params) <- vapply(params, function (p) p[['name']], character(1))
 
+    unavailable <- schema_unavailable(fn)
+
     lapply(params, function (p) {
+
       name <- p[['name']]
+
+      # Nor can a choice that needs one. What is left is what can be used,
+      # so the browser has no use for the list of packages.
+      if (!is.null(unavailable[[name]]))
+        p[['choices']] <- Filter(x = p[['choices']], function (ch) {
+          !((if (is.list(ch)) ch[['name']] else ch) %in% names(unavailable[[name]])) })
+
+      p[['choices_needs']] <- NULL
+
       c(
         list(
           name  = name,
@@ -247,7 +314,7 @@ browser_schema_json <- function () {
       c(
         list(fn = fn),
         schema_functions[[fn]],
-        list(returns = entry[['returns']]),
+        list(returns = entry[['returns']], sample_set = plot_sample_set(fn)),
         if (length(entry[['rules']]) > 0) list(rules = entry[['rules']]),
         list(params = unname(schema_params(fn))) )
     })
@@ -261,6 +328,7 @@ browser_schema_json <- function () {
 
     schema <- list(
       rbiom     = as.character(packageVersion("rbiom")),
+      hash      = rbiom_schema_hash(),
       functions = functions,
       palettes  = palettes,
       save      = list(
@@ -392,9 +460,23 @@ check_fn_args <- function (fn, args, summary) {
 
   args <- check_fn_args_static(fn, args)
 
-  tryCatch(
+  args <- tryCatch(
     expr  = fn_check(fn, args, summary_check_data(summary)),
     error = function (e) stop("is not valid. ", plain_message(e), call. = FALSE) )
+
+  # rbiom has matched the values to its choices; refuse the ones that need
+  # a package this server does not have.
+  unavailable <- schema_unavailable(fn)
+
+  for (key in intersect(names(args), names(unavailable))) {
+    asked <- intersect(as.character(unlist(args[[key]])), names(unavailable[[key]]))
+    if (length(asked) > 0)
+      stop(call. = FALSE, sprintf(
+        "is not valid. `%s = \"%s\"` needs the %s package, which this server does not have",
+        key, asked[[1]], unavailable[[key]][[asked[[1]]]] ))
+  }
+
+  args
 }
 
 

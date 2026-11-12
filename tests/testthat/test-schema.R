@@ -102,7 +102,7 @@ test_that("the schema route serves every exposed function to anyone", {
   expect_match(resp$headers[['Content-Type']], "application/json")
 
   schema <- response_json(resp)
-  expect_named(schema, c("rbiom", "functions", "palettes", "save", "subset"))
+  expect_named(schema, c("rbiom", "hash", "functions", "palettes", "save", "subset"))
   expect_identical(schema$rbiom, as.character(utils::packageVersion("rbiom")))
   expect_setequal(names(schema$functions), names(schema_functions))
 
@@ -139,7 +139,14 @@ test_that("the schema route serves every exposed function to anyone", {
 
   # The lists the old summary carried are here now.
   ord <- Filter(function (p) p$name == "ord", schema$functions$bdiv_ord_plot$params)[[1]]
-  expect_identical(unlist(ord$choices), c("PCoA", "tSNE", "NMDS", "UMAP"))
+  expect_true(all(c("PCoA", "NMDS") %in% unlist(ord$choices)))
+  expect_null(ord$choices_needs)
+
+  # What identifies this schema, since rbiom's version may not, and which
+  # of the project's two sample sets each function is given.
+  expect_match(schema$hash, "^[0-9a-f]{64}$")
+  expect_identical(schema$functions$taxa_forest$sample_set, "full")
+  expect_identical(schema$functions$adiv_boxplot$sample_set, "rare")
   clust <- Filter(function (p) p$name == "clust", schema$functions$taxa_heatmap$params)[[1]]
   expect_true(all(c("ward.D", "ward.D2", "complete") %in% unlist(clust$choices)))
 
@@ -242,6 +249,90 @@ test_that("each function's parameters can be given as JSON Schema", {
   expect_match(fn_json_schema("adiv_boxplot")$properties$x$anyOf[[1]]$description, "categorical metadata field")
   s$tree <- FALSE
   expect_false("faith" %in% unlist(fn_json_schema("adiv_boxplot", s)$properties$adiv$anyOf[[1]]$enum))
+})
+
+
+# What rbiom says about counts and optional packages -----------------------------
+
+# The schema as a server without some packages would compute it. What is
+# computed once per process is forgotten before and after.
+local_missing_packages <- function (missing, env = parent.frame()) {
+  forget <- function () rm(list = ls(schema_env), envir = schema_env)
+  forget()
+  withr::defer(forget(), envir = env)
+  local_mocked_bindings(
+    has_package = function (pkg) !any(as.character(unlist(pkg)) %in% missing),
+    .env        = env )
+}
+
+
+test_that("each function is given the counts rbiom says it wants", {
+
+  wants <- vapply(names(schema_functions), function (fn) rbiom::fn_schema(fn)$counts %||% NA_character_, "")
+  expect_true(all(wants %in% c("rarefied", "unrarefied")))
+
+  for (fn in names(schema_functions))
+    expect_identical(plot_sample_set(fn), if (wants[[fn]] == "unrarefied") "full" else "rare", info = fn)
+
+  # The rarefaction plots and the differential abundance model see every
+  # read; the rest compare samples at one depth.
+  expect_identical(plot_sample_set("rare_corrplot"), "full")
+  expect_identical(plot_sample_set("taxa_forest"),   "full")
+  expect_identical(plot_sample_set("taxa_boxplot"),  "rare")
+  expect_identical(plot_sample_set("bdiv_clusters"), "rare")
+})
+
+
+test_that("an rbiom that is too old is refused by name", {
+
+  rm(list = ls(schema_env), envir = schema_env)
+  withr::defer(rm(list = ls(schema_env), envir = schema_env))
+
+  old <- sub('"counts":"unrarefied",', "", rbiom::fn_schema("taxa_forest", json = TRUE), fixed = TRUE)
+  expect_false(grepl('"counts"', old, fixed = TRUE))
+
+  local_mocked_bindings(rbiom_schema_json = function () paste0('{"taxa_forest":', old, '}'))
+  expect_error(rbiom_schema(), "The installed rbiom is too old")
+})
+
+
+test_that("choices that need a package the server lacks are not offered", {
+
+  s <- local_open_project()
+
+  local_missing_packages(c("Rtsne", "ggdensity", "lmerTest", "openxlsx"))
+
+  params <- schema_params("bdiv_ord_plot")
+  expect_identical(unlist(params$ord$choices), c("PCoA", "NMDS", "UMAP"))
+  expect_false("density" %in% vapply(params$layers$choices, function (ch) ch$name, ""))
+  expect_true("point" %in% vapply(params$layers$choices, function (ch) ch$name, ""))
+  expect_false("tSNE" %in% unlist(fn_json_schema("bdiv_ord_plot")$properties$ord$enum))
+
+  # A parameter that needs one is left out altogether.
+  expect_false("strata" %in% names(schema_params("taxa_forest")))
+  expect_true("strata" %in% names(schema_params("adiv_boxplot")))
+
+  # Asking anyway is refused, by any spelling rbiom accepts, without a
+  # worker; what the server does have still passes.
+  plot <- function (plot_args) s$post("/api/plot", list(plot_fn = "bdiv_ord_plot", plot_args = plot_args, depth = 1183))
+
+  local_mocked_bindings(worker_run = function (...) stop("a worker was used"))
+
+  for (args in list(list(ord = "tSNE"), list(ord = "tsne"), list(layers = "density"), list(layers = c("point", "dens")))) {
+    resp <- plot(args)
+    expect_identical(resp$status, 400L)
+    expect_match(response_json(resp)$error$message, "^Argument 'plot_args' is not valid\\. `(ord = \"tSNE\"|layers = \"density\")` needs the (Rtsne|ggdensity) package, which this server does not have\\.$")
+  }
+
+  expect_identical(check_fn_args("bdiv_ord_plot", list(ord = "umap"), biom_summary(rbiom::hmp50, rbiom::rarefy(rbiom::hmp50)))$ord, "UMAP")
+
+  resp <- s$post("/api/plot", list(plot_fn = "taxa_forest", plot_args = list(stat.by = "Sex", strata = "Body Site"), depth = 1183))
+  expect_match(response_json(resp)$error$message, "option 'strata'")
+
+  # The whole of the Excel export needs one.
+  resp <- s$post("/api/project/export", list(what = "xlsx"))
+  expect_identical(resp$status, 400L)
+  expect_match(response_json(resp)$error$message, "openxlsx package is not installed")
 })
 
 
@@ -365,8 +456,10 @@ test_that("every exposed plot function draws through the worker path", {
     expect_identical(readBin(image, "raw", 4), as.raw(c(0x89, 0x50, 0x4e, 0x47)), info = plot_fn)
     expect_match(body$code$rbiom, plot_fn, info = plot_fn)
 
-    # The rarefaction plots are drawn from the counts before rarefying.
-    expect_identical(body$code$file, paste0("hmp50/", if (startsWith(plot_fn, "rare_")) "full" else "rare", ".json"), info = plot_fn)
+    # The rarefaction plots and the differential abundance model are given
+    # the counts before rarefying.
+    full <- startsWith(plot_fn, "rare_") || plot_fn == "taxa_forest"
+    expect_identical(body$code$file, paste0("hmp50/", if (full) "full" else "rare", ".json"), info = plot_fn)
   }
 
   # An image with no room for its figure is the request's fault. (Whether
