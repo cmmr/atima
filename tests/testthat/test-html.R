@@ -194,7 +194,7 @@ test_that("XSS payloads in an uploaded file come back escaped from every route",
   evil_name  <- '<img src=x onerror=alert(1)>'
   evil_value <- '<script>alert("xss")</script>'
 
-  biom    <- rbiom::hmp50
+  biom    <- rbiom::hmp50$clone()
   md      <- biom$metadata
   md[[evil_name]] <- evil_value
   biom$metadata   <- md
