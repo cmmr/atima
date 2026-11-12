@@ -30,3 +30,31 @@ test_that("dt_page pages, searches and sorts", {
 
   expect_error(dt_page(df, order = list(column = 7L, dir = "asc")), class = "atima_http_error")
 })
+
+
+test_that("dt_page sorts a column of numbers as numbers", {
+
+  # Found in the browser (step 7): every column was sorted as text, which
+  # puts 100 before 9.
+  df <- data.frame(
+    sample = c("a", "b", "c", "d", "e"),
+    age    = c(9, 100, 25, NA, 9),
+    site   = factor(c("Gut", "Skin", "Gut", "Oral", "Skin")),
+    stringsAsFactors = FALSE )
+
+  page <- dt_page(df, order = list(column = 1L, dir = "asc"))
+  expect_identical(page$data[, "sample"], c("a", "e", "c", "b", "d"))
+  expect_identical(page$data[, "age"], c("9", "9", "25", "100", ""))
+
+  page <- dt_page(df, order = list(column = 1L, dir = "desc"))
+  expect_identical(page$data[, "sample"], c("b", "c", "a", "e", "d"))
+
+  # Two sort columns: the first decides, the second breaks its ties.
+  page <- dt_page(df, order = data.frame(column = c(2L, 0L), dir = c("asc", "desc")))
+  expect_identical(page$data[, "sample"], c("c", "a", "d", "e", "b"))
+
+  # Searching, then sorting, then paging.
+  page <- dt_page(df, start = 1L, length = 1L, search = list(value = "skin"), order = list(column = 1L, dir = "asc"))
+  expect_identical(page$recordsFiltered, jsonlite::unbox(2L))
+  expect_identical(unname(page$data[, "sample"]), "b")
+})

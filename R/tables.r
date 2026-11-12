@@ -171,22 +171,38 @@ taxonomy_thead <- function (df) {
 
 
 #______________________________________________________________________________
-#' Handle server-side paging of a datatable.
+#' Handle server-side paging of a table.
 #'
-#' DataTables puts the cell values it is sent into the page as HTML, so
+#' The browser puts the cell values it is sent into the page as HTML, so
 #' they are escaped here, after searching and sorting.
 #'
-#' @return list(draw, recordsTotal, recordsFiltered, data)
-#'         as per https://datatables.net/manual/server-side . The values in
-#'         `data` are HTML-escaped strings.
+#' @param df      The table: a data frame, or a character matrix.
+#' @param draw    A number the browser sends, returned as it is, by which
+#'                it tells its requests apart.
+#' @param start   The first row of the page, counting from 0.
+#' @param length  The number of rows in a page.
+#' @param search  `list(value = <text>)`: keep the rows in which any cell
+#'                contains the text, ignoring case.
+#' @param order   One or more `list(column = <number from 0>, dir = "asc" or
+#'                "desc")`. Numeric columns are sorted as numbers.
+#'
+#' @return list(draw, recordsTotal, recordsFiltered, data). The values in
+#'         `data`, a character matrix, are HTML-escaped strings.
 #' @noRd
 dt_page <- function (
     df, draw=1L, start=0L, length=10L,
     search=list(value="", regex=FALSE), order=list(column=0L, dir="asc")) {
 
-
-  df <- if (is.matrix(df)) df else as.matrix(df)
-  recordsTotal <- nrow(df)
+  # Rows are chosen and arranged by number, in the table as it was given,
+  # so that a column of numbers is sorted as numbers. The text of the
+  # cells is only for searching and for the answer.
+  # (`as.matrix()` would pad numbers with spaces to a common width.)
+  text <- if (is.matrix(df)) df else matrix(
+    data     = unlist(lapply(df, as.character), use.names = FALSE),
+    nrow     = nrow(df),
+    dimnames = list(NULL, colnames(df)) )
+  rows <- seq_len(nrow(text))
+  recordsTotal <- nrow(text)
 
   # Coerce inputs into expected formats
   draw   <- as.integer(draw)
@@ -196,29 +212,35 @@ dt_page <- function (
   # Filter by global search term
   if (!identical(search[['value']], "")) {
     pattern <- tolower(head(as.character(search[['value']]), 1))
-    df      <- df[apply(tolower(as.matrix(df)), 1L, function (row) {
-      any(grepl(pattern, row, fixed = TRUE)) }),,drop=FALSE]
+    rows    <- rows[apply(tolower(text), 1L, function (row) {
+      any(grepl(pattern, row, fixed = TRUE)) })]
   }
-  recordsFiltered <- nrow(df)
+  recordsFiltered <- length(rows)
 
-  # Sort by the `order` arguments: one row per sort column.
+  # Sort by the `order` arguments: one row per sort column. Applied last
+  # to first, each keeping ties as they were, so the first decides.
   order <- as.data.frame(order, stringsAsFactors = FALSE)
-  for (i in seq_len(nrow(order))) {
+  for (i in rev(seq_len(nrow(order)))) {
     column     <- head(as.integer(order[i,'column']), 1) + 1
     decreasing <- identical(order[i,'dir'], "desc")
-    if (is.na(column) || column < 1 || column > ncol(df))
+    if (is.na(column) || column < 1 || column > ncol(text))
       stop_user("There is no column ", column, " to sort by.")
-    df <- df[base::order(df[,column], decreasing = decreasing),,drop=FALSE]
+    values <- if (is.matrix(df)) df[rows, column] else df[[column]][rows]
+    if (is.factor(values)) values <- as.character(values)
+    rows   <- rows[base::order(values, decreasing = decreasing, method = "radix")]
   }
 
   # Hand back just a page's worth of rows.
-  rows <- seq_len(nrow(df))
-  df   <- df[rows >= start & rows < start + length,,drop=FALSE]
-  df[] <- html_escape(df)
+  at   <- seq_along(rows)
+  rows <- rows[at >= start & at < start + length]
+  page <- text[rows,,drop=FALSE]
+  page[] <- html_escape(page)
+  rownames(page) <- NULL
 
   return (list(
     draw            = unbox(as.integer(draw)),
     recordsTotal    = unbox(recordsTotal),
     recordsFiltered = unbox(recordsFiltered),
-    data            = df ))
+    data            = page ))
 }
+
