@@ -32,7 +32,7 @@ it to that step's list instead of fixing it now.
 | 4 | Worker pool, jobs, storage, cleanup | done (2026-11-10) |
 | 5 | Auth modes, sessions, permissions | done (2026-11-11) |
 | 6 | rbiom 4 schema (R side) | done (2026-11-12) |
-| 7 | Front end: schema-driven controls | not started |
+| 7 | Front end: schema-driven controls | done (2026-11-12) |
 | 8 | Legacy data import | not started |
 | 9 | MCP server, local | not started |
 | 10 | Deployment, docs, load testing | not started |
@@ -325,6 +325,51 @@ it to that step's list instead of fixing it now.
   `shapes` or `patterns` mapping, color and palette names inside a
   vector, the inside of a `tracks` or `grid` list. Those get a shape and
   size check, and rbiom's message if they are wrong.
+
+- **Front-end stack (step 7).** Daniel chose no framework: plain ES
+  modules, a small helper for building elements, and one hand-written
+  style sheet that keeps the mock-up's look. Alpine and Tailwind (which
+  would need a compiler run for every class change) and the old jQuery
+  widgets (selectize, jsTree, DataTables, ion-rangeSlider, sweetalert,
+  simditor, lodash) are gone. Only highlight.js, DOMPurify and Font
+  Awesome remain, all of which were already in the repository. The cost,
+  accepted: the picker, tables, tree and dialogs are atima's own code.
+- **Plot page layout (step 7).** Daniel chose: navigation on the left, the
+  figure with Statistics and R code as tabs in the middle, and the
+  controls on the right, with Basic open and Advanced, Samples (the
+  sample filter, shared by all plots) and Image as sections that open.
+  He reviewed the first running version and found the layout fine.
+- **ORCID iD in the sharing search (step 7).** Daniel chose to show it for
+  people who signed in with ORCID. It is public by design and, since ORCID
+  sends no email, the only thing that tells two people of one name apart.
+  What any other provider calls a person still never leaves the server.
+- **Who picks the public collection (step 7).** Daniel chose: anyone who
+  may publish, as the server already allowed. Public collections can
+  still only be made in the database.
+- **The old public site (step 7).** Daniel said the site at
+  atima.research.bcm.edu is a very old version and the new interface need
+  not match it.
+- **Step 7 choices not put to Daniel.** (a) The address is
+  `/<project key>#/<page>/<argument>`, e.g. `/hmp50#/plot/adiv_boxplot`:
+  the path names the open project (by the key that is safe to show) and
+  the part after `#` the page. (b) A figure is drawn 0.4 s after the last
+  change, fitted to the window at the screen's pixel ratio unless "Fit the
+  figure to the window" is switched off, and always comes with its
+  statistics and code (`attrs = true`). (c) A file dropped anywhere on the
+  page is uploaded. (d) The page is sent with a Content-Security-Policy
+  that allows this server only, with no inline script or style, and
+  static files with `Cache-Control: no-cache`. (e) Responses say `tree`
+  and `tree_node` (were `jstree_data`, `jstree_node`), the handlers are
+  `api_tree_*()`, and `/api/sharing/list` answers `users` (objects), not
+  `dt_data`. (f) `/api/metadata/fields`, `levels` and `minmax` were
+  removed. (g) The two page routes ignore query parameters they do not
+  know. (h) Publishing is offered to the local owner too (`auth =
+  "none"`), since the server allows it. (i) First-version limits of the
+  controls: a `rank` parameter takes one rank, and heat-map parameters
+  that accept separate values for rows and columns (`per_side`) take one
+  value; palettes for heat maps can be chosen and reversed but not
+  entered by hand. (j) Schema version 5 repairs creation dates (see the
+  step 7 notes).
 
 ## Conventions (apply from step 2 onward)
 
@@ -1245,6 +1290,119 @@ release; "basic" vs. "advanced" grouping of controls.
 
 Decisions for Daniel: review of the control layout once a first version runs.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- Where things are, under `inst/www`. `index.html`: the shell (navigation,
+  top bar, main area); `{{atima_version}}` and `{{rbiom_version}}` are
+  filled in by `index_html()` in `R/run.r`. `css/app.css`: every style.
+  `js/main.js`: starts the session, builds the navigation from the
+  schema, shows the page the address names. `js/store.js`: the state
+  (`conf`, `biom`, `tree`, `schema`, `sessionKey`, `args`, `subset`,
+  `save`, `fit`, `route`) with `get`, `set` and `on`. `js/api.js`:
+  `call()` for every request (session key, a new session on 401, what
+  responses say about the session goes into the store), the heartbeat,
+  and cancelling jobs when the page closes. `js/schema.js`: what the
+  schema means, as pure functions (`effective`, `active` for `when`,
+  `payload`, `problems` for `rules` and required parameters, `prune`).
+  `js/controls.js`: the one renderer, an editor per parameter `type`.
+  `js/widgets.js`: dialogs, notices, the searchable picker, tabs.
+  `js/tables.js`: the server-paged table and the in-page statistics
+  table. `js/actions.js`: upload, save, publish, new link, sign in and
+  out. `js/pages/*.js`: one module per page, each exporting
+  `show(container, argument)` and returning `{onBiom, destroy}`.
+- To add a page: a module in `js/pages/`, an entry in `pages` in
+  `js/main.js`, a link in `buildNav()`. A page that returns no `onBiom`
+  is drawn again whenever the open project changes.
+- To support a new parameter type from rbiom: add an entry to `editors`
+  in `js/controls.js`. An unknown type falls back to a text box. A new
+  function or parameter of a known type needs no front-end change.
+- Inserting text. `h()` in `js/dom.js` makes elements and inserts strings
+  as text nodes. HTML is inserted in exactly two places, which
+  `tests/testthat/test-frontend.R` counts: `serverHtml()` (descriptions,
+  table header rows, highlighted code; through DOMPurify) and the cells
+  of the server-paged table (escaped by the server, DOMPurify with no
+  tags allowed).
+- The page's Content-Security-Policy is `default-src 'self'` with no
+  inline script or style. So: no `style="..."` or `on...=` attributes in
+  HTML, no inline `<script>`; set styles from script (`element.style`),
+  which the policy does not restrict. `tests/testthat/test-frontend.R`
+  also checks that every file `index.html` and the scripts name exists,
+  that every script is reached from `main.js`, that no file names another
+  host except as a link, and that each vendored file is in
+  `inst/www/assets/LICENSES.md`.
+- There is no JavaScript test runner (no Node toolchain, by decision).
+  The front end is checked by those R tests and by hand in a browser.
+  `js/schema.js` is pure and would be the first thing worth testing if
+  that changes.
+- Back-end bugs that using the app in a browser exposed, each fixed with
+  a test:
+  - JSON responses rounded numbers to four decimal places, so p-values in
+    statistics tables arrived as 0 (`response()`, `digits = NA`).
+  - `/hmp50?utm_source=x` answered 400 with a JSON body: the page routes
+    were strict about arguments. They are `strict = FALSE, html = TRUE`.
+  - Static files had no `Cache-Control`, so browsers ran old scripts
+    after the files changed (`static_paths()` in `R/run.r`).
+  - "Save a copy" stored the copy's `created_utc` as a number of seconds
+    (a time read by `db_query()` was bound back as a number). From then
+    on that user's project tree, and so every page load, failed with a
+    500. Fixed three ways: the copy gets its own creation time,
+    `db_query()` binds times as text, and migration
+    `inst/sql/005_dates.sql` (schema version 5) rewrites such dates. The
+    same code was in 5.0.x, so production databases may hold such rows.
+  - The metadata and taxonomy tables sorted every column as text, so 100
+    came before 9 (`dt_page()` in `R/tables.r`).
+  - An upload's title kept endings such as `.tsv` (`upload_title()`).
+  - `index.html` was read while the package was being built
+    (`static_index_html` was a value, not a function); it is read when
+    first asked for.
+- For rbiom (not worked around): the ggplot2 code of a box plot with
+  p-value brackets writes the label positions as hexadecimal
+  floating-point numbers (`.y = c(0x1.0237fa89e60fp+2, ...)`), which runs
+  but is unreadable. Also seen, not a bug: a file whose counts were
+  divided by four imported, after the inflate confirmation, with 35 taxa
+  and a depth of 1; the warning's wording is still mine and unread.
+- Verified in a browser (the app's built-in browser pane, Chromium;
+  Windows; hmp50 and gems), `auth = "none"`: page load and navigation;
+  every one of the 14 plot functions drawn at least once; a `when` rule
+  (shapes appears with the dot layer); the `one_of` rule of
+  `taxa_forest`; a required field chosen automatically; statistics and R
+  code tabs; palettes with swatches, and a color per group; a numeric
+  sample filter; depth change; `bdiv_clusters` adding a field; metadata
+  and taxonomy tables, sorting header, numeric/categorical switch;
+  upload, including the `confirm_inflate` exchange; replacing the
+  metadata; save, save a copy; the project tree (new collection, drag
+  and drop, delete the open project); stop (the server logged the job
+  cancelled); a 504 with a 3 second limit; the start-up failure page.
+  `auth = "oidc"` with a mock issuer over HTTP: sign-in, sign-out, a
+  refused sign-in (styled page), sharing search and grant, the ORCID iD
+  (a test user's issuer was set to `https://orcid.org` in the database),
+  publish, unpublish, new link, a viewer's and an administrator's view.
+- **Not verified in a browser**, or only in part: the file chooser (files
+  were handed to the page as a synthetic drop event, and the metadata
+  file through the app's own `call()`); whether the browser saves a
+  downloaded figure or export (the requests succeeded and the export's
+  contents were read back, but the save itself was not observed); a 503
+  (queue full); the heartbeat and a session expiring after 24 hours;
+  `navigator`-level abort on closing the tab; shapes and patterns chosen
+  by hand; `taxa_clusters`; Excel and BIOM exports; tree upload; the
+  description editor's buttons; sharing as a viewer of a private
+  project; any browser other than Chromium, and narrow windows; sign-in
+  against Globus Auth or ORCID themselves.
+- Left as it is, and worth knowing: `/api/sharing/editors` is not called
+  by the front end (the list route covers it). The database columns
+  `collections.jstree_text` and `jstree_icon`, and `projects.jstree_icon`
+  and `projects.editors`, keep their names; the tree's node `icon` field
+  is sent and ignored. `inst/www/js/migration.js` is still the untouched
+  step 8 reference and is the one script not reached from `main.js`.
+  Downloads on the summary page are made from the saved project, not the
+  working copy, and the page says so.
+- To run the app from source while editing it, start `atima::run()` after
+  `pkgload::load_all()` with the pool given an `init` that loads the
+  package from source in each worker (as `local_test_pool()` does in
+  `tests/testthat/helper-db.R`); `run()` itself has no such option.
+  Edits under `inst/www` then show on reload; `index.html` is cached
+  until the server restarts.
+
 ## Step 8: Legacy data import
 
 - A `legacy/` adapter per source: atima 2 (MariaDB, RSA/AES-encrypted objects
@@ -1315,6 +1473,19 @@ Decisions for Daniel: review of the control layout once a first version runs.
     the shared server.
   - Importing shared-project permissions needs users to exist; with OIDC
     a user only exists once they have signed in.
+
+- From step 7: where the import goes in the front end. Add a page module
+  under `inst/www/js/pages/` and a link in `buildNav()` (`js/main.js`),
+  shown only when `store.hasAccount()`; use `call()` from `js/api.js` and
+  the dialogs in `js/widgets.js`. A password field is safe to add: the
+  page's Content-Security-Policy allows requests to this server only. A
+  response that carries `tree` or `tree_node` updates the project tree
+  without more code. `inst/www/js/migration.js` is the only old script
+  left; it uses jQuery and globals that no longer exist, so read it for
+  what it did and delete it when this step is done (a test in
+  `tests/testthat/test-frontend.R` names it as the one exception to
+  "every script is reached from main.js"). The schema is at version 5;
+  the next migration is `inst/sql/006_<name>.sql`.
 
 Decisions for Daniel: how old MariaDB data is supplied (offline conversion to
 SQLite vs. live connection); whether shared-project permissions are imported
@@ -1575,6 +1746,32 @@ tables; whether a later version may change data (upload, save).
   while jobs run and while jobs are queued, many times), and give the CI
   job a `timeout-minutes`.
 
+- From step 7: for the reverse proxy and the server image.
+  - The app's page sets its own Content-Security-Policy (this server
+    only, nothing inline) and `X-Frame-Options: DENY`. If the proxy adds
+    a policy of its own, both apply, so it can only make things
+    stricter: check figures (`/tmp/...`), fonts and the CSV download of
+    a statistics table (a `blob:` address) still work if it does.
+  - `/www` is sent with `Cache-Control: no-cache`: browsers ask each time
+    and get a 304. The proxy may answer those itself but must not cache
+    `/www` for longer, or an upgrade leaves old scripts running against
+    the new server. `/tmp/<session key>/` file names never repeat.
+  - The front end needs nothing from another host: no CDN, no fonts.
+  - Public collections still cannot be made, renamed or deleted through
+    the app; a publisher can only pick an existing one. The public
+    server needs either routes for administrators or a documented SQL
+    recipe (`INSERT INTO collections (user_id, jstree_text) VALUES
+    (NULL, '<name>')`).
+  - The load test should include the page itself: one page load is
+    `index.html`, about 20 small static files, `/api/session/init` and
+    `/api/schema` (about 60 kB; the same for everyone, so the proxy may
+    cache it per atima version).
+  - Not done: a "Support" or documentation page (the mock-up had a link),
+    and the privacy and terms text, which needs a place in the app.
+  - A local install upgraded from 5.0.x gets migration 005, which repairs
+    creation dates that "save a copy" stored as numbers; with such a row
+    the old server answered 500 to that user's every page load.
+
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
 
@@ -1636,4 +1833,11 @@ browser also disconnects apps.
   `DESCRIPTION` once rbiom 4 is on CRAN (it was 3.1.0 on 2026-11-10), and
   update the install instructions in `README.md` and the comment in the CI
   workflow.
+- From step 7: the package ships three third-party libraries under
+  `inst/www/assets` (Font Awesome Free, highlight.js, DOMPurify), listed
+  with their licences in `inst/www/assets/LICENSES.md`. CRAN expects
+  their authors in `Authors@R` (role `ctb` or `cph`) and usually an
+  `inst/COPYRIGHTS` file; `DESCRIPTION` names neither yet. The pictures
+  under `inst/www/img` (`gallery/`, `AdrienSaraLogo.png`) include files
+  the app does not use; decide which to ship.
 - Delete this file.
