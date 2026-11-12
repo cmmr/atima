@@ -1,187 +1,146 @@
+// Talking to the server. Every request goes through call(), which adds the
+// session key, starts a new session when the old one has expired (401), and
+// puts what the server says about the session into the store.
 
+import * as store from './store.js';
 
-
-//___________________________________________________________________
-// Abort user's server-side jobs when the page is closed.
-//___________________________________________________________________
-$( window ).on('beforeunload', function() {
-  api({ method: "abort" });
-});
-
-
-//___________________________________________________________________
-// Show a spinner while AJAX request is pending.
-//___________________________________________________________________
-$( document ).ajaxStart(function() {
-  const $spinner = $('#spinner');
-  const page_id  = $('main>article.active').attr('id');
-  if (page_id == 'page_plot') { $spinner.css('right', '230px'); }
-  else                        { $spinner.css('right', '0');     }
-  $spinner.show();
-});
-
-$( document ).ajaxStop(function() {
-  $('#spinner').hide();
-});
-
-
-
-//___________________________________________________________________
-// Automatically handle common responses.
-//___________________________________________________________________
-$( document ).ajaxSuccess(function(event, jqXHR, params, resp) {
-  const new_session_key = jqXHR.getResponseHeader('x-session-key');
-  if (new_session_key)     set_value(['CONF', 'headers', 'x-session-key'], new_session_key);
-  if (resp['swal'])        swal(resp['swal']);
-  if (resp['jstree_node']) jsTree_insert(resp['jstree_node']);
-  if (resp['jstree_data']) jsTree_rebuild(resp['jstree_data']);
-  if (resp['CONF'])        _.merge(get_value(['CONF']), resp['CONF']);
-  if (resp['BIOM'])        load_biom(resp['BIOM']);
-});
-
-$( document ).ajaxError(function(event, jqXHR, params, thrownError) {
-  if (params.url != '/api/heartbeat') // Ignore unsuccessful heartbeat pings
-    if (jqXHR.status != 409 && jqXHR.status != 499) // Ignore non-timeout interrupts
-      raise_error(params.url, jqXHR.responseText);
-});
-
-
-
-
-//___________________________________________________________________
-// AJAX wrapper for communicating with backend
-//___________________________________________________________________
-function api (args) {
-  
-  //-------------------------------------------------------
-  // Present a confirmation message before proceeding.
-  //-------------------------------------------------------
-  if (args['confirm'] && args['confirmed'] !== true) {
-
-    $('.swal-overlay').data('api_nonce', 0);
-    
-    swal({
-      title      : "Are you sure?",
-      text       : args['confirm'],
-      icon       : "warning",
-      buttons    : true,
-      dangerMode : true,
-    })
-    .then((confirmed) => {
-      if (confirmed) {
-        args['confirmed'] = true;
-        xhr = api(args);
-      } else {
-        xhr = undefined;
-      }
-    });
-
-    return xhr;
+/** A failed request: `status`, the server's `message`, error `id` and `code`. */
+export class ApiError extends Error {
+  constructor(status, message, { id = null, code = null } = {}) {
+    super(message);
+    this.status = status;
+    this.id     = id;
+    this.code   = code;
   }
-  
-
-  //-------------------------------------------------------
-  // A message to display beneath the loading spinner.
-  //-------------------------------------------------------
-  $('#spinner_msg').text(args['spinner_msg'] || 'Calculating...');
-  
-  
-  //-------------------------------------------------------
-  // General/default xhr request parameters.
-  //-------------------------------------------------------
-  const params = {
-    url     : "/api/" + args['method'],
-    type    : "POST",
-    headers : get_value(['CONF', 'headers'])
-  };
-  
-  
-  //-------------------------------------------------------
-  // Configure the payload.
-  // When uploading a file, use multipart/form-data.
-  //-------------------------------------------------------
-  const payload = args['payload'] || {};
-  if (payload.constructor === FormData) {
-    
-    params['data']        = payload;
-    params['contentType'] = false;
-    params['processData'] = false;
-    
-  } else {
-    
-    params['data']        = JSON.stringify(payload);
-    params['contentType'] = "application/json";
-    params['dataType']    = "json";
-  }
-  
-  
-  //-------------------------------------------------------
-  // Begin async processing with custom callbacks.
-  //-------------------------------------------------------
-  xhr = $.ajax(params);
-  
-  if (args['onSuccess']) { xhr.done(args['onSuccess']);   }
-  if (args['onFinally']) { xhr.always(args['onFinally']); }
-  if (args['onError'])   { xhr.fail(args['onError']);     }
-  
-  return xhr;
+  /** Replaced by a newer request, cancelled, or stopped by the user: nothing to show. */
+  get superseded() { return this.status === 409 || this.status === 0; }
 }
 
+let lastRequest = Date.now();
+let starting    = null;    // the session start in progress, if any
 
+/** The project key in the page's address: "/hmp50" -> "hmp50". */
+export function urlKey() {
+  const key = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  return /^[A-Za-z0-9-]{1,40}$/.test(key) ? key : '';
+}
 
-
-function raise_error (data_api, details) {
-  
-  let title    = null;
-  let subtitle = null;
-  let html     = null;
-  
-    try {
-      
-      details = jQuery.parseJSON( details );
-      console.log("Parsed error details = " + JSON.stringify(details));
-    
-      title    = details['message'];
-      subtitle = [data_api, details['errcode']].filter(n => n).join(" - ");
-      
-      html = '<div class="subtitle">in ' + subtitle + '</div>\n';
-      for (let i = 0; i < details['dumps'].length; i++) {
-        let dump   = details['dumps'][i]
-        let legend = '<legend>' + dump['title'] + '</legend>';
-        let code   = dump['code'];
-         if (dump['lang'] != null) {
-          code = hljs.highlight(code, {language: dump['lang']}).value;
-        }
-        let res = '<fieldset>' + legend + '<pre><code>' + code + '</code></pre></fieldset>\n'
-        
-        html = html + res;
-      }
-      
-    } catch (error) {
-      console.log("Raising error with details = " + details);
-      title = "In " + data_api + ":";
-      html  = "<code><pre style='text-align:left'>" + details + "</pre></code>";
-    }
-    
-    let el = document.createElement("div");
-        el.innerHTML = html;
-      
-    swal({
-      title: title,
-      icon: 'error',
-      content: el,
-      button: 'Dismiss'
-    })
-    
+/** Put what a response says about the session into the store. */
+function absorb(data) {
+  if (!data || typeof data !== 'object') return;
+  if (data.CONF) store.set('conf', data.CONF);
+  if (data.tree) store.set('tree', data.tree);
+  if (data.tree_node) {
+    const tree = store.get('tree');
+    const rest = tree.private.filter(node => node.id !== data.tree_node.id);
+    store.set('tree', { public: tree.public, private: [...rest, data.tree_node] });
   }
-  
-  
-  function simple_error (title) {
-    swal({
-      title: title,
-      icon: 'error',
-      button: 'Dismiss'
-    })
+  if (data.BIOM) store.set('biom', data.BIOM);
+}
+
+async function send(path, { body = {}, form = null, signal = null, keepalive = false } = {}) {
+
+  const headers = {};
+  const key = store.get('sessionKey');
+  if (key)   headers['x-session-key'] = key;
+  if (!form) headers['Content-Type']  = 'application/json';
+
+  lastRequest = Date.now();
+
+  let resp;
+  try {
+    resp = await fetch(path, {
+      method: 'POST', headers, signal, keepalive, credentials: 'same-origin',
+      body: form || JSON.stringify(body) });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new ApiError(0, 'Stopped.');
+    throw new ApiError(-1, 'The server could not be reached. Is it still running?');
   }
-  
-  
+
+  let data = null;
+  try { data = await resp.json(); } catch (err) { /* not JSON: handled below */ }
+
+  if (!resp.ok) {
+    const e = (data && data.error) || {};
+    throw new ApiError(resp.status, e.message || `The server answered ${resp.status}.`, e);
+  }
+
+  const newKey = resp.headers.get('x-session-key');
+  if (newKey) store.set('sessionKey', newKey);
+
+  return data;
+}
+
+/**
+ * Start this tab's session. The server decides who the browser is (by its
+ * cookie) and which project to open (the key in the address, else the last
+ * one viewed, else the first public one).
+ */
+export function startSession() {
+  if (!starting) {
+    store.set('sessionKey', null);
+    const key = urlKey();
+    starting = send('/api/session/init', { body: key ? { access_key: key } : {} })
+      .then(data => { absorb(data); return data; })
+      .finally(() => { starting = null; });
+  }
+  return starting;
+}
+
+/**
+ * Call an API route.
+ * @param {string} path     e.g. "/api/plot"
+ * @param {object} [body]   The arguments, sent as JSON.
+ * @param {object} [opts]   `form`: a FormData to send instead (uploads);
+ *                          `signal`: an AbortSignal.
+ * @return {Promise<object>} The response. Throws an ApiError otherwise.
+ */
+export async function call(path, body = {}, opts = {}) {
+  if (starting) await starting.catch(() => {});
+  try {
+    const data = await send(path, { body, ...opts });
+    absorb(data);
+    return data;
+  } catch (err) {
+    // The session is gone (24 idle hours, or a sign-in or sign-out in
+    // another tab). Start a new one and try once more.
+    if (err.status !== 401 || opts.retried) throw err;
+    await startSession();
+    return call(path, body, { ...opts, retried: true });
+  }
+}
+
+/** The schema of rbiom's functions; the same for every project. */
+export async function loadSchema() {
+  const schema = await send('/api/schema');
+  store.set('schema', schema);
+  return schema;
+}
+
+/** Cancel this tab's jobs on the server (the stop button). */
+export function abortJobs() {
+  return call('/api/session/abort').catch(() => {});
+}
+
+/** Tell the server the page is going away, so its jobs do not run on. */
+function abortOnUnload() {
+  const key = store.get('sessionKey');
+  if (!key) return;
+  fetch('/api/session/abort', {
+    method: 'POST', keepalive: true, credentials: 'same-origin', body: '{}',
+    headers: { 'Content-Type': 'application/json', 'x-session-key': key } }).catch(() => {});
+}
+
+/**
+ * Keep the session alive while the tab is open but idle: the server forgets
+ * a session it has not heard from for a day. Any request counts, so a
+ * heartbeat is only sent after a quiet spell.
+ */
+export function startHeartbeat(minutes = 10) {
+  const ms = minutes * 60 * 1000;
+  setInterval(() => {
+    if (Date.now() - lastRequest >= ms && store.get('sessionKey'))
+      call('/api/session/heartbeat').catch(() => {});
+  }, 60 * 1000);
+  window.addEventListener('pagehide', abortOnUnload);
+}
