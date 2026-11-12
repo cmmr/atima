@@ -341,3 +341,15 @@ test_that("a download is written by a worker and its temporary file removed", {
 
   expect_length(list.files(file.path(s$REQ$CONFIG$temp_dir, "downloads")), 0)
 })
+
+
+test_that("a project's title comes from the uploaded file's name", {
+
+  # Found in the browser (step 7): "fractions.tsv" kept its ".tsv".
+  expect_identical(upload_title("gut study.biom"), "gut study")
+  expect_identical(upload_title("data/gut study.biom.gz"), "gut study")
+  expect_identical(upload_title("/home/me/counts.TSV"), "counts")
+  expect_identical(upload_title("table.json.bz2"), "table")
+  expect_identical(upload_title("v1.2 final"), "v1.2 final")
+  expect_identical(nchar(upload_title(paste0(strrep("a", 150), ".biom"))), 100L)
+})

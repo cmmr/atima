@@ -17,6 +17,19 @@ save_upload <- function (REQ, upload) {
 
 
 #______________________________________________________________________________
+#' A project title from an uploaded file's name: the name without its
+#' directory, its file type and its compression ("gut study.biom.gz" gives
+#' "gut study").
+#' @noRd
+upload_title <- function (filename) {
+  title <- basename(filename)
+  title <- sub("\\.(gz|bz2)$", "", title, ignore.case = TRUE)
+  title <- sub("\\.(biom|txt|tab|tsv|csv|json|hdf5|h5)$", "", title, ignore.case = TRUE)
+  substr(title, 1, 100)
+}
+
+
+#______________________________________________________________________________
 #' Accept a new biom file from the user; switch to that project.
 #'
 #' @param inflate  Scale counts that are not whole numbers up to whole
@@ -30,9 +43,7 @@ api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
   infile <- save_upload(REQ, biom_file)
 
   # Use the file's name as the project's title.
-  title <- basename(biom_file[['filename']])
-  title <- sub("\\.(biom|txt|tab)\\.*(gz|bz2|)$", "", title)
-  title <- substr(title, 0, 100)
+  title <- upload_title(biom_file[['filename']])
 
   job(
     fn     = "work_import",

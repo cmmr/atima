@@ -40,6 +40,7 @@ export function show(container) {
     return {};
   }
 
+  let   members = new Set();     // user ids that already have the project
   const people  = h('div');
   const results = h('div.search-results');
   const search  = h('input', { type: 'search', placeholder: 'Name, affiliation or email', 'aria-label': 'Find a person',
@@ -57,6 +58,7 @@ export function show(container) {
     try {
       const data = await call('/api/sharing/list');
       const me   = store.get('conf').user_id;
+      members = new Set([me, ...data.users.map(user => user.user_id)]);
       fill(people, data.users.length === 0 ? h('p.empty', 'Nobody has been given this project by name.') :
         h('table.data.people', h('tbody', data.users.map(user => h('tr',
           h('td', person(user), user.user_id === me ? h('span.tag', 'you') : null),
@@ -82,7 +84,10 @@ export function show(container) {
       const biom = store.get('biom');
       const data = await call('/api/sharing/user_search', { query });
       if (search.value.trim() !== query) return;
-      fill(results, data.users.length === 0 ? h('p.empty', 'Nobody found.') : data.users.map(user => h('div.search-result',
+      // The search always offers its closest matches; leave out the people
+      // who already have the project.
+      const found = data.users.filter(user => !members.has(user.user_id));
+      fill(results, found.length === 0 ? h('p.empty', 'Nobody else found.') : found.map(user => h('div.search-result',
         person(user),
         h('div.card-actions',
           biom.is_public ? null : button('Can view', () => update(user, 'view'), { icon: 'eye' }),
