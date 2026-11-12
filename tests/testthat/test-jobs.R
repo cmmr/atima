@@ -274,6 +274,9 @@ test_that("a job that ignores the interrupt has its worker ended and replaced", 
   expect_true(pool_idle())
   expect_true(wait_until(function () connections() == 2L))
 
+  # (A worker that has only just connected may not answer the first roll
+  # call, so ask until both do.)
+  expect_true(wait_until(function () length(worker_pids()) == 2L))
   after <- worker_pids()
   expect_length(after, 2L)
   expect_false(stuck_pid %in% after)
@@ -311,6 +314,9 @@ test_that("a worker that crashes is replaced, and its job fails cleanly", {
   expect_true(pool_idle())
   expect_true(wait_until(function () connections() == 2L))
 
+  # (A worker that has only just connected may not answer the first roll
+  # call, so ask until both do.)
+  expect_true(wait_until(function () length(worker_pids()) == 2L))
   after <- worker_pids()
   expect_length(after, 2L)
   expect_identical(length(setdiff(after, before)), 1L)
