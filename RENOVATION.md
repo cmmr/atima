@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 10).
+at release (step 12).
 
 ## How each step runs
 
@@ -34,8 +34,10 @@ it to that step's list instead of fixing it now.
 | 6 | rbiom 4 schema (R side) | not started |
 | 7 | Front end: schema-driven controls | not started |
 | 8 | Legacy data import | not started |
-| 9 | Deployment, docs, load testing | not started |
-| 10 | Release | not started |
+| 9 | MCP server, local | not started |
+| 10 | Deployment, docs, load testing | not started |
+| 11 | MCP server, shared (sign-in) | not started |
+| 12 | Release | not started |
 
 ## Decision log
 
@@ -66,7 +68,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 10 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 12 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -233,6 +235,19 @@ it to that step's list instead of fixing it now.
   Left as decided, and worth knowing: private keys of 12 or more
   characters that a user chose under 5.0.x survive the upgrade and now
   work as share links (as they already did).
+- **MCP server (2026-11-11, after step 5).** Daniel chose to add an MCP
+  (Model Context Protocol) server, so that AI apps can explore projects
+  and make figures for a user. Published API documentation alone was
+  considered and is not enough: chat apps can only call tools they are
+  given, and the browser API needs a tab session, a cookie and a sign-in
+  by page redirect. The agent path is added beside the browser path,
+  without reworking steps 4 and 5 first: an agent is the local owner or
+  the user of a bearer token, names the project in each call, and runs
+  jobs with no tab session and no supersede. Steps were added and
+  renumbered: 9 is the MCP server for `auth = "none"`, 10 deployment (was
+  9), 11 MCP sign-in for shared servers, 12 release (was 10). Step 6
+  builds its schema so it can also serve as tool definitions, and step 10
+  adds per-account job limits.
 
 ## Conventions (apply from step 2 onward)
 
@@ -599,13 +614,13 @@ drafts); default worker count and per-job CPU and time limits.
   the time-limit test in `test-jobs.R`. It never happened when that file
   ran alone, under `R CMD check`, or in CI, and a traced whole-suite run
   showed correct dispatch. The test now avoids the tight margin. If
-  step 9's load test shows jobs timing out early after another job was
+  step 10's load test shows jobs timing out early after another job was
   interrupted, look at whether a worker is handed a job before it has
   finished unwinding the interrupted one (`worker_await()` in
   `R/jobs.R`).
 - Not done here, on purpose: the upgrade backups `sqlite.db.v*.bak` are
-  still never deleted (step 9, backup policy); there is no per-user limit
-  on queued jobs or on stored data (step 9); nothing limits how much
+  still never deleted (step 10, backup policy); there is no per-user limit
+  on queued jobs or on stored data (step 10); nothing limits how much
   memory a worker may use.
 
 ## Step 5: Auth modes, sessions, permissions
@@ -671,7 +686,7 @@ drafts); default worker count and per-job CPU and time limits.
 - From step 4: the download routes have no session, so their jobs cannot
   be superseded or cancelled per session, and anyone who knows a key can
   queue jobs. They share the queue limit (503 when full); a per-client
-  limit belongs to the reverse proxy (step 9).
+  limit belongs to the reverse proxy (step 10).
 
 Decisions for Daniel: can anonymous guests upload data on the public server,
 or only explore public projects; do "anyone with the link" share URLs stay,
@@ -844,6 +859,23 @@ Route declarations in `R/routes.R` carry all of this: the level, `account
   fields, taxa, ranks) are user data: the schema's labels and choices
   built from them go to the browser as JSON text, and anything the server
   turns into HTML must go through `html_escape()` (`R/html.R`).
+
+- From the MCP decision (2026-11-11, see the decision log): step 9 serves
+  this schema to AI apps as tool definitions, so build it with that in
+  mind.
+  - Write validation as a function of the rbiom function, its arguments
+    and the project's summary, not one that reads `REQ$SESSION`. Step 9's
+    `/mcp` route names the project in each call and has no tab session.
+    The same goes for choice lists built from metadata (fields, levels,
+    ranks).
+  - Make the registry able to output JSON Schema for each function:
+    types, enums, minimum and maximum, defaults, with the label and
+    tooltip as the `description`. A model reads the tooltips when it
+    chooses arguments, so they should say what a parameter does, not
+    only name the control.
+  - Cover rbiom's `adiv_stats()`, `bdiv_stats()` and `taxa_stats()` as
+    well, even if the browser does not call them: step 9's stats-only
+    tool screens many metadata fields without drawing a figure.
 
 Decisions for Daniel: which functions/parameters are in scope for the first
 release; "basic" vs. "advanced" grouping of controls.
@@ -1039,7 +1071,78 @@ or only ownership. **Needed from Daniel before this step:** a database
 snapshot (or a small synthetic one with the real schema) for each source
 version, plus a test account for each.
 
-## Step 9: Deployment, docs, load testing
+## Step 9: MCP server, local
+
+An MCP (Model Context Protocol) server lets AI apps (Claude Code, Claude
+Desktop, claude.ai connectors and others) use atima as a set of tools:
+describe a project, run statistics, draw a figure. This step adds it for
+`auth = "none"` only; step 11 adds sign-in for shared servers. The
+decision log says why it is added beside the browser API instead of
+after reworking sessions and auth.
+
+- Transport: Streamable HTTP on the existing server, one route
+  `POST /mcp` taking JSON-RPC 2.0 (`initialize`, `tools/list`,
+  `tools/call`, `ping`). Answer each request with `application/json`;
+  the tools are request and response, so no SSE stream is needed
+  (`GET /mcp` answers 405). Notifications such as
+  `notifications/initialized` get 202 and no body. Read the MCP
+  specification current at the time before starting; it changes often.
+  The route exists only in `auth = "none"` (`modes = "none"`) until
+  step 11.
+- Permissions stay in one place: the route table declares `/mcp`, and a
+  second, smaller table declares each tool (name, argument specs,
+  permission, handler) and is checked the same way, so tool handlers
+  still check nothing.
+- Caller: in `auth = "none"` the caller is the local owner
+  (`local_owner()`), with no cookie and no tab session. `check_host()` and
+  `check_origin()` already apply, which is what the MCP specification asks
+  of local servers against DNS rebinding.
+- Project per call: each tool names its project by key. Find it with
+  `key_project()` and check `project_access()` for the caller, as
+  `resume_session()` does for a tab's open project. Tools work on the
+  saved project, never on a tab's unsaved draft; `depth` is an argument,
+  and `work_plot()` already rarefies to it.
+- Jobs: reuse the worker functions (`work_plot()`, `work_summary()`,
+  `work_metadata_*()`, `work_export()`), which take file paths, not
+  sessions. The router already runs jobs without a session for the two
+  download routes. Submit with no supersede key: a model may call several
+  tools at once, and supersede would cancel all but the last with 409.
+  Figures and exports need a directory that is not a tab's
+  `server_temp` (`api_plot()` writes there now); give MCP callers their
+  own under `temp_dir`, with the same 24-hour retention.
+- Validate arguments with the step 6 schema function before submitting,
+  as the browser's plot route does.
+- First tool set, reading and computing only (no upload, save, publish,
+  share or delete):
+  - `list_projects`: projects the caller can open, with keys and titles.
+  - `describe_project`: samples, depth range, metadata fields with types
+    and levels, ranks, and whether there is a tree (UniFrac needs one).
+  - `run_stats`: one of rbiom's `*_stats` functions. Small and fast, for
+    screening many fields.
+  - `make_plot`: the figure as an image (PNG), its stats table, the R
+    code and the figure's URL.
+  - `export`: a link to an xlsx or BIOM export.
+- Results: keep them small. Cap long stats tables (taxa can run to
+  hundreds of rows) and say in the result that rows were left out and how
+  to narrow the request. Errors from the job layer (409, 503, 504, a
+  rejected argument) become tool results with `isError: true` and the
+  message a browser user would see, so the model can retry or change its
+  call; a malformed JSON-RPC request is a protocol error.
+- Prompt injection: metadata names and values, titles and descriptions
+  are user data and go into the model's context. Return them as data
+  fields in results, never inside tool names or descriptions. Keeping the
+  tools to reading and computing limits what an injected instruction can
+  do.
+- Tests: JSON-RPC round trips in testthat (initialize, list, each tool, a
+  rejected argument, a permission refusal, a notification). By hand:
+  `claude mcp add --transport http atima http://127.0.0.1:8080/mcp`, then
+  ask Claude Code to explore `hmp50`.
+- Docs: a README section on connecting an AI app.
+
+Decisions for Daniel: the first tool list and names; the row cap for stats
+tables; whether a later version may change data (upload, save).
+
+## Step 10: Deployment, docs, load testing
 
 - Docker image and a compose file with Caddy for TLS; configuration only via
   environment variables; no secrets in files.
@@ -1155,10 +1258,77 @@ version, plus a test account for each.
   app. Public content is unmoderated (any signed-in editor can publish),
   which the terms text should cover.
 
+- From the MCP decision (2026-11-11): per-account job limits. The queue
+  is one first-come list for everyone (`10 x workers`, then 503), and
+  steps 4 and 5 left per-client limits to the proxy. Limits by IP address
+  at the proxy stop being enough once step 11 lets claude.ai and similar
+  apps connect: their requests come from the app maker's servers, not the
+  user's computer, so all their users would share one limit. And one
+  agent that calls many tools at once can fill the queue for everyone.
+  Add `user_id` to jobs (they carry `session_id` now) and cap each user's
+  queued and running jobs in `pool_submit()`, answering 429 with a
+  message to wait. This also gives browser users the fairness step 4
+  noted is missing. The load test should include one user starting many
+  jobs at once beside other users.
+- From the MCP decision: the vignettes gain one on connecting an AI app
+  to a local install (step 9's README section, expanded). Step 11 adds
+  shared servers to it.
+
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
 
-## Step 10: Release
+## Step 11: MCP server, shared (sign-in)
+
+Step 9's `/mcp` route for `auth = "oidc"`, so people can connect claude.ai
+and other apps to the lab's server and work with their own projects.
+
+- What MCP asks of a server that needs sign-in: it is an OAuth 2.1
+  resource server. A request without a valid token gets 401 with a
+  `WWW-Authenticate` header pointing at the server's Protected Resource
+  Metadata (`/.well-known/oauth-protected-resource`, RFC 9728), which
+  names the authorization server. The app signs the person in with the
+  authorization code flow and PKCE, asks for a token for atima's `/mcp`
+  URL (a `resource` indicator, RFC 8707) and sends it as
+  `Authorization: Bearer`. Apps identify themselves with a Client ID
+  Metadata Document or by Dynamic Client Registration (RFC 7591), or use a
+  client id registered by hand. That was the specification in late 2025;
+  read the current one before starting.
+- Likely design: atima is its own authorization server. Its
+  `/oauth/authorize` page signs the person in through the existing OIDC
+  login (Globus or ORCID), shows which app is asking and what it will be
+  able to do, and on approval issues a code. `/oauth/token` exchanges the
+  code and PKCE verifier for an access token and a refresh token. Tokens
+  are stored hashed, as `auth_tokens` are, with the app, the user, the
+  resource and an expiry. The other way, naming Globus Auth itself as the
+  authorization server, is less code but leaves out ORCID servers and
+  depends on Globus supporting what MCP apps need.
+- Router: on `/mcp` a bearer token is the only credential. Cookies are
+  ignored there, and bearer tokens are accepted nowhere else. The caller
+  is the token's user, and step 9's tool table applies the same
+  `project_access()` rules.
+- Opening a project by its private key gives a browser a permanent view
+  grant (`open_by_key()`). Decide whether a key named in a tool call does
+  the same; an agent should not quietly add projects to someone's tree.
+- Disconnecting: a list of connected apps in the account menu, each with
+  a "disconnect" control that revokes its tokens.
+- Limits: step 10's per-user job cap applies to token callers. The proxy
+  rate-limits `/oauth/` and `/.well-known/` as it does `/auth/login`.
+- Prompt injection matters more here: any signed-in editor can publish,
+  so a public project's text can be written to steer other people's
+  agents. The tools stay reading and computing only.
+- Tests: extend the mock issuer in `tests/testthat/helper-oidc.R` to a
+  whole connect flow (metadata, authorize, token, a tool call, refresh,
+  disconnect). By hand: add the deployed server as a custom connector in
+  claude.ai (it needs the public HTTPS address) and explore a project.
+- Docs: the MCP vignette gains connecting to a shared server.
+
+Decisions for Daniel: whether this ships in the first release (if not, it
+moves after step 12 and the status table says so); atima as its own
+authorization server, or Globus; whether agents may explore public
+projects without signing in; token lifetimes; whether signing out of the
+browser also disconnects apps.
+
+## Step 12: Release
 
 - Version, NEWS, citation, DOI.
 - CRAN or r-universe submission. Remove `Remotes: cmmr/rbiom` from
