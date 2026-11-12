@@ -287,6 +287,17 @@ it to that step's list instead of fixing it now.
   again with `inflate = true` it is scaled once, at import
   (`rbiom::biom_inflate()`), and is an ordinary project from then on.
   Before this such an upload failed with an internal error.
+- **rbiom says which counts and which packages (step 6).** After the
+  step, Daniel had rbiom add to its schema which counts each function
+  wants (`counts`), which choices need a package rbiom only suggests
+  (`choices_needs`), and that the Excel export needs one (`needs`).
+  atima follows them: `taxa_forest` is now drawn from the counts before
+  rarefying, as rbiom recommends for LinDA; a choice or parameter whose
+  package the server lacks is not offered and is refused if asked for.
+  Daniel also decided in rbiom: its version stays 4.0.0 until that is on
+  CRAN, so atima tells schemas apart by a hash, not the version; and a
+  metric that gives infinite or missing distances stops with a clear
+  message instead of being removed from the choices.
 - **Step 6 choices not put to Daniel.** (a) When the main process does
   not have the project's summary in memory (only just after a restart),
   the checks that need the project are made by the worker, first thing,
@@ -982,15 +993,31 @@ release; "basic" vs. "advanced" grouping of controls.
 - `R/plot.r` no longer rewrites arguments; `plot_save_args()` is gone.
   The routes `/api/metadata/fields`, `levels` and `minmax` are untouched
   and now duplicate what the summary's `fields` carries.
-- Found in rbiom, for Daniel to fix there (none blocks atima):
-  `fn_check()` fails with "object 'weighted' not found" when given the
-  deprecated `weighted` or `normalized` (atima refuses both before rbiom
-  sees them); a metric that does not exist is reported as `metric =
-  "nosuch"`, not under the argument's name (`adiv`, `bdiv`); the
-  `*_stats` functions are not in `fn_schema()` (see step 9); choices that
-  need an optional package (`ord = "tSNE"` needs Rtsne, `"UMAP"` needs
-  uwot) are not marked, so the schema offers them on a server that lacks
-  the package and the user gets rbiom's "install it" message.
+- Found in rbiom during the step and fixed there since (rbiom 4.0.0,
+  commit 86c21b7; `rbiom-schema-result.md` in the sessions' notes folder
+  has the details): `fn_check()` now refuses deprecated arguments with a
+  proper message; a bad metric is reported under `adiv` or `bdiv`; the
+  `*_stats` and `*_table` functions are in `fn_schema()` (32 functions);
+  choices that need an optional package are marked (`choices_needs`);
+  entries say which counts they want (`counts`); `bhattacharyya` and
+  `aitchison`, which give infinite or missing distances, stop with a
+  message that says so. Left with Daniel: ecodive 2.3.1's `aitchison()`
+  returns NaN for every pair, so that metric is offered and always
+  refused until ecodive is fixed.
+- What atima does with those (after the step, same day):
+  `plot_sample_set(fn)` reads rbiom's `counts` (`"unrarefied"` means the
+  full file), so nothing in atima lists which functions get which file.
+  `schema_unavailable(fn)` is the choices whose package is missing here;
+  `schema_params()` leaves them out, and `check_fn_args()` refuses them
+  after rbiom has matched the value, so any spelling is caught, in the
+  main process. `has_package()` is the one place that asks what is
+  installed. `/api/project/export` refuses `what = "xlsx"` without
+  openxlsx. `rbiom_schema()` stops with "The installed rbiom is too old"
+  if `fn_schema()` has no `counts`, and `atima()` calls it at start-up:
+  rbiom's version cannot say this (`DESCRIPTION` still has `rbiom (>=
+  4.0.0)` and `Remotes: cmmr/rbiom`). The schema is computed once per
+  process (`schema_env`), installed packages included, so installing a
+  package needs a restart.
 - Verified by tests only, in-process and through real workers. Not
   verified: the routes over HTTP against a running server (the earlier
   steps' curl smoke test was not repeated), anything in a browser, and
@@ -1001,11 +1028,6 @@ release; "basic" vs. "advanced" grouping of controls.
   the README's `http://127.0.0.1:8080` URL, the pkgdown URL that is not
   published yet). None of it comes from this step; CI turns the incoming
   check off.
-- rbiom tells `taxa_forest` callers "`biom` is rarefied. LinDA models
-  sequencing depth itself, so unrarefied counts are better". atima gives
-  `taxa_forest` (and `taxa_da`) the rarefied sample set like every other
-  taxa plot. Whether those two should get the full counts is Daniel's
-  call; nothing was changed.
 - The worker pool tests (`test-jobs.R`, `test-async.R`) were unreliable
   on Linux, most of all with R 4.5, and CI failed there after this step
   was pushed. The cause is older than this step: the commit before it
@@ -1144,10 +1166,18 @@ release; "basic" vs. "advanced" grouping of controls.
 
 - From step 6: what the renderer works from.
   - `POST /api/schema` (no session needed, no arguments) answers
-    `{rbiom, functions, palettes, save, subset}`. It is the same for
-    every project and changes only with the rbiom version, so fetch it
-    once per page load.
-  - `functions.<fn>` is `{fn, use, area, label, returns, rules?, params}`.
+    `{rbiom, hash, functions, palettes, save, subset}`. It is the same
+    for every project, so fetch it once per page load. `hash` identifies
+    its rbiom part and is what to key a cache on: rbiom's version stays
+    4.0.0 while its schema changes, and the metric lists come from
+    ecodive. (It does not cover atima's own labels or which packages the
+    server has.)
+  - `functions.<fn>` is `{fn, use, area, label, returns, sample_set,
+    rules?, params}`. `sample_set` is `"full"` or `"rare"`: which of the
+    project's two files the function is given (`"full"` for the
+    rarefaction plots and `taxa_forest`), for telling the user what a
+    figure was made from. Choices and parameters that need a package the
+    server lacks are already left out.
     `use` is `"plot"` (send to `/api/plot` as `plot_fn`) or `"clusters"`
     (send to `/api/metadata/add_clusters` as `cluster_fn` with
     `cluster_args` and a `name` for the new field). `area` is `alpha`,
@@ -1371,14 +1401,19 @@ after reworking sessions and auth.
   - The summary a tool needs is `work_summary()`'s `data`; its
     `fields`, `ranks`, `taxa`, `tree`, `depth` and `depth_options` are
     most of `describe_project`.
-  - Not ready: `adiv_stats()`, `bdiv_stats()` and `taxa_stats()` are not
-    in `rbiom::fn_schema()`, so atima cannot check their arguments or
-    describe them. Step 6 did not work around this. Before this step,
-    have them added in the rbiom repository (an entry in `FN_SCHEMA` in
-    rbiom's `R/schema.r` and a `schema_check()` call on entry, per the
-    rbiom session's note), then add them to `schema_functions` with a
-    new `use` such as `"stats"`. `taxa_da()` is already described by
-    rbiom and only needs the `schema_functions` line.
+  - Statistics and tables: rbiom's schema now covers `adiv_stats`,
+    `bdiv_stats`, `taxa_stats`, `taxa_da`, and the long-form tables
+    behind the plots (`adiv_table`, `bdiv_table`, `taxa_table`,
+    `bdiv_ord_table`), so `fn_check()` can check their arguments. atima
+    does not expose them yet: each needs a line in `schema_functions`
+    with a new `use` (such as `"stats"`), a route or tool, and a worker
+    function. `plot_sample_set(fn)` already answers which file to give
+    any of them. They use schema fields the plots do not, which
+    `fn_json_schema()` ignores so far: `rules` with `any_of` and
+    `when`/`requires`/`forbids`, `choices_when` (bdiv_stats `test`),
+    and `extra` (values accepted besides field names: `".taxa"`,
+    `".all"`). `distmat_stats` and `distmat_ord_table` take an R
+    distance matrix and are of no use to a remote caller.
   - `work_plot()` takes `checked`: pass `FALSE` and it checks
     `plot_args` and `subset_args` itself against the files it is given,
     which suits a caller with no summary in memory.
@@ -1522,10 +1557,12 @@ tables; whether a later version may change data (upload, save).
   only suggests them, so the image must install them itself: `openxlsx`
   (Excel export), `fillpattern` (the `patterns` parameter; atima leaves
   it out of the schema when the package is missing), `Rtsne` and `uwot`
-  (tSNE and UMAP ordinations; offered either way, and fail with rbiom's
-  "install it" message without them), `ggbeeswarm`, `ggrepel`, `ggdensity`
-  (nicer layers, with fallbacks), `h5lite` (HDF5 BIOM files), `svglite`
-  (SVG figures). The load test should include `taxa_forest` and the
+  (tSNE and UMAP ordinations), `ggdensity` (the ordination's density
+  layer), `lmerTest` (`strata` in `taxa_forest`), `ggbeeswarm` and
+  `ggrepel` (nicer layers, with fallbacks), `h5lite` (HDF5 BIOM files), `svglite`
+  (SVG figures). Without one of the first six, atima does not offer what
+  needs it and refuses a request for it; nothing warns the administrator,
+  so the image's package list is the place to get it right. The load test should include `taxa_forest` and the
   permutation tests at their default 999 permutations, which are the
   slowest requests the schema allows.
 - From step 6: on Linux, stopping a pool that has a running job hung
