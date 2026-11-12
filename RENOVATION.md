@@ -31,7 +31,7 @@ it to that step's list instead of fixing it now.
 | 3 | Request pipeline and database layer | done (2026-11-10) |
 | 4 | Worker pool, jobs, storage, cleanup | done (2026-11-10) |
 | 5 | Auth modes, sessions, permissions | done (2026-11-11) |
-| 6 | rbiom 4 schema (R side) | not started |
+| 6 | rbiom 4 schema (R side) | done (2026-11-12) |
 | 7 | Front end: schema-driven controls | not started |
 | 8 | Legacy data import | not started |
 | 9 | MCP server, local | not started |
@@ -248,6 +248,72 @@ it to that step's list instead of fixing it now.
   9), 11 MCP sign-in for shared servers, 12 release (was 10). Step 6
   builds its schema so it can also serve as tool definitions, and step 10
   adds per-account job limits.
+- **rbiom describes its own functions (step 6).** Daniel chose, when the
+  step found that rbiom's option lists and limits were only literals
+  inside its function bodies: pause the step and add the description to
+  rbiom. rbiom 4.0.0 (commit c83cf32) now exports `fn_schema()` (every
+  parameter's type, choices, limits, default, when it has any effect, a
+  one-line description), `fn_check()` (checks a list of arguments against
+  that and a small description of a dataset, without running anything),
+  `fn_check_data()` and `list_palettes()`. atima repeats none of rbiom's
+  lists. It adds which functions are exposed, labels, the basic/advanced
+  group, the image settings and sample filter, and the route.
+- **Functions in scope (step 6).** Daniel chose all 14 plot functions
+  rbiom describes: the 10 exposed before plus `bdiv_corrplot`,
+  `rare_stacked`, `rare_corrplot` and `taxa_forest`. `taxa_da()` is not a
+  figure; its table is `taxa_forest`'s statistics table.
+- **Parameters in scope (step 6).** Daniel chose: everything rbiom lets a
+  remote caller set, which is all but the ones it marks R-only (`biom`,
+  `tree`, `cpus`, `file`, `clone`, `overwrite`, `...`) or deprecated
+  (`weighted`, `normalized`). A new rbiom parameter appears without a
+  change to atima, under its own name until someone gives it a label; a
+  test reports those. `schema_hidden` in `R/schema.R` is where to hide one.
+- **Clusters (step 6).** Daniel chose: `taxa_clusters` and `bdiv_clusters`
+  add their result to the working copy's metadata as a categorical field
+  (new route `POST /api/metadata/add_clusters`), so any plot can color,
+  facet or test by it.
+- **Basic and advanced (step 6).** Daniel chose one rule by parameter
+  name, the same in every function: basic is what chooses what a figure
+  shows (`x`, the metric, `ord`, `rank`, `taxa`, `layers`, `stat.by`,
+  `facet.by`, `colors`, `shapes`, `patterns`, `test`, `tracks`, `regr`,
+  `label.by`, `order.by`, `rline`, `k`); everything else is advanced.
+- **Schema shape (step 6).** Daniel chose one static schema, the same for
+  every project, from one route. Parameters whose choices depend on the
+  data carry a type (`field`, `rank`, `taxa`, `metric`) and the browser
+  fills them in from the project summary it already has.
+- **Counts that are not whole numbers (step 6).** Daniel chose: the user
+  is asked at upload. Such a file is refused with the error code
+  `confirm_inflate` and a message that warns what scaling does; sent
+  again with `inflate = true` it is scaled once, at import
+  (`rbiom::biom_inflate()`), and is an ordinary project from then on.
+  Before this such an upload failed with an internal error.
+- **Step 6 choices not put to Daniel.** (a) When the main process does
+  not have the project's summary in memory (only just after a restart),
+  the checks that need the project are made by the worker, first thing,
+  with the same functions and the same messages; the checks that need no
+  project (unknown parameter, `cpus`, image settings) are always made in
+  the main process. (b) The main process now calls three rbiom functions,
+  `fn_schema()`, `fn_check()` and `list_palettes()`. They read a
+  description, never a BIOM file; a check takes about 2 ms. (c) The
+  project summary was reshaped (see the step 6 notes) and its lists of
+  metrics and methods were removed, since the schema has them. (d) A
+  failed check is reported as "Argument 'plot_args' is not valid."
+  followed by rbiom's own message. (e) Image settings: `tex` and `wmf`
+  are no longer offered (`wmf` only works on Windows); the default
+  resolution went from 300 to 100 dpi, because the default 400 x 300
+  pixels at 300 dpi is too small to hold an ordination; each side must be
+  50 to 12,000 pixels; an image too small for its figure is a 400 with a
+  message, not a 500. (f) Error bodies may carry `error.code`, used only
+  for `confirm_inflate`. (g) Cluster labels are "Cluster 1", "Cluster 2",
+  ..., not rbiom's "1", "2", so that the field is still categorical after
+  the project is saved and read again; samples that rarefying dropped
+  have no cluster. (h) The Excel export is `what = "xlsx"`, written by
+  `rbiom::write_xlsx()` at the depth on screen; `openxlsx` is in Suggests.
+  (i) What is not checked before a worker runs, because rbiom checks it
+  only against computed data: taxa names, the names in a `colors`,
+  `shapes` or `patterns` mapping, color and palette names inside a
+  vector, the inside of a `tracks` or `grid` list. Those get a shape and
+  size check, and rbiom's message if they are wrong.
 
 ## Conventions (apply from step 2 onward)
 
@@ -880,6 +946,57 @@ Route declarations in `R/routes.R` carry all of this: the level, `account
 Decisions for Daniel: which functions/parameters are in scope for the first
 release; "basic" vs. "advanced" grouping of controls.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- Where things are. `R/schema.R`: the exposed functions
+  (`schema_functions`), labels (`schema_labels`), the basic list
+  (`schema_basic`), `schema_params(fn)`, the checks (`check_fn_args()`,
+  `check_save_args()`, `check_subset_args()`), the browser's schema
+  (`browser_schema_json()`, `api_schema()`) and JSON Schema
+  (`fn_json_schema()`). `R/router.R`: the argument types `arg_fn_args()`,
+  `arg_save_args()`, `arg_subset_args()`, `arg_rank()`, `arg_metric()`.
+  `tests/testthat/test-schema.R`: all of it, including one real plot per
+  function.
+- To expose another rbiom function: it must be in `rbiom::fn_schema()`;
+  add a line to `schema_functions` and a route (or reuse `/api/plot` with
+  `use = "plot"`). To label a parameter: `schema_labels`. Tests fail if
+  either table names something rbiom does not have.
+- How an argument check can use the project. An argument type declared
+  with `context = TRUE` has its check called as `check(value, REQ, args)`,
+  where `args` are the arguments declared before it, already checked.
+  `known_summary(REQ)` is the open project's summary if the main process
+  has it. The `check_*()` functions themselves take a function name,
+  arguments and a summary, never `REQ`.
+- The project summary (`biom_summary()`, the BIOM-derived part of `BIOM`)
+  is now: `tree`, `depth`, `depth_options`, `fields` (a list, in column
+  order, of `{name, class: "categorical", levels}` or `{name, class:
+  "numeric", min, max}`), `ranks`, and `taxa` (for each rank, its taxa,
+  most abundant first). Gone: `cols`, `cols_cat`, `cols_num`,
+  `col_types`, `col_options`, `rank_options`, `taxa_options`,
+  `adiv_options`, `bdiv_options`, `clust_options`, `dist_options`,
+  `ord_options`. The cache key prefix is `data2_`.
+- `/api/project/upload` takes `inflate`; `/api/project/export` takes
+  `what = "xlsx"`, checks `method` against rbiom's beta metric ids (a
+  name such as "Bray-Curtis" is refused; the id is `bray`) and `rank`
+  against the project's ranks (`"otu"` still means `".otu"`).
+- `R/plot.r` no longer rewrites arguments; `plot_save_args()` is gone.
+  The routes `/api/metadata/fields`, `levels` and `minmax` are untouched
+  and now duplicate what the summary's `fields` carries.
+- Found in rbiom, for Daniel to fix there (none blocks atima):
+  `fn_check()` fails with "object 'weighted' not found" when given the
+  deprecated `weighted` or `normalized` (atima refuses both before rbiom
+  sees them); a metric that does not exist is reported as `metric =
+  "nosuch"`, not under the argument's name (`adiv`, `bdiv`); the
+  `*_stats` functions are not in `fn_schema()` (see step 9); choices that
+  need an optional package (`ord = "tSNE"` needs Rtsne, `"UMAP"` needs
+  uwot) are not marked, so the schema offers them on a server that lacks
+  the package and the user gets rbiom's "install it" message.
+- Verified by tests only, in-process and through real workers. Not
+  verified: the routes over HTTP against a running server (the earlier
+  steps' curl smoke test was not repeated), anything in a browser, and
+  the wording of the inflate warning, which is mine and should be read by
+  Daniel.
+
 ## Step 7: Front end: schema-driven controls
 
 - One renderer that builds controls from the step 6 schema, replacing the
@@ -991,6 +1108,73 @@ release; "basic" vs. "advanced" grouping of controls.
     (`/api/account/create`, `update`, `reset_password`, `sign_in`) and
     sends `access_key` to `save`/`save_as`, which now refuse it. The
     account modals under `inst/www/modals/` are dead.
+
+- From step 6: what the renderer works from.
+  - `POST /api/schema` (no session needed, no arguments) answers
+    `{rbiom, functions, palettes, save, subset}`. It is the same for
+    every project and changes only with the rbiom version, so fetch it
+    once per page load.
+  - `functions.<fn>` is `{fn, use, area, label, returns, rules?, params}`.
+    `use` is `"plot"` (send to `/api/plot` as `plot_fn`) or `"clusters"`
+    (send to `/api/metadata/add_clusters` as `cluster_fn` with
+    `cluster_args` and a `name` for the new field). `area` is `alpha`,
+    `beta`, `taxa` or `rarefaction`, for the menu. `rules` is, for
+    `taxa_forest`, `[{"one_of": ["stat.by", "regr"]}]`: exactly one of
+    the two must be set.
+  - `params` is a list in rbiom's argument order. Every entry has
+    `name`, `label`, `group` (`"basic"` or `"advanced"`), `type` and
+    `desc` (a one-line description, for the tooltip). The rest is
+    rbiom's and is present only when it applies: `default` (`null` means
+    "leave it out"), `default_note`, `null` (what leaving it empty
+    means), `choices`, `min`, `max`, `max_n` (how many values; absent
+    means any number), `per_side`, `class` and `coerce` and `ops` for
+    fields, `forms`, `by`, `palettes`, `when`, `note`. The meaning of
+    each is in rbiom's help for `fn_schema()`.
+  - `type` is one of `logical`, `integer`, `number`, `string`, `choice`,
+    `layers`, `field`, `rank`, `taxa`, `metric`, `aesthetic`, `palette`,
+    `tracks`. The data-dependent ones are filled in from `BIOM`: `field`
+    from `BIOM.fields` (offer those whose `class` matches the
+    parameter's; with `coerce`, numeric fields are accepted too but offer
+    the categorical ones), `rank` from `BIOM.ranks`, `taxa` names from
+    `BIOM.taxa[rank]`, and for `metric` hide the choices with `phylo:
+    true` when `BIOM.tree` is false.
+  - `when` is the visibility rule: a list of conditions that must all
+    hold for the parameter to have any effect, each `{param, is | is_not
+    | has_any | is_null | not_null}`, compared with the other control's
+    current value in rbiom's canonical form (layer names such as `box`,
+    not letters; metric ids). Hide or grey out the control otherwise.
+  - Send only what the user changed; anything left out takes rbiom's
+    default. Sending a parameter the function does not have, or `cpus`,
+    is a 400.
+  - `save.params` describes `save_args` the same way (`device`, `width`,
+    `height`, `units`, `dpi`, `scale`); `save.pixels` is the allowed
+    range of each side in pixels. `subset_args` is `{cat: {<field>:
+    [values to keep, in display order]}, num: {<field>: [lowest,
+    highest]}}`, built from `BIOM.fields`.
+  - `palettes` is `[{name, kind, colors}]` with `kind` `discrete`,
+    `sequential` or `diverging`; an `aesthetic` or `palette` parameter's
+    `palettes` says which kinds suit it. A `-` before a name reverses it.
+  - A rejected request is a 400 whose message starts "Argument
+    'plot_args' ..." and usually continues with rbiom's own sentence,
+    which names the parameter and the valid choices. Show it as text.
+  - Everything in `BIOM.fields`, `BIOM.ranks` and `BIOM.taxa`, every
+    stats table cell from `/api/plot`, and any error message can contain
+    text from the user's file. It is JSON text, not HTML: insert it with
+    text nodes. (Only the two table routes and the `thead` routes send
+    HTML, as step 5 noted.)
+  - Uploading: if `/api/project/upload` answers 400 with `error.code ==
+    "confirm_inflate"`, show `error.message` (it explains what scaling
+    does and warns about it), and if the user agrees send the same file
+    again with the form field `inflate=true`.
+  - The old `BIOM` keys the dead `js/` and `modules/` code reads
+    (`cols`, `col_types`, `col_options`, `rank_options`, `taxa_options`,
+    `adiv_options`, ...) no longer exist. The routes
+    `/api/metadata/fields`, `levels` and `minmax` still work but the
+    summary now carries the same information; drop them if the new
+    front end does not call them.
+  - The default image is 400 x 300 px at 100 dpi. With `units = "px"`
+    the `dpi` only scales text and lines; a figure that does not fit
+    gets a 400 saying the image is too small.
 
 Decisions for Daniel: review of the control layout once a first version runs.
 
@@ -1139,6 +1323,33 @@ after reworking sessions and auth.
   ask Claude Code to explore `hmp50`.
 - Docs: a README section on connecting an AI app.
 
+- From step 6: what is ready and what is not.
+  - Ready: `check_fn_args(fn, args, summary)`, `check_save_args(args)` and
+    `check_subset_args(args, summary)` in `R/schema.R` take no `REQ` and
+    stop with a plain error whose message completes "Argument '<name>'
+    ..."; `worker_check()` and `stop_arg()` turn that into the 400.
+    `fn_json_schema(fn, summary = NULL)` gives a function's parameters as
+    JSON Schema (`type`, `enum`, `minimum`, `maximum`, `default`, `anyOf`
+    for parameters with several forms, label and description as
+    `description`); with a summary, fields, ranks and tree-dependent
+    metrics are listed as the project has them. Convert it with
+    `jsonlite::toJSON(auto_unbox = TRUE, null = "null")`. It has not been
+    run through a JSON Schema validator or shown to an MCP client.
+  - The summary a tool needs is `work_summary()`'s `data`; its
+    `fields`, `ranks`, `taxa`, `tree`, `depth` and `depth_options` are
+    most of `describe_project`.
+  - Not ready: `adiv_stats()`, `bdiv_stats()` and `taxa_stats()` are not
+    in `rbiom::fn_schema()`, so atima cannot check their arguments or
+    describe them. Step 6 did not work around this. Before this step,
+    have them added in the rbiom repository (an entry in `FN_SCHEMA` in
+    rbiom's `R/schema.r` and a `schema_check()` call on entry, per the
+    rbiom session's note), then add them to `schema_functions` with a
+    new `use` such as `"stats"`. `taxa_da()` is already described by
+    rbiom and only needs the `schema_functions` line.
+  - `work_plot()` takes `checked`: pass `FALSE` and it checks
+    `plot_args` and `subset_args` itself against the files it is given,
+    which suits a caller with no summary in memory.
+
 Decisions for Daniel: the first tool list and names; the row cap for stats
 tables; whether a later version may change data (upload, save).
 
@@ -1273,6 +1484,17 @@ tables; whether a later version may change data (upload, save).
 - From the MCP decision: the vignettes gain one on connecting an AI app
   to a local install (step 9's README section, expanded). Step 11 adds
   shared servers to it.
+
+- From step 6: optional packages decide what works on a server. rbiom
+  only suggests them, so the image must install them itself: `openxlsx`
+  (Excel export), `fillpattern` (the `patterns` parameter; atima leaves
+  it out of the schema when the package is missing), `Rtsne` and `uwot`
+  (tSNE and UMAP ordinations; offered either way, and fail with rbiom's
+  "install it" message without them), `ggbeeswarm`, `ggrepel`, `ggdensity`
+  (nicer layers, with fallbacks), `h5lite` (HDF5 BIOM files), `svglite`
+  (SVG figures). The load test should include `taxa_forest` and the
+  permutation tests at their default 999 permutations, which are the
+  slowest requests the schema allows.
 
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
