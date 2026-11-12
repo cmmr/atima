@@ -224,13 +224,10 @@ test_that("the metadata and taxonomy tables come from a worker", {
   expect_match(response_json(s$post("/api/metadata/thead"))$html, "^<thead><tr><th> .sample </th>")
   expect_match(response_json(s$post("/api/taxonomy/thead"))$html, "<th> Genus </th></tr></thead>$")
 
-  fields <- response_json(s$post("/api/metadata/fields", list(mode = "numeric")))
-  expect_identical(vapply(fields$options, function (o) o$value, ""), c("Age", "BMI"))
-
-  expect_identical(unlist(response_json(s$post("/api/metadata/levels", list(field = "Sex")))$default), c("Female", "Male"))
-  expect_identical(response_json(s$post("/api/metadata/minmax", list(field = "Age"))), list(min = list(21L), max = list(40L)))
-  expect_identical(s$post("/api/metadata/minmax", list(field = "Sex"))$status, 400L)
-  expect_identical(s$post("/api/metadata/levels", list(field = "nope"))$status, 400L)
+  # The field lists the old controls asked for one at a time are part of
+  # the project summary now, and their routes are gone.
+  for (gone in c("fields", "levels", "minmax"))
+    expect_identical(s$post(paste0("/api/metadata/", gone), list(field = "Sex"))$status, 404L)
 })
 
 
@@ -289,8 +286,8 @@ test_that("an upload becomes a project, and saving copies the draft into it", {
   expect_identical(body$BIOM$title, "my study")
   expect_true(body$BIOM$is_editor)
   expect_true(body$BIOM$is_saved)
-  expect_match(body$jstree_node$id, "^P[0-9]+$")
-  expect_identical(body$BIOM$node_id, body$jstree_node$id)
+  expect_match(body$tree_node$id, "^P[0-9]+$")
+  expect_identical(body$BIOM$node_id, body$tree_node$id)
 
   # The original bytes are stored under their SHA-256.
   project <- db_query(s$DB, "SELECT * FROM projects WHERE title = 'my study'", "T1")

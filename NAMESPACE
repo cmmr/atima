@@ -11,6 +11,7 @@ importFrom(DBI,
 importFrom(RSQLite,SQLite)
 importFrom(httpuv,
   runServer,
+  staticPath,
   staticPathOptions
 )
 importFrom(jsonlite,

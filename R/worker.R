@@ -576,28 +576,3 @@ work_table_head <- function (ctx, src, what) {
 }
 
 
-#' A project's metadata fields: all, the numeric or the categorical ones.
-#' @return list(default, options)
-#' @noRd
-work_metadata_fields <- function (ctx, src, mode) {
-  worker_init(ctx)
-  metadata_fields(read_biom(ctx, src)$metadata, mode)
-}
-
-
-#' The values of a categorical metadata field.
-#' @return list(default, options)
-#' @noRd
-work_metadata_levels <- function (ctx, src, field) {
-  worker_init(ctx)
-  metadata_levels(read_biom(ctx, src)$metadata, field)
-}
-
-
-#' The range of a numeric metadata field.
-#' @return list(min, max)
-#' @noRd
-work_metadata_minmax <- function (ctx, src, field) {
-  worker_init(ctx)
-  metadata_minmax(read_biom(ctx, src)$metadata, field)
-}

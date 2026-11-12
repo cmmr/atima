@@ -101,23 +101,23 @@ route_table <- function () {
     # rule checks that each node belongs to the caller; `tree_edit` also
     # asks for editing rights on a project node.
 
-    route("POST /api/tree/select", "api_jstree_select", "session", "compute", rule = "tree", args = list(
+    route("POST /api/tree/select", "api_tree_select", "session", "compute", rule = "tree", args = list(
       node_id = arg_node("PG") )),
 
-    route("POST /api/tree/create", "api_jstree_create", "session", "fast", rule = "tree", args = list(
+    route("POST /api/tree/create", "api_tree_create", "session", "fast", rule = "tree", args = list(
       node_id = arg_node("CP", root = TRUE) )),
 
-    route("POST /api/tree/rename", "api_jstree_rename", "session", "fast", rule = "tree_edit", args = list(
+    route("POST /api/tree/rename", "api_tree_rename", "session", "fast", rule = "tree_edit", args = list(
       node_id = arg_node("CP"),
       text    = arg_string(min = 3L, max = 100L) )),
 
-    route("POST /api/tree/leave", "api_jstree_leave", "session", "fast", rule = "tree", args = list(
+    route("POST /api/tree/leave", "api_tree_leave", "session", "fast", rule = "tree", args = list(
       node_id = arg_node("P") )),
 
-    route("POST /api/tree/delete", "api_jstree_delete", "session", "fast", rule = "tree_edit", args = list(
+    route("POST /api/tree/delete", "api_tree_delete", "session", "fast", rule = "tree_edit", args = list(
       node_id = arg_node("CP") )),
 
-    route("POST /api/tree/move", "api_jstree_move", "session", "fast", rule = "tree", args = list(
+    route("POST /api/tree/move", "api_tree_move", "session", "fast", rule = "tree", args = list(
       node_id        = arg_node("CP"),
       parent_node_id = arg_node("C", root = TRUE) )),
 
@@ -148,15 +148,6 @@ route_table <- function () {
 
     route("POST /api/metadata/change_class", "api_metadata_change_class", "viewer", "compute", args = list(
       col_num = arg_int(min = 2L) )),
-
-    route("POST /api/metadata/fields", "api_metadata_fields", "viewer", "compute", args = list(
-      mode = arg_choice(c("all", "numeric", "categorical"), default = "all") )),
-
-    route("POST /api/metadata/levels", "api_metadata_levels", "viewer", "compute", args = list(
-      field = arg_string(min = 1L, max = 200L, trim = FALSE) )),
-
-    route("POST /api/metadata/minmax", "api_metadata_minmax", "viewer", "compute", args = list(
-      field = arg_string(min = 1L, max = 200L, trim = FALSE) )),
 
     route("POST /api/metadata/add_clusters", "api_add_clusters", "viewer", "compute", args = list(
       cluster_fn   = arg_choice(schema_fns("clusters")),
@@ -200,12 +191,14 @@ route_table <- function () {
 
 
     #__________________________________________________________________________
-    # The single-page app: "/" and "/<access key>" both load index.html.
+    # The single-page app: "/" and "/<project key>" both load index.html.
+    # Links to a page pick up parameters on their way round the web
+    # ("?utm_source=..."), so these two routes ignore what they do not know.
 
-    route("GET /", "serve_index", "public", "fast", args = list(
+    route("GET /", "serve_index", "public", "fast", html = TRUE, strict = FALSE, args = list(
       access_key = arg_string(max = 100L, optional = TRUE) )),
 
-    route("GET /:access_key", "serve_index", "public", "fast", args = list(
+    route("GET /:access_key", "serve_index", "public", "fast", html = TRUE, strict = FALSE, args = list(
       access_key = arg_string(max = 100L) ))
   )
 }

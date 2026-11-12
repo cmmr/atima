@@ -1,7 +1,7 @@
 # Imports for the whole package. Roxygen writes NAMESPACE from these tags.
 #' @noRd
 #' @importFrom DBI dbConnect dbDisconnect dbExecute dbGetQuery dbListTables
-#' @importFrom httpuv runServer staticPathOptions
+#' @importFrom httpuv runServer staticPath staticPathOptions
 #' @importFrom jsonlite fromJSON toJSON unbox
 #' @importFrom methods formalArgs is
 #' @importFrom openssl rand_bytes rand_num sha256

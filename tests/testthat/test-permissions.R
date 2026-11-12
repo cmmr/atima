@@ -168,24 +168,33 @@ test_that("other users see a name, an affiliation and a redacted email, nothing 
   REQ$SESSION <- list(user_id = me, project_id = pid, is_public = FALSE)
 
   found <- api_sharing_user_search(REQ, "lovelace")$users
-  expect_named(found, c("user_id", "full_name", "affiliation", "email"))
+  expect_named(found, c("user_id", "full_name", "affiliation", "email", "orcid"))
   expect_identical(found$full_name[[1]], "Ada Lovelace")
   expect_identical(found$email[[1]], "ad********ce@example.org")
+  expect_true(is.na(found$orcid[[1]]))
   expect_false(any(grepl("Guest", found$full_name)))
 
-  # Someone with no email (ORCID sends none) is found by name.
+  # Someone with no email (ORCID sends none) is found by name, and is shown
+  # with their ORCID iD, which is what tells two people of one name apart.
   found <- api_sharing_user_search(REQ, "Rosalind")$users
   expect_identical(found$full_name[[1]], "Rosalind Franklin")
   expect_true(is.na(found$email[[1]]))
+  expect_identical(found$orcid[[1]], "0000-0002-1825-0097")
+  expect_identical(api_sharing_user_search(REQ, "0000-0002-1825")$users$full_name[[1]], "Rosalind Franklin")
 
   editors <- api_get_editors(REQ)$users
-  expect_named(editors, c("user_id", "full_name", "affiliation", "email"))
+  expect_named(editors, c("user_id", "full_name", "affiliation", "email", "orcid"))
   expect_setequal(editors$full_name, c("Ada Lovelace", "Grace Hopper"))
 
-  # Nothing that identifies the account at the provider leaves the server.
-  everything <- paste(unlist(list(found, editors, api_sharing_with(REQ))), collapse = " ")
+  shared <- api_sharing_with(REQ)$users
+  expect_named(shared, c("user_id", "full_name", "affiliation", "email", "is_editor", "orcid"))
+  expect_identical(shared$is_editor, c(TRUE, TRUE))
+
+  # An ORCID iD is public. What any other provider calls a person, and
+  # their whole email address, never leave the server.
+  everything <- paste(unlist(list(api_sharing_user_search(REQ, "lovelace")$users, editors, shared)), collapse = " ")
   expect_no_match(everything, "sub-ada")
-  expect_no_match(everything, "0000-0002")
+  expect_no_match(everything, "issuer.test")
   expect_no_match(everything, "ada.lovelace@")
 })
 

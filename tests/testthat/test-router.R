@@ -20,8 +20,6 @@ valid_args <- list(
   "POST /api/sharing/user_search"      = list(query = "ada"),
   "POST /api/sharing/update"           = list(user_id = 5, permissions = "view"),
   "POST /api/metadata/change_class"    = list(col_num = 2),
-  "POST /api/metadata/levels"          = list(field = "Body Site"),
-  "POST /api/metadata/minmax"          = list(field = "Age"),
   "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
   "GET /unsaved/:session_key/:file"    = list(session_key = "12abcDEF", file = "rare.json"),
@@ -209,11 +207,14 @@ test_that("every route refuses unknown arguments", {
 
     args <- valid_args[[r$endpoint]] %||% list()
 
-    # The page a provider sends browsers back to takes what it knows and
-    # ignores the rest.
+    # Pages that browsers are sent to from elsewhere take what they know and
+    # ignore the rest: the one a provider returns them to, and the app's
+    # own page, whose links gather parameters such as "utm_source".
     if (!r$strict) {
-      expect_identical(r$endpoint, "GET /auth/callback")
-      expect_identical(validate_args(r, list(code = "abc", state = "xyz", session_state = "extra")), list(code = "abc", state = "xyz"))
+      expect_true(r$endpoint %in% c("GET /auth/callback", "GET /", "GET /:access_key"), info = r$endpoint)
+      expect_true(r$html, info = r$endpoint)
+      known <- if (r$endpoint == "GET /auth/callback") list(code = "abc", state = "xyz") else list(access_key = "hmp50")
+      expect_identical(validate_args(r, c(known, list(session_state = "extra"))), known, info = r$endpoint)
       next
     }
 
@@ -412,7 +413,6 @@ test_that("allow-lists in the route table are enforced", {
     refused("/api/sharing/update", list(user_id = 5, permissions = permissions), permissions)
 
   # Metadata field modes
-  refused("/api/metadata/fields", list(mode = "everything"))
 })
 
 

@@ -35,7 +35,7 @@ node_permission <- function (DB, node_id) {
 #' Open the project that the user selected.
 #' @return list(BIOM)
 #' @noRd
-api_jstree_select <- function (REQ, node_id) {
+api_tree_select <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
 
@@ -51,12 +51,12 @@ api_jstree_select <- function (REQ, node_id) {
 
 
 #______________________________________________________________________________
-#' Generate the tree data for the public and private jsTree collections.
+#' Generate the tree data for the public and private project trees.
 #'
 #' @return list(public, private), each an array of node definitions, already
 #'         unboxed.
 #' @noRd
-compile_jstree_data <- function (REQ) {
+tree_data <- function (REQ) {
 
   DB       <- REQ[['DB']]
   user_id  <- REQ[['SESSION']][['user_id']]
@@ -64,7 +64,7 @@ compile_jstree_data <- function (REQ) {
 
   nodes <- function (sql, err_code, params = NULL, ...) {
     res <- db_query(DB, sql, err_code, params, simplify = FALSE)
-    lapply(seq_len(nrow(res)), function (i) compile_jstree_node(as.list(res[i,]), ...))
+    lapply(seq_len(nrow(res)), function (i) tree_node(as.list(res[i,]), ...))
   }
 
 
@@ -99,10 +99,10 @@ compile_jstree_data <- function (REQ) {
 
 
 #______________________________________________________________________________
-#' Add a new folder to the jsTree via the jsTree context menu.
+#' Add a new folder to the user's tree.
 #' @return list(parent_id, node = list(id, text, children))
 #' @noRd
-api_jstree_create <- function (REQ, node_id) {
+api_tree_create <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
   user_id <- REQ[['SESSION']][['user_id']]
@@ -155,10 +155,10 @@ api_jstree_create <- function (REQ, node_id) {
 
 
 #______________________________________________________________________________
-#' Rename a project or collection via the jsTree context menu.
+#' Rename a project or collection.
 #' @return list(), or list(title) when the open project was renamed.
 #' @noRd
-api_jstree_rename <- function (REQ, node_id, text) {
+api_tree_rename <- function (REQ, node_id, text) {
 
   DB         <- REQ[['DB']]
   project_id <- REQ[['SESSION']][['project_id']]
@@ -192,10 +192,10 @@ api_jstree_rename <- function (REQ, node_id, text) {
 
 
 #______________________________________________________________________________
-#' Leave a project via the jsTree context menu. Delete our permissions to it.
+#' Leave a project. Delete our permissions to it.
 #' @return list()
 #' @noRd
-api_jstree_leave <- function (REQ, node_id) {
+api_tree_leave <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
 
@@ -208,10 +208,10 @@ api_jstree_leave <- function (REQ, node_id) {
 
 
 #______________________________________________________________________________
-#' Delete a project or empty collection via the jsTree context menu.
+#' Delete a project or empty collection.
 #' @return list()
 #' @noRd
-api_jstree_delete <- function (REQ, node_id) {
+api_tree_delete <- function (REQ, node_id) {
 
   DB      <- REQ[['DB']]
 
@@ -257,12 +257,12 @@ api_jstree_delete <- function (REQ, node_id) {
 
 
 #______________________________________________________________________________
-#' Move a node in the jsTree via drag and drop.
+#' Move a node in the tree.
 #' @param parent_node_id  The collection to move into, or "#" for the top
 #'        of the user's tree.
 #' @return list()
 #' @noRd
-api_jstree_move <- function (REQ, node_id, parent_node_id) {
+api_tree_move <- function (REQ, node_id, parent_node_id) {
 
   DB      <- REQ[['DB']]
 
@@ -331,7 +331,7 @@ create_collection <- function (DB, user_id, parent_collection_id, jstree_text) {
 #' @param editor  For a public project node: may the caller change it?
 #' @return node
 #' @noRd
-compile_jstree_node <- function (row, public = FALSE, editor = FALSE) {
+tree_node <- function (row, public = FALSE, editor = FALSE) {
 
   if (hasName(row, 'project_id')) {
 

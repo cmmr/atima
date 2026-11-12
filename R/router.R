@@ -44,8 +44,10 @@ lanes             <- c("fast", "compute")
 #'                    permission depends on what is being acted on.
 #' @param modes       The authentication modes in which the route exists.
 #' @param strict      Refuse arguments that are not declared? Only switched
-#'                    off for the page an identity provider sends browsers
-#'                    back to, since providers add parameters of their own.
+#'                    off for pages that browsers are sent to from elsewhere:
+#'                    the one an identity provider returns them to, since
+#'                    providers add parameters of their own, and the app's
+#'                    page, since links gather tracking parameters.
 #' @param html        Is the route a page that people see? Its errors are
 #'                    then sent as a small HTML page instead of JSON.
 #' @param lane        `"fast"` for database-only work, `"compute"` for

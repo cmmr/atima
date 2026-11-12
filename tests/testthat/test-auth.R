@@ -166,7 +166,7 @@ test_that("the local owner takes over what earlier guests and password accounts 
   expect_identical(project_access(DB, as_guest, owner),   "editor")
   expect_identical(project_access(DB, as_account, owner), "editor")
   expect_identical(db_query(DB, "SELECT user_id FROM collections WHERE collection_id = ?", "T2", list(folder)), owner)
-  expect_length(response_json(resp)$jstree_data$private, 3)
+  expect_length(response_json(resp)$tree$private, 3)
 
   # The earlier rows are gone; someone with a provider identity is not touched.
   expect_setequal(db_query(DB, "SELECT user_id FROM users", "T3"), c(owner, signed))

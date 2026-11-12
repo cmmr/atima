@@ -66,7 +66,7 @@ api_save <- function (REQ, title, description) {
 #' Copy this draft to a new project_id. The copy is private, with a private
 #' key of its own, and the caller is its editor.
 #'
-#' @return list(BIOM, jstree_node)
+#' @return list(BIOM, tree_node)
 #' @noRd
 api_save_as <- function (REQ, title, description) {
 
@@ -132,7 +132,7 @@ api_save_as <- function (REQ, title, description) {
 
       list(
         BIOM        = biom_reply(REQ, result[['data']]),
-        jstree_node = compile_jstree_node(row) )
+        tree_node = tree_node(row) )
     })
 }
 
@@ -336,7 +336,7 @@ check_public_key <- function (DB, public_key, project_id = NULL) {
 #'                       left out, a public project keeps the key it has.
 #' @param collection_id  The public collection to list it under, or `NULL`
 #'                       for the top of the public tree.
-#' @return list(BIOM, jstree_data)
+#' @return list(BIOM, tree)
 #' @noRd
 api_publish <- function (REQ, is_public, public_key = NULL, collection_id = NULL) {
 
@@ -376,5 +376,5 @@ api_publish <- function (REQ, is_public, public_key = NULL, collection_id = NULL
 
   with_biom_data(REQ, function (BIOM) list(
     BIOM        = BIOM,
-    jstree_data = compile_jstree_data(REQ) ))
+    tree        = tree_data(REQ) ))
 }

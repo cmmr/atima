@@ -78,3 +78,16 @@ test_that("is_int, is_bool and valid_string only accept single values", {
   expect_false(valid_string("a\nb"))
   expect_false(valid_string("a;b", no = ";"))
 })
+
+
+test_that("numbers in a JSON response are not rounded", {
+
+  # Found in the browser (step 7): p-values in a statistics table came out
+  # as 0, because jsonlite keeps four decimal places unless told otherwise.
+  body <- list(stats_table = data.frame(p_val = c(3.2e-07, 0.04567891), n = c(20L, 19L)), min = unbox(0.123456789))
+  json <- response(body)$body
+
+  expect_identical(fromJSON(json)$stats_table$p_val, c(3.2e-07, 0.04567891))
+  expect_identical(fromJSON(json)$stats_table$n, c(20L, 19L))
+  expect_identical(fromJSON(json)$min, 0.123456789)
+})

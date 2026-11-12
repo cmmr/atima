@@ -2,45 +2,64 @@
 #______________________________________________________________________________
 # Sharing the open project with other users.
 #
-# What other users are shown about a person is their name, their
-# affiliation and a partly hidden email address (`redact_emails()`). Someone
-# who signed in through a provider that gives no email (ORCID) has none.
+# What other users are shown about a person is decided by `shown_users()`:
+# name, affiliation, a partly hidden email address (`redact_emails()`) and,
+# for someone who signed in with ORCID (which gives no email), the ORCID iD.
 #
 # Who may change whose grant is decided by the router, with the `grant`
 # rule in `R/access.R`.
 #______________________________________________________________________________
 
 
+# Issuers whose `sub` claim is an ORCID iD.
+orcid_issuers <- c("https://orcid.org", "https://sandbox.orcid.org")
+
+
+#______________________________________________________________________________
+#' What other users are shown about people: name, affiliation, a partly
+#' hidden email address and, for people who signed in with ORCID, their
+#' ORCID iD. An iD is public by design, and since ORCID sends no email it is
+#' the only thing that tells two people of the same name apart. The
+#' identifier any other provider has for a person never leaves the server.
+#'
+#' @param res  Rows of `users`, with the columns `issuer` and `sub`.
+#' @return The rows with `orcid` in place of `issuer` and `sub`.
+#' @noRd
+shown_users <- function (res) {
+
+  from_orcid <- !is.na(res[['issuer']]) & res[['issuer']] %in% orcid_issuers
+
+  res[['email']] <- redact_emails(res[['email']])
+  res[['orcid']] <- ifelse(from_orcid, res[['sub']], NA_character_)
+
+  res[, setdiff(colnames(res), c("issuer", "sub")), drop = FALSE]
+}
+
+
 #______________________________________________________________________________
 #' Find users matching a user-entered query string.
-#' For a server-side selectize drop-down.
-#' @return list(users = list(user_id, full_name, affiliation, email))
+#' @return list(users = list(user_id, full_name, affiliation, email, orcid))
 #' @noRd
 api_sharing_user_search <- function (REQ, query) {
-  
+
   DB <- REQ[['DB']]
 
   # Pull all the users from the database table.
   sql <- paste0(
-    "SELECT user_id, full_name, affiliation, email",
+    "SELECT user_id, full_name, affiliation, email, issuer, sub",
     " FROM users WHERE is_guest = 0" )
-  res <- db_query(DB, sql, "ASUS1", simplify = FALSE)
-  
-  
+  res <- shown_users(db_query(DB, sql, "ASUS1", simplify = FALSE))
+
+
   # Fuzzy matching using Levenshtein string distance.
   blank   <- function (x) ifelse(is.na(x), "", x)
-  strings <- paste(res[['full_name']], blank(res[['affiliation']]), blank(res[['email']]))
+  strings <- paste(res[['full_name']], blank(res[['affiliation']]), blank(res[['email']]), blank(res[['orcid']]))
   dists   <- adist(x = query, y = strings, partial = TRUE, ignore.case = TRUE)
-  
-  
+
+
   # Only keep the 6 best matches.
   res <- res[head(order(dists)),,drop=FALSE]
-  
-  
-  # Redact the email address a little.
-  res[['email']] <- redact_emails(res[['email']])
-    
-  
+
   return (list(users = res))
 }
 
@@ -48,53 +67,52 @@ api_sharing_user_search <- function (REQ, query) {
 
 #______________________________________________________________________________
 #' Fetch the list of current editors for the active project.
-#' @return list(users = list(user_id, full_name, affiliation, email))
+#' @return list(users = list(user_id, full_name, affiliation, email, orcid))
 #' @noRd
 api_get_editors <- function (REQ) {
-  
+
   DB         <- REQ[['DB']]
   project_id <- REQ[['SESSION']][['project_id']]
-  
+
   # Find users who are editors on this project.
   sql <- paste0(
-    "SELECT user_id, full_name, affiliation, email", 
+    "SELECT user_id, full_name, affiliation, email, issuer, sub",
     " FROM permissions",
-    "   LEFT JOIN users USING (user_id)", 
+    "   LEFT JOIN users USING (user_id)",
     " WHERE project_id = ? AND is_editor = 1" )
   res <- db_query(DB, sql, "AGEdit1", list(project_id), simplify = FALSE)
-  
-  # Redact email addresses a little.
-  res[['email']] <- redact_emails(res[['email']])
-  
-  return (list(users = res))
-}
 
+  return (list(users = shown_users(res)))
+}
 
 
 
 #______________________________________________________________________________
 #' Look up who has read-only and/or editor access to this project.
-#' @return list(dt_data = list(c(user_id, full_name, affiliation, is_editor), ...))
+#' @return list(users = list(user_id, full_name, affiliation, email, orcid, is_editor))
 #' @noRd
 api_sharing_with <- function (REQ) {
-  
+
   DB         <- REQ[['DB']]
   project_id <- REQ[['SESSION']][['project_id']]
-  
-  
+
   sql <- paste0(
-    "SELECT user_id, full_name, affiliation, is_editor",
-    " FROM permissions", 
+    "SELECT user_id, full_name, affiliation, email, issuer, sub, is_editor",
+    " FROM permissions",
     "   LEFT JOIN users USING (user_id)",
-    " WHERE project_id = ? AND is_guest = 0" )
+    " WHERE project_id = ? AND is_guest = 0",
+    " ORDER BY is_editor DESC, full_name" )
   res <- db_query(DB, sql, "ASWith1", list(project_id), simplify = FALSE)
+
+  res[['is_editor']] <- as.logical(res[['is_editor']])
 
   # Everyone can already view a public project, so only list its editors.
   if (REQ[['SESSION']][['is_public']])
     res <- res[res[['is_editor']],,drop=FALSE]
-  
-  return (list(dt_data = as.matrix(res)))
+
+  return (list(users = shown_users(res)))
 }
+
 
 
 

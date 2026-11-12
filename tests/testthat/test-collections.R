@@ -11,10 +11,10 @@ test_that("an empty collection can be deleted, a non-empty one cannot", {
   full  <- create_collection(DB, user, NULL, "Full collection")
   add_test_project(DB, user, collection_id = full)
 
-  expect_identical(api_jstree_delete(REQ, paste0("C", empty)), list())
+  expect_identical(api_tree_delete(REQ, paste0("C", empty)), list())
   expect_false(db_row_exists(DB, "collections", empty, assert = FALSE))
 
-  expect_error(api_jstree_delete(REQ, paste0("C", full)), "non-empty")
+  expect_error(api_tree_delete(REQ, paste0("C", full)), "non-empty")
   expect_true(db_row_exists(DB, "collections", full, assert = FALSE))
 })
 
@@ -52,11 +52,11 @@ test_that("an editor can rename a project from the tree", {
   title <- function (project_id)
     db_query(DB, "SELECT title FROM projects WHERE project_id = ?", "Test1", list(project_id))
 
-  resp <- api_jstree_rename(REQ, paste0("P", open$permission_id), "Renamed open project")
+  resp <- api_tree_rename(REQ, paste0("P", open$permission_id), "Renamed open project")
   expect_identical(resp, list(title = jsonlite::unbox("Renamed open project")))
   expect_identical(title(open$project_id), "Renamed open project")
 
-  resp <- api_jstree_rename(REQ, paste0("P", closed$permission_id), "Renamed closed project")
+  resp <- api_tree_rename(REQ, paste0("P", closed$permission_id), "Renamed closed project")
   expect_identical(resp, list())
   expect_identical(title(closed$project_id), "Renamed closed project")
 

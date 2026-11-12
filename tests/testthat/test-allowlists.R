@@ -37,25 +37,6 @@ test_that("is_one_of only accepts a single string from the list", {
 
 
 
-test_that("metadata field names must be real columns", {
-
-  md <- data.frame(Sex = factor(c("F", "M", "F")), Age = c(20, 30, NA))
-
-  for (field in c("nope", "sex", "", "Sex, Age")) {
-    expect_error(metadata_levels(md, field), "Unknown metadata field", class = "atima_http_error", info = field)
-    expect_error(metadata_minmax(md, field), "Unknown metadata field", class = "atima_http_error", info = field)
-  }
-  expect_error(metadata_levels(md, c("Sex", "Age")), "Unknown metadata field", class = "atima_http_error")
-
-  # The right kind of column for each question.
-  expect_error(metadata_levels(md, "Age"), "not categorical", class = "atima_http_error")
-  expect_error(metadata_minmax(md, "Sex"), "not numeric",     class = "atima_http_error")
-
-  expect_identical(metadata_levels(md, "Sex")$default, c("F", "M"))
-  expect_identical(metadata_minmax(md, "Age"), list(min = 20, max = 30))
-})
-
-
 test_that("permission strings are restricted", {
 
   for (permissions in c("owner", "admin", "EDIT", "", "view,edit")) {

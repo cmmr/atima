@@ -23,7 +23,7 @@ save_upload <- function (REQ, upload) {
 #'                 numbers? Without it such a file is refused with the error
 #'                 code `confirm_inflate` and a message that explains what
 #'                 scaling does, for the browser to put to the user.
-#' @return list(BIOM, jstree_node)
+#' @return list(BIOM, tree_node)
 #' @noRd
 api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
 
@@ -65,7 +65,7 @@ api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
 
       list(
         BIOM        = biom_reply(REQ, imported[['data']]),
-        jstree_node = compile_jstree_node(row) )
+        tree_node = tree_node(row) )
     })
 }
 

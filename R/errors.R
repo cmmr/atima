@@ -151,11 +151,15 @@ error_response <- function (e, REQ = NULL, calls = NULL) {
   # A page that a person is looking at gets something readable.
   if (isTRUE(REQ[['ROUTE']][['html']]))
     return (response(status = status, body = paste0(
-      '<!DOCTYPE html><html><head><meta charset="utf-8"><title>atima</title></head><body>',
+      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>ATIMA</title>',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<link rel="stylesheet" href="/www/css/app.css"></head><body class="plain">',
+      '<main class="page narrow"><div class="card">',
+      '<h1>That did not work</h1>',
       '<p>', html_escape(message), '</p>',
-      '<p>Error id: ', html_escape(id), '</p>',
-      '<p><a href="/">Back to atima</a></p>',
-      '</body></html>' )))
+      '<p class="hint">Error id: ', html_escape(id), '</p>',
+      '<p><a class="btn primary" href="/">Back to ATIMA</a></p>',
+      '</div></main></body></html>' )))
 
   code <- if (inherits(e, "atima_http_error") && is_scalar_character(e[['code']])) list(code = unbox(e[['code']]))
 

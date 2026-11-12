@@ -50,7 +50,10 @@ response <- function (body = NULL, status = 200L, headers = NULL, ...) {
     headers[['Access-Control-Expose-Headers']] <- merged
   }
 
-  if (inherits(body, 'list'))               body <- toJSON(body, null = 'null')
+  # Numbers are written in full. jsonlite's default of four decimal places
+  # turned every p-value below 0.00005 into 0, and moved the ends of a
+  # numeric field's range inside the values it has.
+  if (inherits(body, 'list'))               body <- toJSON(body, null = 'null', digits = NA)
   if (inherits(body, c('json', 'numeric'))) body <- as.character(body)
   if (length(body) > 0) { body <- paste0(body, collapse = '')         }
   else                  { body <- code_to_msg[[as.character(status)]] }

@@ -19,7 +19,7 @@ test_that("a first visit opens the oldest public project as a guest", {
   expect_identical(resp$status, 200L)
 
   body <- response_json(resp)
-  expect_named(body, c("jstree_data", "BIOM", "CONF"))
+  expect_named(body, c("tree", "BIOM", "CONF"))
   expect_identical(body$CONF$auth, "oidc")
   expect_true(body$CONF$is_guest)
   expect_false(body$CONF$is_admin)
@@ -33,11 +33,11 @@ test_that("a first visit opens the oldest public project as a guest", {
   expect_false(body$BIOM$is_editor)
 
   # The public tree lists both example projects; the guest's own is empty.
-  public <- body$jstree_data$public
+  public <- body$tree$public
   expect_setequal(vapply(public, function (n) n$info$access_key, ""), c("hmp50", "gems"))
   expect_true(all(grepl("^G[0-9]+$", vapply(public, function (n) n$id, ""))))
   expect_false(any(vapply(public, function (n) n$editor, NA)))
-  expect_length(body$jstree_data$private, 0)
+  expect_length(body$tree$private, 0)
   expect_true(body$BIOM$node_id %in% vapply(public, function (n) n$id, ""))
 
   private_keys <- db_query(REQ$DB, "SELECT access_key FROM projects", "T0")
@@ -93,7 +93,7 @@ test_that("a private key is a share link that leaves a lasting view grant", {
   expect_identical(body$BIOM$access_key, gems$access_key)
   expect_false(body$BIOM$is_public)
   expect_false(body$BIOM$is_editor)
-  expect_length(body$jstree_data$private, 1)
+  expect_length(body$tree$private, 1)
 
   guest <- body$CONF$user_id
   grant <- db_query(DB, "SELECT is_editor FROM permissions WHERE user_id = ? AND project_id = ?", "T4", list(guest, gems$project_id))
@@ -214,7 +214,7 @@ test_that("an editor who has signed in can publish and unpublish the open projec
   expect_identical(keys(), list(access_key = private_key, public_key = "my-study", public_collection_id = public))
   expect_true(response_json(resp)$BIOM$is_public)
 
-  node <- Filter(function (n) identical(n$info$access_key, "my-study"), response_json(resp)$jstree_data$public)[[1]]
+  node <- Filter(function (n) identical(n$info$access_key, "my-study"), response_json(resp)$tree$public)[[1]]
   expect_identical(node$parent, paste0("C", public))
 
   # Everyone can read it now, by its public key; administrators can change it.

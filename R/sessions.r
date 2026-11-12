@@ -272,7 +272,7 @@ get_session_data <- function (REQ) {
     sess_header <- header('x-session-key' = session_key, expose = TRUE)
 
     body <- list(
-      jstree_data = compile_jstree_data(REQ),
+      tree        = tree_data(REQ),
       BIOM        = BIOM,
       CONF        = list(
         auth      = unbox(REQ[['CONFIG']][['auth']]),

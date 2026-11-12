@@ -356,10 +356,7 @@ run <- function(
       handle_request(req, app_state)
     },
 
-    'staticPaths' = list(
-      '/www' = system.file(package = 'atima', 'www'),
-      '/tmp' = temp_dir
-    ),
+    'staticPaths' = static_paths(temp_dir),
 
     'staticPathOptions' = staticPathOptions(indexhtml = FALSE)
   )
@@ -451,6 +448,31 @@ auth_settings <- function (
 
 
 #______________________________________________________________________________
+#' Internal: the directories httpuv serves as they are, without calling the
+#' router: the app's own files under `/www`, and figures and exports under
+#' `/tmp/<session key>/`.
+#'
+#' Browsers are told to ask before reusing one of the app's files. Without
+#' that they guess how long a script stays fresh, and after an upgrade (or
+#' an edit, during development) run old scripts against the new server. The
+#' answer to "has it changed?" is a short 304. Files under `/tmp` never
+#' change once written, so they need no such header.
+#'
+#' @param temp_dir  The server's temporary directory.
+#' @return A named list for httpuv's `staticPaths`.
+#' @noRd
+static_paths <- function (temp_dir) {
+  list(
+    '/www' = staticPath(
+      path    = system.file(package = 'atima', 'www'),
+      headers = list('Cache-Control' = "no-cache", 'X-Content-Type-Options' = "nosniff") ),
+    '/tmp' = staticPath(
+      path    = temp_dir,
+      headers = list('X-Content-Type-Options' = "nosniff") ))
+}
+
+
+#______________________________________________________________________________
 #' Internal: URL a browser on this machine can use to reach the server.
 #'
 #' Wildcard listen addresses ("0.0.0.0", "::") are not valid destinations, so
@@ -466,39 +488,61 @@ local_url <- function (host, port) {
 
 
 #______________________________________________________________________________
-#' Internal: Serves customized index.html
+#' Internal: the single page of the app, `inst/www/index.html`, with the
+#' version numbers filled in.
+#'
+#' The file is read when the first page is asked for, not when the package
+#' is built, so that it is the installed file that is served. Everything
+#' the page loads comes from this server, which the Content-Security-Policy
+#' states: no other host is contacted, and no script written into the page
+#' runs.
 #' @noRd
-static_index_html <- local({
+index_html <- local({
 
-  atima_version  <- as.character(packageVersion("atima"))
-  rbiom_version  <- as.character(packageVersion("rbiom"))
-  copyright_year <- substr(Sys.Date(), 1, 4)
+  page <- NULL
 
-  html_path <- system.file(package = "atima", "www", "index.html")
-  if (!file.exists(html_path)) {
-    html <- "<html><body>Error: index.html not found.</body></html>"
-  } else {
-    html <- readChar(html_path, file.info(html_path)$size)
-    html <- sub("{{atima_version}}",  atima_version,  html, fixed = TRUE)
-    html <- sub("{{rbiom_version}}",  rbiom_version,  html, fixed = TRUE)
-    html <- sub("{{copyright_year}}", copyright_year, html, fixed = TRUE)
+  function () {
+
+    if (is.null(page)) {
+
+      html <- readLines(system.file(package = "atima", "www", "index.html", mustWork = TRUE), encoding = "UTF-8", warn = FALSE)
+      html <- paste(enc2utf8(html), collapse = "\n")
+      html <- gsub("{{atima_version}}", as.character(packageVersion("atima")), html, fixed = TRUE)
+      html <- gsub("{{rbiom_version}}", as.character(packageVersion("rbiom")), html, fixed = TRUE)
+
+      page <<- response(
+        status  = 200L,
+        body    = html,
+        headers = list(
+          'Content-Type'            = "text/html; charset=utf-8",
+          'Cache-Control'           = "no-cache",
+          'Content-Security-Policy' = content_security_policy,
+          'Referrer-Policy'         = "same-origin",
+          'X-Content-Type-Options'  = "nosniff",
+          'X-Frame-Options'         = "DENY" ))
+    }
+
+    page
   }
-
-  response(
-    status  = 200L,
-    body    = html,
-    headers = list(
-      'Content-Type'           = "text/html; charset=utf-8",
-      'X-Content-Type-Options' = "nosniff",
-      'X-Frame-Options'        = "DENY"
-    )
-  )
 })
+
+# What the app's page may load: scripts, styles, fonts, images and API
+# calls from this server only, and nothing written inline.
+content_security_policy <- paste(
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data: blob:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  sep = "; " )
 
 
 #______________________________________________________________________________
 #' Internal: route handler for the pages that load the single-page app.
 #' @noRd
 serve_index <- function (REQ, access_key = NULL) {
-  static_index_html
+  index_html()
 }
