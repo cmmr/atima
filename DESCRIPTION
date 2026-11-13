@@ -51,9 +51,11 @@ Imports:
     webutils,
     xml2
 Suggests:
+    bcrypt,
     curl,
     openxlsx,
     pkgload,
+    RMariaDB,
     testthat (>= 3.0.0),
     withr
 Remotes:

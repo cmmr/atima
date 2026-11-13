@@ -290,6 +290,23 @@ work_import <- function (ctx, infile, title = NULL, inflate = FALSE) {
     detail  = FALSE,
     code    = as_rbiom(infile) )
 
+  import_biom(ctx, full_biom, infile, title, inflate)
+}
+
+
+#______________________________________________________________________________
+#' Turn a dataset that has just been read into the stored files of a new
+#' project. `work_import()` does this for an upload; the legacy import does
+#' it for a project rebuilt from an older atima's database.
+#'
+#' @param full_biom  The dataset, an rbiom object.
+#' @param orig       The file it came from, kept as the project's original.
+#' @param depth      The rarefaction depth to start with. `NULL`, or a depth
+#'                   the data cannot be rarefied to, means rbiom's default.
+#' @return As `work_import()`.
+#' @noRd
+import_biom <- function (ctx, full_biom, orig, title = NULL, inflate = FALSE, depth = NULL) {
+
   full_biom$sequences <- NULL
   if (!is.null(title)) full_biom$id <- title
 
@@ -310,10 +327,18 @@ work_import <- function (ctx, infile, title = NULL, inflate = FALSE) {
       code    = biom_inflate(full_biom) )
   }
 
-  rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
+  rare_biom <- NULL
+
+  if (!is.null(depth))
+    rare_biom <- tryCatch(
+      expr  = rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]),
+      error = function (e) NULL )
+
+  if (is.null(rare_biom) || rare_biom$n_samples == 0)
+    rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
 
   c(
-    list(orig = store_file(ctx[['files_dir']], infile)),
+    list(orig = store_file(ctx[['files_dir']], orig)),
     store_pair(ctx, full_biom, rare_biom),
     list(details = biom_to_details(full_biom)) )
 }

@@ -24,6 +24,7 @@ run(
   max_upload_mb = 50,
   session_hours = 24,
   guest_days = 30,
+  legacy = NULL,
   open = interactive()
 )
 }
@@ -106,6 +107,13 @@ not been heard from for this many hours.}
 after this many days without a visit, along with any
 projects that only they could open.}
 
+\item{legacy}{Older atima installations whose users may import
+their projects: a named character vector,
+\verb{c(<label shown to users> = <file>)}, of files made by
+\code{\link[=legacy_convert]{legacy_convert()}}. As an environment variable,
+\verb{<label>=<file>} entries separated by \verb{;}. See the
+section "Importing from an older atima".}
+
 \item{open}{Open the app in a web browser once the server is up?}
 }
 \value{
@@ -156,6 +164,23 @@ is not sent with requests made by other sites, and is marked \code{Secure}
 whenever the site is served over HTTPS (see \code{public_url} and
 \code{forwarded_proto_header}). Serve a public server over HTTPS, through a
 reverse proxy.
+}
+
+\section{Importing from an older atima}{
+
+atima 2 kept every project encrypted with keys that only its users'
+passwords unlock, so its data cannot be moved by an administrator alone.
+Instead, save the old database to a file once with \code{\link[=legacy_convert]{legacy_convert()}},
+and name the file in \code{legacy}. Someone who is signed in (or, with
+\code{auth = "none"}, the local user) then finds "Import from an older atima"
+in the menu, types the email address and password they used on the old
+site, and chooses the projects to bring over. The password is checked
+and the projects are decrypted in memory; neither the password nor any
+key is stored or logged. A project is imported once: when someone else
+who could open it on the old site imports it later, they are given the
+same project with the access they had (editor or viewer). After five
+wrong passwords a person, and the old account they tried, must wait 15
+minutes. This needs the 'bcrypt' package.
 }
 
 \section{Database}{

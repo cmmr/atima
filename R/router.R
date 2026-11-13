@@ -146,6 +146,20 @@ arg_string <- function (min = 0L, max = 10000L, pattern = NULL, trim = TRUE, ...
   })
 }
 
+#' A string that must not be logged or shown, such as a password. The
+#' handler gets it wrapped (`secret()`); `reveal()` unwraps it. It is not
+#' trimmed, and a refusal never quotes it.
+#' @param min,max  Limits on the number of characters.
+#' @noRd
+arg_secret <- function (min = 1L, max = 1000L, ...) {
+  arg_spec("secret", ..., check = function (x) {
+    if (!is.character(x) || length(x) != 1 || is.na(x)) stop("must be a string")
+    if (nchar(x) < min) stop("must be at least ", min, " characters")
+    if (nchar(x) > max) stop("must be at most ", max, " characters")
+    secret(x)
+  })
+}
+
 #' A string of HTML that a user wrote, such as a project description. It is
 #' reduced to harmless formatting (`sanitize_html()`), so what the handler
 #' gets, and stores, is safe to put into a page.

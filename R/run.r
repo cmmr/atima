@@ -78,6 +78,12 @@
 #'                    after this many days without a visit, along with any
 #'                    projects that only they could open.
 #' @param max_upload_mb  Largest upload to accept, in megabytes.
+#' @param legacy      Older atima installations whose users may import
+#'                    their projects: a named character vector,
+#'                    `c(<label shown to users> = <file>)`, of files made by
+#'                    [legacy_convert()]. As an environment variable,
+#'                    `<label>=<file>` entries separated by `;`. See the
+#'                    section "Importing from an older atima".
 #' @param open        Open the app in a web browser once the server is up?
 #'
 #' @section Signing in:
@@ -103,6 +109,21 @@
 #' whenever the site is served over HTTPS (see `public_url` and
 #' `forwarded_proto_header`). Serve a public server over HTTPS, through a
 #' reverse proxy.
+#'
+#' @section Importing from an older atima:
+#' atima 2 kept every project encrypted with keys that only its users'
+#' passwords unlock, so its data cannot be moved by an administrator alone.
+#' Instead, save the old database to a file once with [legacy_convert()],
+#' and name the file in `legacy`. Someone who is signed in (or, with
+#' `auth = "none"`, the local user) then finds "Import from an older atima"
+#' in the menu, types the email address and password they used on the old
+#' site, and chooses the projects to bring over. The password is checked
+#' and the projects are decrypted in memory; neither the password nor any
+#' key is stored or logged. A project is imported once: when someone else
+#' who could open it on the old site imports it later, they are given the
+#' same project with the access they had (editor or viewer). After five
+#' wrong passwords a person, and the old account they tried, must wait 15
+#' minutes. This needs the 'bcrypt' package.
 #'
 #' @section Database:
 #' The database is the file `sqlite.db` in `data_dir`. When a newer version
@@ -161,6 +182,7 @@ run <- function(
     max_upload_mb = 50,
     session_hours = 24,
     guest_days    = 30,
+    legacy        = NULL,
     open          = interactive() ) {
 
   message("Initializing Atima Server...")
@@ -213,6 +235,12 @@ run <- function(
   open          <- find_arg('open',          'bool')
   signin_days   <- find_arg('signin_days',   'int')
 
+  # A list of files, so not one value as the other settings are.
+  legacy <- if (hasName(explicits, 'legacy')) { explicits[['legacy']]
+  } else if (nzchar(x <- Sys.getenv('ATIMA_LEGACY'))) { x
+  } else { getOption('atima.legacy') }
+  legacy <- legacy_register(legacy_setting(legacy))
+
   auth_cfg <- auth_settings(
     auth          = find_arg('auth', 'chr'),
     host          = host,
@@ -260,12 +288,16 @@ run <- function(
     session_ttl = session_hours * 3600,
     guest_ttl   = guest_days * 86400,
     signin_ttl  = signin_days * 86400,
+    legacy      = legacy,
     auth        = auth_cfg[['auth']],
     public_url  = auth_cfg[['public_url']],
     forwarded_proto_header = auth_cfg[['forwarded_proto_header']]
   )
 
   message(' - Sign-in: ', if (config[['auth']] == 'none') 'none (single local user)' else paste('OpenID Connect,', auth_cfg[['oidc']][['issuer']]))
+
+  for (source in legacy)
+    message(' - Legacy import: ', source[['label']], ' (', source[['path']], ')')
 
   for (subdir in file.path(data_dir, c('files', 'cache')))
     if (!dir.exists(subdir)) dir.create(subdir, recursive = TRUE)

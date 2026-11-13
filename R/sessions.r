@@ -279,7 +279,9 @@ get_session_data <- function (REQ) {
         user_id   = unbox(REQ[['SESSION']][['user_id']]),
         full_name = unbox(REQ[['SESSION']][['full_name']]),
         is_guest  = unbox(REQ[['SESSION']][['is_guest']]),
-        is_admin  = unbox(REQ[['SESSION']][['is_admin']]) ))
+        is_admin  = unbox(REQ[['SESSION']][['is_admin']]),
+        # Is there an older installation to import projects from?
+        legacy    = unbox(length(REQ[['CONFIG']][['legacy']]) > 0) ))
 
     response(body, cookie_hdr, sess_header)
   })

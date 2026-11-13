@@ -43,7 +43,7 @@ test_that("a new database gets the latest schema and no placeholder rows", {
   expect_setequal(
     DBI::dbListTables(DB),
     c("auth_tokens", "biom_files", "collections", "drafts", "last_access",
-      "permissions", "projects", "sessions", "users") )
+      "legacy_attempts", "legacy_imports", "permissions", "projects", "sessions", "users") )
 
   for (table in DBI::dbListTables(DB))
     expect_identical(

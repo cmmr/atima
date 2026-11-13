@@ -140,6 +140,28 @@ route_table <- function () {
 
 
     #__________________________________________________________________________
+    # Importing projects from an older atima (`R/legacy.R`). For people with
+    # an account: what is imported lands in their project tree. The old
+    # email address and password are checked by a worker against a file
+    # the administrator registered; `arg_secret()` keeps the password out
+    # of logs and errors.
+
+    route("POST /api/legacy/sources", "api_legacy_sources", "session", "fast", account = TRUE),
+
+    route("POST /api/legacy/list", "api_legacy_list", "session", "compute", account = TRUE, args = list(
+      source   = arg_string(min = 1L, max = 40L, pattern = "^[a-z0-9]+$"),
+      email    = arg_string(min = 3L, max = 255L),
+      password = arg_secret(min = 1L, max = 200L) )),
+
+    route("POST /api/legacy/import", "api_legacy_import", "session", "compute", account = TRUE, args = list(
+      source   = arg_string(min = 1L, max = 40L, pattern = "^[a-z0-9]+$"),
+      email    = arg_string(min = 3L, max = 255L),
+      password = arg_secret(min = 1L, max = 200L),
+      project  = arg_string(min = 1L, max = 20L, pattern = "^[0-9]+$"),
+      inflate  = arg_bool(default = FALSE) )),
+
+
+    #__________________________________________________________________________
     # Metadata and taxonomy of the open project
 
     route("POST /api/metadata/table", "api_metadata_dt", "viewer", "compute", supersede = TRUE, args = dt_args),
