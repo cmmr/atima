@@ -34,7 +34,7 @@ used to convert project descriptions. RStudio ships with a copy.
 
 ## Usage
 
-The package has one exported function:
+The server is one function:
 
 ```r
 atima::run()
@@ -65,6 +65,7 @@ default is used if none is set.
 | `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `atima.max_upload_mb` | `50`                                  | Largest upload accepted, in MB.                      |
 | `session_hours` | `ATIMA_SESSION_HOURS` | `atima.session_hours` | `24`                                  | A browser tab not heard from for this long loses its session, unsaved changes and temporary files. |
 | `guest_days`    | `ATIMA_GUEST_DAYS`    | `atima.guest_days`    | `30`                                  | A guest who has not visited for this long is forgotten, with the projects only they could open. |
+| `legacy`        | `ATIMA_LEGACY`        | `atima.legacy`        | none                                  | Older installations to import from; see "Importing from an older atima". |
 | `open`          | `ATIMA_OPEN`          | `atima.open`          | `interactive()`                       | Open a browser once the server is up.                |
 
 The R session that calls `run()` answers requests and owns the database.
@@ -105,6 +106,76 @@ explore public projects and upload their own data, which is kept for
 `guest_days` and becomes theirs when they sign in.
 
 See `?atima::run` for details.
+
+### Importing from an older atima
+
+atima 2 (the Shiny application with a MariaDB or MySQL database) encrypted
+every project with keys that only its users' passwords unlock. Its data can
+therefore not be moved by an administrator alone. Instead, the administrator
+saves the old database once, and each person brings their own projects over
+by typing the email address and password they had on the old site.
+
+**1. Save the old database.** On a computer that can reach it, with the
+`RMariaDB` package installed, run this once. A database account that may
+only `SELECT` is enough, and the old database is not changed.
+
+```r
+con <- DBI::dbConnect(
+  RMariaDB::MariaDB(),
+  dbname = "atima", host = "<database host>",
+  user = "<user>", password = Sys.getenv("ATIMA2_DB_PASSWORD") )
+
+atima::legacy_convert(con, "atima2.sqlite")
+DBI::dbDisconnect(con)
+```
+
+If all you have is a `mysqldump` file, restore it into any MariaDB server
+first (the tables needed are `Users`, `Projects`, `Permissions` and
+`Objects`) and connect to that.
+
+The result is one SQLite file. It holds, for each account, the email
+address, the bcrypt hash of the password and the encrypted private key, and
+for each project that was not deleted, who could open it and its data, still
+encrypted as atima 2 stored it. Names, affiliations, sessions, sign-in
+tokens and cached results are not copied. Treat the file as you would the
+old database: keep it out of version control and readable only by the
+account the server runs as. After this the old database server is no longer
+needed.
+
+**2. Register the file.** Install the `bcrypt` package on the server
+(`install.packages("bcrypt")`), and name the file, with the label people
+should see, when starting it:
+
+```r
+atima::run(
+  auth   = "oidc",
+  legacy = c("ATIMA 2 (2019 to 2026)" = "/srv/atima/atima2.sqlite") )
+```
+
+or `ATIMA_LEGACY="ATIMA 2 (2019 to 2026)=/srv/atima/atima2.sqlite"`; several
+entries are separated by `;`. The server only reads the file, and refuses to
+start if it is missing, was not made by `legacy_convert()`, or `bcrypt` is
+not installed.
+
+**3. What people do.** Someone who is signed in finds "Import from an older
+atima" in the menu, enters their old email address and password, and ticks
+the projects to import. What to know:
+
+- The old password is checked, and the projects are decrypted, in memory in
+  a worker process. The password and the keys it unlocks are never written
+  to the database, the log or a file.
+- A project is imported once. If someone else who could open it on the old
+  site imports it later, they are given the same project, with the access
+  they had there (editor or viewer), so sharing carries over as people
+  arrive. Someone who could only view a project can only view it here; if
+  they are the first to import it, it has no editor until one imports it.
+- Public example projects of the old site are not offered; only their
+  editors can import them.
+- After five wrong passwords, a person, and separately the old account they
+  tried, must wait 15 minutes.
+- A person who has forgotten their old password cannot import: nobody,
+  including the administrator, can decrypt their projects without it.
+- When everyone has moved, remove the `legacy` setting and delete the file.
 
 
 ## Development
