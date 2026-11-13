@@ -205,6 +205,21 @@ route_table <- function () {
 
 
     #__________________________________________________________________________
+    # The Model Context Protocol endpoint, through which AI apps use atima
+    # as a set of tools (`R/mcp.R`). It takes JSON-RPC messages, so its
+    # handler gets the request as it came. The route is `public` because
+    # there is no cookie or tab session; who the caller is, and what each
+    # tool needs, is decided per tool call (`tool_call()` in
+    # `R/mcp-tools.R`). Only for a server without accounts, so far.
+
+    route("POST /mcp", "mcp_post", "public", "compute", modes = "none", raw = TRUE, args = list(
+      body    = arg_body(),
+      headers = arg_headers() )),
+
+    route("GET /mcp", "mcp_get", "public", "fast", modes = "none"),
+
+
+    #__________________________________________________________________________
     # BIOM file downloads, fetched by R scripts that have no cookie. The key
     # in the URL is the permission: a project's public or private key, or
     # the session key of an unsaved draft. The rules check that the key

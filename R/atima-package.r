@@ -2,7 +2,7 @@
 #' @noRd
 #' @importFrom DBI dbConnect dbDisconnect dbExecute dbGetQuery dbListTables
 #' @importFrom httpuv runServer staticPath staticPathOptions
-#' @importFrom jsonlite fromJSON toJSON unbox
+#' @importFrom jsonlite base64_dec base64_enc fromJSON toJSON unbox
 #' @importFrom methods formalArgs is
 #' @importFrom openssl rand_bytes rand_num sha256
 #' @importFrom pandoc pandoc_convert

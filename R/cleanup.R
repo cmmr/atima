@@ -14,9 +14,9 @@
 #   6. Files in `<data_dir>/files` that have no `biom_files` row and are
 #      older than `session_ttl` (a job writes its files before the main
 #      process records them, so new ones are left alone).
-#   7. Temporary files: the figures, exports and uploads of a live session
-#      once they are older than `session_ttl`, and anything else in
-#      `temp_dir` once it is an hour old.
+#   7. Temporary files: the figures, exports and uploads of a live session,
+#      and those made for AI apps (`mcp/`), once they are older than
+#      `session_ttl`; anything else in `temp_dir` once it is an hour old.
 #
 # Rules 1 to 5 run in one transaction and lean on the schema's foreign keys:
 # deleting a user removes their permissions, and deleting a project removes
@@ -205,8 +205,9 @@ cleanup_stored_files <- function (DB, config, cutoff) {
 #______________________________________________________________________________
 #' Rule 7: temporary files.
 #'
-#' Each live session has a directory named after its session key. Files in
-#' it are kept until `session_cutoff`; everything else in `temp_dir` is kept
+#' Each live session has a directory named after its session key, and the
+#' files made for tool calls are in `mcp` (`mcp_files()`). Files in those
+#' are kept until `session_cutoff`; everything else in `temp_dir` is kept
 #' until `other_cutoff`. Directories left empty are removed.
 #'
 #' Does nothing if `temp_dir` and `data_dir` overlap, so that a
@@ -228,7 +229,7 @@ cleanup_temp <- function (DB, config, session_cutoff, other_cutoff) {
   for (name in list.files(temp_dir, all.files = TRUE, no.. = TRUE)) {
 
     path   <- file.path(temp_dir, name)
-    cutoff <- if (name %in% live) session_cutoff else other_cutoff
+    cutoff <- if (name %in% live || name == "mcp") session_cutoff else other_cutoff
 
     if (!dir.exists(path)) {
       if (file.mtime(path) < cutoff) n <- n + sum(file.remove(path))

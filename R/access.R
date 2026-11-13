@@ -29,6 +29,13 @@
 # `admin`), may add `account = TRUE` (the caller must be signed in), and may
 # name one of the rules in `access_rules`, which looks at the request's
 # arguments.
+#
+# A tool called through the MCP endpoint (`R/mcp-tools.R`) has no session
+# and no open project: it names its project by key in every call.
+# `caller_project()` applies the same model to that: the caller needs a
+# grant on the project, or the project must be public. Knowing a private
+# key is not enough there, and using one never creates a grant, so that an
+# AI app cannot quietly add projects to someone's tree.
 #______________________________________________________________________________
 
 
@@ -85,6 +92,49 @@ key_project <- function (DB, key) {
   list(
     project_id = res[['project_id']],
     private    = identical(res[['access_key']], key) )
+}
+
+
+#______________________________________________________________________________
+#' The project a tool call names, if its caller may use it that way.
+#'
+#' @param user_id  The caller.
+#' @param key      A private or public project key.
+#' @param level    What the tool asks for: `"editor"` to change the project;
+#'                 anything else needs the caller to be able to read it.
+#' @return The project and the caller's access to it, in the shape of a
+#'         session (`resume_session()`) with no session id or key:
+#'         `user_id`, `project_id`, `access`, `is_editor`, `is_public`,
+#'         `project_key` and the columns of `projects`. Stops with a 404 if
+#'         there is no such project or the caller cannot read it (the same
+#'         answer for both, so that keys cannot be probed), and a 403 if
+#'         they can read it but not change it.
+#' @noRd
+caller_project <- function (DB, user_id, key, level = "viewer") {
+
+  found  <- key_project(DB, key)
+  access <- if (is.null(found)) "none" else project_access(DB, found[['project_id']], user_id)
+
+  if (identical(access, "none"))
+    stop_not_found("There is no project with that key, or you do not have access to it.")
+
+  if (identical(level, "editor") && !identical(access, "editor"))
+    stop_forbidden("You do not have permission to change this project.")
+
+  sql     <- "SELECT * FROM projects WHERE project_id = ?"
+  project <- db_query(DB, sql, "CProj1", list(found[['project_id']]), req1 = TRUE)
+
+  is_public <- !is.na(project[['public_key']])
+
+  c(
+    list(
+      user_id     = user_id,
+      access      = access,
+      is_editor   = identical(access, "editor"),
+      is_public   = is_public,
+      # The key that is safe to show: a private key is a share link.
+      project_key = if (is_public) project[['public_key']] else project[['access_key']] ),
+    project )
 }
 
 

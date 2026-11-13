@@ -16,6 +16,8 @@ importFrom(httpuv,
   staticPathOptions
 )
 importFrom(jsonlite,
+  base64_dec,
+  base64_enc,
   fromJSON,
   toJSON,
   unbox

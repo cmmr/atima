@@ -246,3 +246,14 @@ test_that("XSS payloads in an uploaded file come back escaped from every route",
   resp <- post("/api/project/save_as", list(title = "Evil copy", description = '<a href="javascript:alert(1)">x</a><b>ok</b>'))
   expect_identical(response_json(resp)$BIOM$description, "x<b>ok</b>")
 })
+
+
+test_that("html_text gives a description's text without its elements", {
+
+  expect_identical(html_text("<p>Fifty <b>samples</b> from<br>five sites.</p><ul><li>one</li></ul>"), "Fifty samples fromfive sites.one")
+  expect_identical(html_text("<p>a &lt;script&gt; &amp; more</p>"), "a <script> & more")
+  expect_identical(html_text("plain words"), "plain words")
+  expect_identical(html_text(""), "")
+  expect_identical(html_text(NA_character_), "")
+  expect_identical(html_text(NULL), "")
+})

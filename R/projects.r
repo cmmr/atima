@@ -256,7 +256,7 @@ create_draft <- function (DB, project_id) {
 #______________________________________________________________________________
 
 # Path segments that mean something else to the router or to httpuv.
-reserved_keys <- c("api", "auth", "www", "tmp", "unsaved")
+reserved_keys <- c("api", "auth", "www", "tmp", "unsaved", "mcp", "oauth")
 
 # A public key: 4 to 20 lower-case letters, digits and inner hyphens.
 public_key_pattern <- "^[a-z0-9][a-z0-9\\-]{2,18}[a-z0-9]$"

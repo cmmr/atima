@@ -24,6 +24,7 @@ valid_args <- list(
   "POST /api/metadata/change_class"    = list(col_num = 2),
   "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
+  "POST /mcp"                          = list(body = charToRaw('{"jsonrpc":"2.0"}'), headers = c("mcp-method" = "tools/list")),
   "GET /unsaved/:session_key/:file"    = list(session_key = "12abcDEF", file = "rare.json"),
   "GET /:access_key/:file"             = list(access_key = "hmp50", file = "full.tab.gz"),
   "GET /:access_key"                   = list(access_key = "hmp50") )
@@ -488,6 +489,19 @@ test_that("every route enforces its permission level before calling its handler"
     })
 
   for (r in route_table()) {
+
+    # This server has accounts. The routes that only exist without them
+    # (the MCP endpoint) are tested in test-mcp.R.
+    # (A GET to such a path is then, like any other word after the slash,
+    # a request for the app's page.)
+    if (!("oidc" %in% r$modes)) {
+      if (r$method == "POST") {
+        resp <- handle_request(route_request(r, list(), setup$sessions$editor), setup$app)
+        expect_identical(resp$status, 404L, info = r$endpoint)
+      }
+      next
+    }
+
     for (caller in allowed$public) {
 
       called  <- NULL
@@ -684,4 +698,35 @@ test_that("the index page is served for the app's own URLs", {
     expect_identical(resp$status, 200L, info = path)
     expect_match(resp$headers[['Content-Type']], "text/html", info = path)
   }
+})
+
+
+# Raw routes --------------------------------------------------------------------
+
+test_that("a raw route's handler gets the body and headers as they came", {
+
+  r <- match_route("POST", "/mcp", mode = "none")$route
+  expect_true(r$raw)
+  expect_named(r$args, c("body", "headers"))
+
+  # A raw route declares exactly those two arguments.
+  expect_error(route("POST /x", "mcp_post", "public", raw = TRUE))
+  expect_error(route("POST /x", "mcp_post", "public", raw = TRUE, args = list(body = arg_body())))
+
+  request <- fake_request("POST", "/mcp", charToRaw("not parsed {"), content_type = "text/plain")
+  request$HEADERS <- c("X-Thing" = "1")
+
+  raw <- request_raw(request)
+  expect_identical(rawToChar(raw$body), "not parsed {")
+
+  args <- validate_args(r, raw)
+  expect_identical(args$body, raw$body)
+  expect_identical(args$headers, c("x-thing" = "1"))
+
+  # No body and no headers are an empty body and no headers.
+  empty <- validate_args(r, request_raw(fake_request("POST", "/mcp")))
+  expect_identical(empty$body, raw(0))
+  expect_length(empty$headers, 0)
+
+  expect_error(validate_args(r, list(body = as.raw(rep(1, 2e6)), headers = character(0))), "at most", class = "atima_http_error")
 })

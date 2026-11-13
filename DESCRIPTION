@@ -53,6 +53,7 @@ Imports:
 Suggests:
     bcrypt,
     curl,
+    jsonvalidate,
     openxlsx,
     pkgload,
     RMariaDB,

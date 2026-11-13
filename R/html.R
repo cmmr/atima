@@ -117,3 +117,19 @@ sanitize_nodes <- function (nodes) {
 
   paste(out, collapse = "")
 }
+
+
+#______________________________________________________________________________
+#' The text of a piece of HTML, without its elements: a project description
+#' for a reader that is not a browser.
+#' @noRd
+html_text <- function (html) {
+
+  if (!is_scalar_character(html) || is.na(html) || !nzchar(trimws(html))) return ("")
+
+  text <- tryCatch(
+    expr  = xml2::xml_text(xml2::read_html(paste0("<div>", html, "</div>"))),
+    error = function (e) "" )
+
+  trimws(gsub("[[:space:]]+", " ", text))
+}

@@ -185,6 +185,19 @@ wrong passwords a person, and the old account they tried, must wait 15
 minutes. This needs the 'bcrypt' package.
 }
 
+\section{AI apps}{
+
+With \code{auth = "none"} the server is also a Model Context Protocol (MCP)
+server, at the path \verb{/mcp} (for example \verb{http://127.0.0.1:8080/mcp}). An
+AI app that is given that address can list and describe the local user's
+projects, run 'rbiom' statistics, draw plots and export data, as six
+tools. The tools only read and compute: none of them changes a project.
+What they return is handed to the app, which may send it to its
+provider's servers, so connect an app only if the data may leave this
+computer that way. The endpoint follows revision 2026-07-28 of the MCP
+specification. Shared servers (\code{auth = "oidc"}) do not offer it yet.
+}
+
 \section{Database}{
 
 The database is the file \code{sqlite.db} in \code{data_dir}. When a newer version
