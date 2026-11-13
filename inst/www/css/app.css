@@ -142,7 +142,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 .btn.on-dark:hover { background: rgb(255 255 255 / 12%); }
 .btn.large { font-size: 15px; padding: 10px 18px; }
 
-input[type="text"], input[type="search"], input[type="number"], select, .picker-face, .rich-text {
+input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="password"], select, .picker-face, .rich-text {
   font: inherit; font-size: 13px; color: var(--text);
   width: 100%; min-height: 30px; padding: 4px 8px;
   border: 1px solid var(--line); border-radius: var(--radius); background: #fff;
@@ -303,6 +303,13 @@ table.people select { width: auto; }
 .summary-grid .card { margin: 0; }
 .summary-grid .card.wide { grid-column: 1 / -1; }
 .links { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+/* The import page: a short form, and a list of projects to tick. */
+.form-grid { display: grid; grid-template-columns: max-content minmax(0, 340px); gap: 8px 14px; align-items: center; margin: 14px 0 4px; }
+.form-grid label { font-size: 13px; font-weight: 600; }
+.form-problem { color: var(--danger); font-size: 13px; margin: 8px 0 0; }
+table.data.wrap td:nth-child(2) { white-space: normal; width: 100%; }
+.hint.problem { color: var(--danger); }
+
 .link-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
 .link-row code { background: var(--bg); padding: 3px 7px; border-radius: 4px; overflow-wrap: anywhere; }
 .link-row .hint { flex-basis: 100%; margin: 0; }

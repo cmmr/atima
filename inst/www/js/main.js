@@ -18,6 +18,7 @@ import * as datatable from './pages/datatable.js';
 import * as sharing   from './pages/sharing.js';
 import * as plot      from './pages/plot.js';
 import * as clusters  from './pages/clusters.js';
+import * as legacy    from './pages/legacy.js';
 
 const pages = {
   home:     { show: home.show },
@@ -28,6 +29,7 @@ const pages = {
   sharing:  { show: sharing.show },
   plot:     { show: plot.show },
   clusters: { show: clusters.show },
+  legacy:   { show: legacy.show },
 };
 
 const main    = document.getElementById('main');
@@ -66,7 +68,10 @@ function buildNav() {
       navLink('#/metadata', 'Metadata'),
       navLink('#/taxonomy', 'Taxonomy'),
       store.hasAccounts() ? navLink('#/sharing', 'Sharing') : null),
-    groups);
+    groups,
+    // Only when the administrator registered an older installation, and
+    // only for someone the imported projects can belong to.
+    store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import from an older atima', 'file-import') : null);
 }
 
 function markNav() {
