@@ -33,7 +33,7 @@ it to that step's list instead of fixing it now.
 | 5 | Auth modes, sessions, permissions | done (2026-11-11) |
 | 6 | rbiom 4 schema (R side) | done (2026-11-12) |
 | 7 | Front end: schema-driven controls | done (2026-11-12) |
-| 8 | Legacy data import | not started |
+| 8 | Legacy data import | done (2026-11-12) |
 | 9 | MCP server, local | not started |
 | 10 | Deployment, docs, load testing | not started |
 | 11 | MCP server, shared (sign-in) | not started |
@@ -370,6 +370,60 @@ it to that step's list instead of fixing it now.
   value; palettes for heat maps can be chosen and reversed but not
   entered by hand. (j) Schema version 5 repairs creation dates (see the
   step 7 notes).
+
+- **Legacy import: atima 2 only (step 8).** Daniel said only the database
+  of the live site at atima.research.bcm.edu needs importing. That is
+  atima 2 (Shiny, MariaDB, bcrypt passwords, every object encrypted). He
+  chose to drop the atima 3/4 and pre-renovation 5.x SQLite import, and
+  the claiming of an upgraded 5.x password account that step 5 had left
+  for this step: no other server ever held real accounts. This replaces
+  the list of sources in the "Legacy import" entry above and the
+  "Password accounts after the upgrade (step 5)" plan: password rows in
+  an upgraded 5.x database stay as they are and cannot be claimed.
+  (Found on the way: the code in `archive/atima3.zip` is 4.0.0.9038 and
+  stores data like 5.0.x; and the `migration_*` tables of 4.x and 5.0.x
+  were only ever filled by code that was commented out.)
+- **How the old data is supplied (step 8).** Daniel chose a one-time
+  conversion to SQLite: the administrator runs the exported
+  `legacy_convert(<DBI connection>, <file>)` against the old MariaDB,
+  and starts the server with `run(legacy = c(<label> = <file>))` or
+  `ATIMA_LEGACY`. The running server needs no MariaDB, no driver and no
+  database password, and only reads the file.
+- **Sharing on import (step 8).** Daniel chose: rebuilt as people
+  import. A project is imported once; someone else who could open the
+  old project and imports it later is added to that same project with
+  their old level, instead of getting a copy.
+- **Wrong old passwords (step 8).** Daniel chose: five per 15 minutes,
+  for the signed-in person and separately for the old account, counted
+  in the database so that a restart does not reset them, with the old
+  email address kept only as a hash.
+- **Import design (step 8).** Daniel agreed: the old email address and
+  password are sent with every import request; bcrypt, RSA, AES and all
+  reading of the old database happen in a worker, in memory; one request
+  per project; the metadata, taxonomy and tree that atima 2 kept beside
+  the uploaded BIOM file (and let users edit) are laid over the file, as
+  the old migration code did.
+- **Step 8 choices not put to Daniel.** (a) The first importer gets the
+  level they had, not editor: a viewer who imports first has a project
+  with no editor until an old editor imports it (the question put to
+  Daniel said "becomes its editor"; this is the stricter reading, so
+  that importing never gives anyone more than they had). (b) The public
+  example projects of the old site are not offered: the converter drops
+  the view grants that every account had on them. (c) The converter
+  leaves out names, affiliations, sessions, tokens and cached results;
+  the new account's name comes from the identity provider. (d) An
+  imported project keeps its old creation date and the rarefaction
+  depth it was set to. (e) The import routes exist in both auth modes
+  (the local owner is a user), and the page is linked only when a
+  legacy file is registered. (f) An attempt is counted before the
+  password is checked and taken back when it proves right, so a job
+  that times out or a worker that dies counts as a wrong attempt.
+  (g) `bcrypt` and `RMariaDB` are Suggests; `sodium` did not need to
+  come back, because nothing verifies a scrypt hash now. (h) Schema
+  version 6. (i) atima 2's user key came out of a base64 decoding of
+  text that is not base64, so it depended on the old server's OpenSSL;
+  the adapter tries each key a plausible decoder would have given and
+  lets AES-GCM's authentication choose (see the step 8 notes).
 
 ## Conventions (apply from step 2 onward)
 
@@ -1493,6 +1547,95 @@ or only ownership. **Needed from Daniel before this step:** a database
 snapshot (or a small synthetic one with the real schema) for each source
 version, plus a test account for each.
 
+**Done, for atima 2 only. Decisions are in the decision log. Notes for
+later steps:**
+
+- **Not tested against real data.** The adapter and converter were
+  tested only against a synthetic atima 2 database that the tests build
+  with atima 2's own routines (copied from `lib/Crypto.r` and
+  `lib/ObjectIO.r` in `archive/atima2.zip`). Daniel offered a dump of the
+  live site; it had not arrived when the step ended. Until someone has
+  imported a real project with a real old password, treat the atima 2
+  adapter as unproven. To test when the dump is there (keep it in the
+  gitignored `archive/legacy/`): restore it into a throwaway MariaDB
+  server (the `mariadb` Docker image will do), connect with `RMariaDB`,
+  run `legacy_convert()`, start `run(legacy = )` and import with a test
+  account. The three things most likely to differ from the synthetic
+  data: (1) the user key, below; (2) how `RMariaDB` returns `BIGINT`
+  ids, `DATETIME` and `LONGTEXT` (the converter coerces them, tested
+  only through RSQLite); (3) what today's rbiom makes of old metadata
+  and taxonomy objects (each is laid over in a `tryCatch` and skipped
+  if rbiom refuses it, so a project still imports with what its BIOM
+  file has).
+- **The user key.** atima 2 computed
+  `sha256(base64_decode(substr(bcrypt::hashpw(password, key_salt), 30, 61)))`.
+  Those 31 characters are in bcrypt's own alphabet, not base64. OpenSSL
+  of that time decoded the complete groups of four (28 characters, 21
+  bytes) or, if a `.` was among them, nothing at all, in which case the
+  key is the SHA-256 of nothing: the same for every such account, about
+  a third of them. Today's `openssl` package refuses the text.
+  `atima2_user_keys()` returns the candidates and `atima2_verify()` takes
+  the one that decrypts the private key. If the real data needs another
+  candidate, add it there; a password that verifies but opens no key
+  gives a 500 with "This account's encryption key could not be rebuilt"
+  and a log line naming the old user id. (Worth knowing about the old
+  site, not about this one: for those accounts the private key was in
+  effect not protected by the password. That is inferred from OpenSSL's
+  source and not confirmed on the old server.)
+- Where things are. `R/legacy.R`: the setting (`legacy_setting()`,
+  `legacy_register()`), the handlers `api_legacy_sources()`,
+  `api_legacy_list()`, `api_legacy_import()`, the attempt limit
+  (`legacy_charge()`, `legacy_settle()`), and `secret()` / `reveal()`.
+  `R/legacy-worker.R`: `legacy_adapters()`, `work_legacy_list()`,
+  `work_legacy_import()`. `R/legacy-atima2.R`: the adapter.
+  `R/legacy-convert.R`: `legacy_convert()`, the package's second
+  exported function. `inst/sql/006_legacy.sql`.
+  `inst/www/js/pages/legacy.js`. `tests/testthat/helper-legacy.R` builds
+  the synthetic database.
+- To support another old format: write `verify(con, email, password)`,
+  `projects(con, account)` and `fetch(con, project, dir)` for it, add
+  them to `legacy_adapters()` under a format name, and have a converter
+  write that name into the file's `meta` table. Nothing else changes.
+- Routes: `POST /api/legacy/sources` (`{sources: [{id, label}]}`),
+  `/api/legacy/list` (`source`, `email`, `password`; answers `{projects:
+  [{id, title, created, level, status}]}` with `status` `new`, `shared`
+  or `have`) and `/api/legacy/import` (the same plus `project` and
+  `inflate`; answers `{status, tree_node}` with `status` `imported`,
+  `added` or `have`). All three need an account. A wrong email address
+  or password is a 400 with `error.code == "wrong_credentials"`, the
+  limit a 429. `CONF.legacy` tells the page whether to show the link.
+- `arg_secret()` is a new argument type: the handler gets the value
+  wrapped in an environment (`secret()`), which cannot be printed,
+  deparsed into a logged call stack, or bound as an SQL parameter by
+  accident; `reveal()` unwraps it, and only the adapter does. Use it for
+  anything of the kind that later steps accept (step 11's tokens).
+- Errors a worker meets after it found the password right are returned
+  as a value and turned into a response with `error_response()`, not
+  raised: raising would roll back the transaction that takes the counted
+  attempt back. `legacy_refused()` and `legacy_error()` do this.
+- `work_import()` was split: `import_biom(ctx, full_biom, orig, title,
+  inflate, depth)` is the part that stores a dataset, and the legacy
+  import calls it with the rebuilt object, so a rebuilt project goes
+  through the same code as an upload (including `confirm_inflate`).
+- Verified in a browser (the app's built-in browser pane, Chromium;
+  Windows; `auth = "none"`; a server installed in a scratch library with
+  the synthetic file registered): the link in the navigation, a wrong
+  password and its message, the list of projects, importing three at
+  once (one imported, one that asks about scaling and is imported after
+  "Scale and import", one damaged and refused with a message), the
+  imported project opened with its old date, depth and edited metadata,
+  and the list afterwards saying "Already in your projects". The server
+  log and data directory were searched for the password and the email
+  address: neither is there. **Not verified in a browser:** `auth =
+  "oidc"` (the sign-in card, a second person being added to a project;
+  both are covered by tests), the lock after five wrong passwords (also
+  tested), and more than one registered installation.
+- Left as it is: an unclaimed password account in a database upgraded
+  from 5.0.x keeps its row and projects for ever; `adopt_guest()` was not
+  generalised. The inflate warning shown for an imported project says
+  "Upload the original counts if you have them", which an importer
+  cannot do.
+
 ## Step 9: MCP server, local
 
 An MCP (Model Context Protocol) server lets AI apps (Claude Code, Claude
@@ -1609,6 +1752,20 @@ tables; whether a later version may change data (upload, save).
 - Vignettes: local install, server deployment, OIDC setup, legacy import,
   data-handling notes for local use.
 - pkgdown site.
+- From step 8: the server image needs the `bcrypt` package if a legacy
+  file is registered (the server refuses to start without it), and the
+  legacy file needs a place outside the image, readable by the server
+  only; it is as sensitive as the old database. It is never written to,
+  so it can be mounted read-only. The proxy should rate-limit
+  `/api/legacy/` like the sign-in routes: each check costs a worker
+  about a second of bcrypt, and although a person is locked out after
+  five wrong passwords, the lock is per account. The legacy-import
+  vignette can start from the README section; it should say plainly
+  that a forgotten old password means the projects cannot be recovered
+  by anyone. **Before the public server opens, run a real import** (see
+  the step 8 notes): the adapter has only seen synthetic data.
+  `legacy_attempts` rows older than a day are deleted when the next
+  attempt is made, not by the cleanup timer.
 - From step 2: `vignettes/articles/nginx.Rmd` is stale (it calls
   `run(config = list(...))`, which does not exist) and `vignettes/` is in
   `.Rbuildignore`. `DESCRIPTION` lists `https://cmmr.github.io/atima/` as a
@@ -1840,4 +1997,9 @@ browser also disconnects apps.
   `inst/COPYRIGHTS` file; `DESCRIPTION` names neither yet. The pictures
   under `inst/www/img` (`gallery/`, `AdrienSaraLogo.png`) include files
   the app does not use; decide which to ship.
+- From step 8: the package now exports two functions, `run()` and
+  `legacy_convert()`, and suggests `bcrypt` and `RMariaDB`. Decide
+  whether the legacy import ships in the CRAN release or is removed once
+  the lab's users have moved; it is self-contained (`R/legacy*.R`,
+  `inst/sql/006_legacy.sql`, three routes, one page, one `CONF` field).
 - Delete this file.

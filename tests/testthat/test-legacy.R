@@ -79,7 +79,8 @@ test_that("legacy_convert finds tables whatever the case of their names", {
     DBI::dbExecute(con, sprintf("ALTER TABLE `%s_x` RENAME TO `%s`", table, table))
 
   file <- withr::local_tempfile(fileext = ".sqlite")
-  expect_match(paste(capture_messages(legacy_convert(con, file)), collapse = ""), "3 accounts, 5 projects")
+  said <- paste(capture_messages(legacy_convert(con, file)), collapse = "")
+  expect_match(said, "3 accounts, 5 projects")
 })
 
 
