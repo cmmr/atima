@@ -21,7 +21,7 @@ test_that("every exposed function and parameter is one rbiom has", {
 
   expect_true(all(names(schema_functions) %in% exported))
   expect_true(all(names(schema_functions) %in% covered))
-  expect_true(all(vapply(schema_functions, function (f) f$use, "") %in% c("plot", "clusters")))
+  expect_true(all(vapply(schema_functions, function (f) f$use, "") %in% c("plot", "clusters", "stats")))
 
   exposed <- character(0)
 
@@ -47,9 +47,10 @@ test_that("every exposed function and parameter is one rbiom has", {
       expect_true(is_scalar_character(p$desc) && nzchar(p$desc), info = paste(fn, p$name))
     }
 
-    # A plot function returns a plot, a clustering function a factor.
+    # A plot function returns a plot, a clustering function a factor, a
+    # statistics function a table.
     returns <- rbiom::fn_schema(fn)$returns$type
-    expect_identical(returns, switch(schema_functions[[fn]]$use, plot = "plot", clusters = "factor"), info = fn)
+    expect_identical(returns, switch(schema_functions[[fn]]$use, plot = "plot", clusters = "factor", stats = "table"), info = fn)
 
     # (Whatever the server has installed: a parameter that needs a package
     # it lacks is left out of `params`, but it still exists.)
@@ -104,7 +105,11 @@ test_that("the schema route serves every exposed function to anyone", {
   schema <- response_json(resp)
   expect_named(schema, c("rbiom", "hash", "functions", "palettes", "save", "subset"))
   expect_identical(schema$rbiom, as.character(utils::packageVersion("rbiom")))
-  expect_setequal(names(schema$functions), names(schema_functions))
+  # The browser is told of what it has pages for; the statistics functions
+  # are for the MCP tools only.
+  expect_setequal(names(schema$functions), c(schema_fns("plot"), schema_fns("clusters")))
+  expect_length(schema_fns("stats"), 4)
+  expect_false(any(schema_fns("stats") %in% names(schema$functions)))
 
   box <- schema$functions$adiv_boxplot
   expect_identical(box[c("fn", "use", "area", "label")], list(fn = "adiv_boxplot", use = "plot", area = "alpha", label = "Alpha diversity box plot"))
@@ -671,4 +676,83 @@ test_that("relative abundances are refused until the user agrees to scaling", {
   resp <- s$upload(counts, "counts.biom", inflate = "true")
   expect_identical(resp$status, 200L)
   expect_identical(response_json(resp)$BIOM$depth, 1183L)
+})
+
+
+# JSON Schema for the statistics functions ---------------------------------------
+
+test_that("every function's JSON Schema is a valid schema", {
+
+  s <- biom_summary(rbiom::hmp50, rbiom::rarefy(rbiom::hmp50))
+
+  for (fn in names(schema_functions)) {
+    expect_no_error(schema_validator(fn_json_schema(fn)))
+    expect_no_error(schema_validator(fn_json_schema(fn, s)))
+  }
+})
+
+
+test_that("rbiom's rules about which parameters go together are in the JSON Schema", {
+
+  s <- biom_summary(rbiom::hmp50, rbiom::rarefy(rbiom::hmp50))
+
+  valid <- function (fn, args) schema_validator(fn_json_schema(fn, s))$validate(to_json(args))
+
+  # At least one of two.
+  bdiv <- fn_json_schema("bdiv_stats")
+  expect_match(bdiv$description, "Give at least one of `stat.by`, `regr`.", fixed = TRUE)
+  expect_false(valid("bdiv_stats", list(bdiv = "bray")))
+  expect_true(valid("bdiv_stats",  list(stat.by = "Sex")))
+  expect_true(valid("bdiv_stats",  list(stat.by = "Sex", regr = "Age")))
+
+  # Exactly one of two.
+  expect_match(fn_json_schema("taxa_da")$description, "Give exactly one of `stat.by`, `regr`.", fixed = TRUE)
+  expect_false(valid("taxa_da", structure(list(), names = character(0))))
+  expect_true(valid("taxa_da",  list(regr = "Age")))
+  expect_false(valid("taxa_da", list(stat.by = "Sex", regr = "Age")))
+  expect_false(valid("taxa_forest", list(stat.by = "Sex", regr = "Age")))
+
+  # Needed, or not allowed, with a given test.
+  adiv <- fn_json_schema("adiv_stats")
+  expect_match(adiv$description, 'When `test` is "kruskal": `stat.by` must be given.', fixed = TRUE)
+  expect_match(adiv$description, 'When `test` is "wilcox" or "kruskal": `strata`, `covariates` cannot be used.', fixed = TRUE)
+  expect_false(valid("adiv_stats", list(test = "kruskal")))
+  expect_true(valid("adiv_stats",  list(test = "kruskal", stat.by = "Sex")))
+  expect_false(valid("adiv_stats", list(test = "wilcox", stat.by = "Sex", strata = "Body Site")))
+  expect_true(valid("adiv_stats",  list(test = "emmeans", stat.by = "Sex", strata = "Body Site")))
+  expect_false(valid("adiv_stats", list(test = "emtrends")))
+
+  # What the schema allows, rbiom's own check allows, and the other way round.
+  expect_no_error(check_fn_args("adiv_stats", list(test = "kruskal", stat.by = "Sex"), s))
+  expect_error(check_fn_args("adiv_stats", list(test = "kruskal"), s))
+  expect_error(check_fn_args("bdiv_stats", list(bdiv = "bray"), s))
+  expect_error(check_fn_args("taxa_da", list(stat.by = "Sex", regr = "Age"), s))
+
+  # A plot function without rules has none.
+  expect_null(fn_json_schema("adiv_boxplot")$allOf)
+})
+
+
+test_that("the JSON Schema says what else a parameter takes and when it matters", {
+
+  s <- biom_summary(rbiom::hmp50, rbiom::rarefy(rbiom::hmp50))
+
+  # A value accepted besides field names.
+  by <- fn_json_schema("taxa_stats", s)$properties$stat.by
+  expect_true(".taxa" %in% unlist(lapply(by$anyOf, function (o) o$enum)))
+  expect_true(schema_validator(fn_json_schema("taxa_stats", s))$validate(to_json(list(stat.by = ".taxa"))))
+
+  # Choices that depend on another parameter, and a default that does.
+  test <- fn_json_schema("bdiv_stats")$properties$test
+  expect_match(test$description, "When `regr` is not given, the choices are: adonis2, mrpp, betadisper.", fixed = TRUE)
+  expect_match(test$description, "When `regr` is given, the choices are: mantel, adonis2.", fixed = TRUE)
+  expect_match(test$description, "Default:", fixed = TRUE)
+
+  # A parameter that only matters with another's value.
+  expect_match(fn_json_schema("adiv_stats")$properties$fit$description, 'Only has an effect when `test` is "emmeans" or "emtrends".', fixed = TRUE)
+  expect_match(fn_json_schema("bdiv_stats")$properties$alpha$description, 'Only has an effect when `bdiv` includes "generalized_unifrac".', fixed = TRUE)
+
+  expect_identical(condition_text(list(param = "x", is_null = TRUE)),  "`x` is not given")
+  expect_identical(condition_text(list(param = "x", not_null = TRUE)), "`x` is given")
+  expect_identical(condition_text(list(param = "x", is_not = list("a"))), '`x` is not "a"')
 })

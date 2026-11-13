@@ -436,7 +436,12 @@ rarefy_to <- function (ctx, full, rare, depth) {
   if (identical(as.integer(read_biom(ctx, rare)$depth), as.integer(depth)))
     return (NULL)
 
-  rare_biom <- rarefy(read_biom(ctx, full), depth = as.integer(depth), cpus = ctx[['cpus']])
+  full_biom <- read_biom(ctx, full)
+
+  if (depth > max(sample_sums(full_biom)))
+    stop_user("No sample of this project has ", as.integer(depth), " reads, so it cannot be rarefied to that depth.")
+
+  rare_biom <- rarefy(full_biom, depth = as.integer(depth), cpus = ctx[['cpus']])
 
   list(rare = store_biom(ctx, rare_biom), rare_biom = rare_biom)
 }

@@ -27,9 +27,11 @@
 #______________________________________________________________________________
 
 
-# The rbiom functions a browser may call, with what atima calls them.
-# `use` says how: `plot` through /api/plot, `clusters` through
-# /api/metadata/add_clusters. `area` is for grouping them in a menu.
+# The rbiom functions a remote caller may run, with what atima calls them.
+# `use` says how: `plot` through /api/plot (and the MCP tool `make_plot`),
+# `clusters` through /api/metadata/add_clusters, and `stats`, a statistics
+# table without a figure, through the MCP tool `run_stats` only
+# (`R/mcp-tools.R`). `area` is for grouping them in a menu.
 schema_functions <- list(
   adiv_boxplot   = list(use = "plot",     area = "alpha",       label = "Alpha diversity box plot"),
   adiv_corrplot  = list(use = "plot",     area = "alpha",       label = "Alpha diversity correlation"),
@@ -46,7 +48,14 @@ schema_functions <- list(
   taxa_stacked   = list(use = "plot",     area = "taxa",        label = "Taxa stacked bar plot"),
   taxa_forest    = list(use = "plot",     area = "taxa",        label = "Differential abundance forest plot"),
   taxa_clusters  = list(use = "clusters", area = "taxa",        label = "Cluster samples by taxa abundance"),
-  bdiv_clusters  = list(use = "clusters", area = "beta",        label = "Cluster samples by beta diversity") )
+  bdiv_clusters  = list(use = "clusters", area = "beta",        label = "Cluster samples by beta diversity"),
+  adiv_stats     = list(use = "stats",    area = "alpha",       label = "Alpha diversity statistics"),
+  bdiv_stats     = list(use = "stats",    area = "beta",        label = "Beta diversity statistics"),
+  taxa_stats     = list(use = "stats",    area = "taxa",        label = "Taxa abundance statistics"),
+  taxa_da        = list(use = "stats",    area = "taxa",        label = "Differential abundance statistics") )
+
+# The uses the browser has pages for. Its schema leaves the rest out.
+schema_browser_uses <- c("plot", "clusters")
 
 
 # Parameters that choose what a figure shows are `basic`; those that say how
@@ -309,7 +318,10 @@ browser_schema_json <- function () {
 
   schema_once("browser", {
 
-    functions <- lapply(names(schema_functions), function (fn) {
+    shown <- unlist(lapply(schema_browser_uses, schema_fns))
+    shown <- intersect(names(schema_functions), shown)
+
+    functions <- lapply(shown, function (fn) {
       entry <- rbiom_schema()[[fn]]
       c(
         list(fn = fn),
@@ -318,7 +330,7 @@ browser_schema_json <- function () {
         if (length(entry[['rules']]) > 0) list(rules = entry[['rules']]),
         list(params = unname(schema_params(fn))) )
     })
-    names(functions) <- names(schema_functions)
+    names(functions) <- shown
 
     palettes <- list_palettes()
     palettes <- lapply(seq_len(nrow(palettes)), function (i) list(
@@ -632,6 +644,10 @@ check_subset_args <- function (args, summary = NULL) {
 #' @param summary  A project summary. With one, fields, ranks and metrics
 #'                 are listed as the project has them; without, they are
 #'                 described in words.
+#' rbiom's rules about which parameters go together (exactly one of two, one
+#' needed or not allowed with a given test) are written into the schema's
+#' description, and into the schema itself where JSON Schema can say it.
+#'
 #' @return A list that `jsonlite::toJSON(auto_unbox = TRUE)` turns into a
 #'         JSON Schema object.
 #' @noRd
@@ -639,12 +655,110 @@ fn_json_schema <- function (fn, summary = NULL) {
 
   data   <- if (!is.null(summary)) summary_check_data(summary)
   params <- schema_params(fn)
+  rules  <- fn_rules(fn)
 
-  list(
-    type                 = "object",
-    description          = schema_functions[[fn]][['label']],
-    properties           = lapply(params, param_json_schema, data = data),
-    additionalProperties = FALSE )
+  c(
+    list(
+      type                 = "object",
+      description          = paste(c(paste0(schema_functions[[fn]][['label']], "."), rules_text(rules)), collapse = " "),
+      properties           = lapply(params, param_json_schema, data = data),
+      additionalProperties = FALSE ),
+    rules_json_schema(rules) )
+}
+
+
+#' rbiom's rules for a function, without the ones that name a parameter this
+#' server does not offer.
+#' @noRd
+fn_rules <- function (fn) {
+
+  known <- names(schema_params(fn))
+
+  Filter(x = rbiom_schema()[[fn]][['rules']], function (rule) {
+    named <- unlist(c(
+      rule[c("one_of", "any_of", "requires", "forbids")],
+      lapply(rule[['when']], function (cond) cond[['param']]) ))
+    all(named %in% known)
+  })
+}
+
+
+#' One condition of a rule or of a parameter's `when`, in words.
+#' @param cond  `list(param, is | is_not | has_any | is_null | not_null)`.
+#' @noRd
+condition_text <- function (cond) {
+
+  name   <- paste0("`", cond[['param']], "`")
+  values <- function (key) paste0('"', unlist(cond[[key]]), '"', collapse = " or ")
+
+  if (!is.null(cond[['is']]))      return (paste(name, "is", values("is")))
+  if (!is.null(cond[['is_not']]))  return (paste(name, "is not", values("is_not")))
+  if (!is.null(cond[['has_any']])) return (paste(name, "includes", values("has_any")))
+  if (isTRUE(cond[['is_null']]))   return (paste(name, "is not given"))
+  if (isTRUE(cond[['not_null']]))  return (paste(name, "is given"))
+
+  paste(name, "allows it")
+}
+
+#' Several conditions that must all hold, in words.
+#' @noRd
+conditions_text <- function (conds) {
+  paste(vapply(conds, condition_text, character(1)), collapse = " and ")
+}
+
+
+#' A function's rules as sentences.
+#' @return A character vector, one sentence per rule.
+#' @noRd
+rules_text <- function (rules) {
+
+  ticked <- function (x) paste0("`", unlist(x), "`", collapse = ", ")
+
+  unlist(lapply(rules, function (rule) {
+
+    if (!is.null(rule[['one_of']])) return (paste0("Give exactly one of ", ticked(rule[['one_of']]), "."))
+    if (!is.null(rule[['any_of']])) return (paste0("Give at least one of ", ticked(rule[['any_of']]), "."))
+
+    when <- paste0("When ", conditions_text(rule[['when']]), ": ")
+
+    c(
+      if (!is.null(rule[['requires']])) paste0(when, ticked(rule[['requires']]), " must be given."),
+      if (!is.null(rule[['forbids']]))  paste0(when, ticked(rule[['forbids']]), " cannot be used.") )
+  }))
+}
+
+
+#' A function's rules as JSON Schema keywords, for the rules JSON Schema can
+#' express: "one of", "any of", and "when a parameter has one of these
+#' values, these are required (or not allowed)".
+#' @return `list(allOf = ...)`, or an empty list.
+#' @noRd
+rules_json_schema <- function (rules) {
+
+  required <- function (names) lapply(unlist(names), function (name) list(required = list(name)))
+
+  parts <- lapply(rules, function (rule) {
+
+    if (!is.null(rule[['one_of']])) return (list(oneOf = required(rule[['one_of']])))
+    if (!is.null(rule[['any_of']])) return (list(anyOf = required(rule[['any_of']])))
+
+    when <- rule[['when']]
+    if (!all(vapply(when, function (cond) !is.null(cond[['is']]), logical(1)))) return (NULL)
+
+    names <- vapply(when, function (cond) cond[['param']], character(1))
+    test  <- lapply(when, function (cond) list(enum = as.list(unlist(cond[['is']]))))
+    names(test) <- names
+
+    list(
+      `if`   = list(properties = test, required = as.list(names)),
+      `then` = c(
+        if (!is.null(rule[['requires']])) list(required = as.list(unlist(rule[['requires']]))),
+        if (!is.null(rule[['forbids']]))  list(not = list(anyOf = required(rule[['forbids']]))) ))
+  })
+
+  parts <- Filter(length, parts)
+
+  if (length(parts) == 0) list() else list(allOf = unname(parts))
 }
 
 
@@ -723,12 +837,22 @@ param_json_schema <- function (p, data = NULL) {
   if (many && !is.null(base) && (is.null(forms) || isTRUE(p[['per_side']])))
     options <- c(options, list(several(base, if (isTRUE(p[['per_side']])) 2L else max_n)))
 
+  # Values a field parameter takes besides field names, such as ".taxa".
+  if (!is.null(p[['extra']])) options <- c(options, list(strings(unlist(p[['extra']]))))
+
   if (!is.null(p[['null']])) options <- c(options, list(list(type = "null")))
+
+  # Choices that depend on another parameter, and when this one matters.
+  choices_when <- vapply(p[['choices_when']], FUN.VALUE = character(1), function (case) {
+    paste0("When ", conditions_text(case[['when']]), ", the choices are: ", paste(unlist(case[['choices']]), collapse = ", "), ".") })
 
   description <- paste(c(
     paste0(p[['label']], ". ", p[['desc']]),
     p[['note']],
-    if (!is.null(p[['null']])) paste("null:", p[['null']]) ), collapse = " ")
+    if (!is.null(p[['null']])) paste("null:", p[['null']]),
+    if (!is.null(p[['default_note']])) paste("Default:", p[['default_note']]),
+    choices_when,
+    if (length(p[['when']]) > 0) paste0("Only has an effect when ", conditions_text(p[['when']]), ".") ), collapse = " ")
 
   c(
     list(description = description),

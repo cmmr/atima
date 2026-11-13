@@ -19,6 +19,8 @@
 #' @param checked      Were `plot_args` and `subset_args` checked against the
 #'                     project in the main process? If not, they are checked
 #'                     here first, and the summary used is returned as `data`.
+#' @param keys         What the caller calls `plot_args` and `subset_args`,
+#'                     for the message when one of them fails that check.
 #'
 #' @return `list(file)`, the image's name inside `out_dir`. If the project
 #'         had to be rarefied to `depth` first, also `rare` and `data` (see
@@ -27,7 +29,8 @@
 #' @noRd
 work_plot <- function (
     ctx, full, rare, out_dir, plot_fn, plot_args, save_args,
-    subset_args = list(), depth = NULL, attrs = FALSE, checked = TRUE ) {
+    subset_args = list(), depth = NULL, attrs = FALSE, checked = TRUE,
+    keys = c("plot_args", "subset_args") ) {
 
   worker_init(ctx)
 
@@ -40,8 +43,8 @@ work_plot <- function (
   #________________________________________________________
   if (!isTRUE(checked)) {
     data        <- cached_summary(ctx, full, rare)
-    plot_args   <- worker_check("plot_args",   check_fn_args(plot_fn, plot_args, data))
-    subset_args <- worker_check("subset_args", check_subset_args(subset_args, data))
+    plot_args   <- worker_check(keys[[1]], check_fn_args(plot_fn, plot_args, data))
+    subset_args <- worker_check(keys[[2]], check_subset_args(subset_args, data))
     result[['data']] <- data
   }
 
