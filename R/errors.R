@@ -104,17 +104,18 @@ stop_db <- function (err_code, parent, sql = NULL, params = NULL) {
 
 
 #______________________________________________________________________________
-#' Turn an error into the response for the browser, and log the details.
+#' Log an error, and work out what its caller may be told about it.
 #'
 #' @param e      The condition that was caught.
 #' @param REQ    The request environment, if one had been built.
 #' @param calls  The call stack at the point of the error, from
 #'               `sys.calls()`.
-#' @return A `response()` whose body is
-#'         `{"error": {"message": <string>, "id": <string>}}`, with a
-#'         `code` as well if the error has one.
+#' @return `list(status, message, id, code)`: the HTTP status, the message
+#'         that is safe to show (the error's own if it was written for the
+#'         user, else "Internal error ..."), the id the details were logged
+#'         under, and the error's `code` or `NULL`.
 #' @noRd
-error_response <- function (e, REQ = NULL, calls = NULL) {
+error_report <- function (e, REQ = NULL, calls = NULL) {
 
   id <- random_string(8)
 
@@ -148,6 +149,29 @@ error_response <- function (e, REQ = NULL, calls = NULL) {
     params   = params,
     calls    = if (status >= 500L) format_calls(e[['stack']] %||% calls) )
 
+  list(
+    status  = status,
+    message = message,
+    id      = id,
+    code    = if (inherits(e, "atima_http_error") && is_scalar_character(e[['code']])) e[['code']] )
+}
+
+
+#______________________________________________________________________________
+#' Turn an error into the response for the browser, and log the details.
+#'
+#' @param e,REQ,calls  As for `error_report()`.
+#' @return A `response()` whose body is
+#'         `{"error": {"message": <string>, "id": <string>}}`, with a
+#'         `code` as well if the error has one.
+#' @noRd
+error_response <- function (e, REQ = NULL, calls = NULL) {
+
+  report  <- error_report(e, REQ, calls)
+  status  <- report[['status']]
+  message <- report[['message']]
+  id      <- report[['id']]
+
   # A page that a person is looking at gets something readable.
   if (isTRUE(REQ[['ROUTE']][['html']]))
     return (response(status = status, body = paste0(
@@ -161,7 +185,7 @@ error_response <- function (e, REQ = NULL, calls = NULL) {
       '<p><a class="btn primary" href="/">Back to ATIMA</a></p>',
       '</div></main></body></html>' )))
 
-  code <- if (inherits(e, "atima_http_error") && is_scalar_character(e[['code']])) list(code = unbox(e[['code']]))
+  code <- if (!is.null(report[['code']])) list(code = unbox(report[['code']]))
 
   response(
     body   = list(error = c(list(message = unbox(message), id = unbox(id)), code)),

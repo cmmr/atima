@@ -50,6 +50,12 @@ lanes             <- c("fast", "compute")
 #'                    page, since links gather tracking parameters.
 #' @param html        Is the route a page that people see? Its errors are
 #'                    then sent as a small HTML page instead of JSON.
+#' @param raw         Hand the handler the request as it came, as the two
+#'                    arguments `body` (a raw vector) and `headers` (a named
+#'                    character vector), instead of the arguments read from
+#'                    it? For a route that speaks a protocol of its own
+#'                    (`/mcp`), whose handler then parses the body and
+#'                    reports what is wrong with it in that protocol's terms.
 #' @param lane        `"fast"` for database-only work, `"compute"` for
 #'                    anything that reads a BIOM file or calls rbiom. Only
 #'                    a `compute` handler may return a `job()`.
@@ -65,7 +71,8 @@ lanes             <- c("fast", "compute")
 #' @noRd
 route <- function (
     endpoint, handler, permission, lane = "fast", args = list(), supersede = FALSE,
-    account = FALSE, rule = NULL, modes = auth_modes, strict = TRUE, html = FALSE ) {
+    account = FALSE, rule = NULL, modes = auth_modes, strict = TRUE, html = FALSE,
+    raw = FALSE ) {
 
   parts <- strsplit(endpoint, " ", fixed = TRUE)[[1]]
 
@@ -84,6 +91,8 @@ route <- function (
     is.character(modes), length(modes) > 0, all(modes %in% auth_modes),
     is_bool(strict),
     is_bool(html),
+    is_bool(raw),
+    !raw || identical(names(args), c("body", "headers")),
     is.list(args),
     length(args) == 0 || (!is.null(names(args)) && all(grepl("^[a-z_]+$", names(args)))),
     all(vapply(args, inherits, logical(1), "arg_spec")) )
@@ -106,6 +115,7 @@ route <- function (
     modes       = modes,
     strict      = strict,
     html        = html,
+    raw         = raw,
     args        = args ))
 }
 
@@ -186,6 +196,28 @@ arg_html <- function (max = 10000L, ...) {
     if (nchar(x) > max) stop("must be at most ", max, " characters")
     x <- sanitize_html(x)
     if (nchar(x) > max) stop("must be at most ", max, " characters")
+    x
+  })
+}
+
+#' The body of a request, untouched, for a `raw` route.
+#' @param max  The most bytes to accept.
+#' @noRd
+arg_body <- function (max = 1048576L, ...) {
+  arg_spec("body", ..., check = function (x) {
+    if (!is.raw(x)) stop("must be the request's body")
+    if (length(x) > max) stop("must be at most ", max, " bytes")
+    x
+  })
+}
+
+#' The headers of a request, for a `raw` route: a character vector named by
+#' header, in lower case.
+#' @noRd
+arg_headers <- function (...) {
+  arg_spec("headers", ..., check = function (x) {
+    if (!is.character(x) || (length(x) > 0 && is.null(names(x)))) stop("must be the request's headers")
+    names(x) <- tolower(names(x))
     x
   })
 }
@@ -549,8 +581,8 @@ handle_request <- function (request, app) {
 
     check_permission(REQ, route)
 
-    args <- c(request_args(request), matched[['params']])
-    args <- validate_args(route, args, REQ)
+    args <- if (route[['raw']]) request_raw(request) else request_args(request)
+    args <- validate_args(route, c(args, matched[['params']]), REQ)
 
     check_rule(REQ, route, args)
 
@@ -576,25 +608,38 @@ handle_request <- function (request, app) {
   finish <- function (outcome) {
     request_done(REQ, started, request_stage(REQ, {
 
-      result <- job_value(outcome())
+      # A job that says what to answer when it fails gets to say it; any
+      # other failure is this request's error.
+      result <- tryCatch(
+        expr  = list(value = job_value(outcome())),
+        error = function (e) {
+          if (is.null(out[['failed']])) stop(e)
+          list(failed = out[['failed']](e))
+        })
 
-      db_transaction(REQ[['DB']], {
+      if (!is.null(result[['failed']])) {
+        result[['failed']]
 
-        # Other requests ran in the meantime. Reload the session, and give
-        # up if it has moved on to a different project.
-        if (!is.null(session[['session_key']])) {
-          resume_session(REQ, session[['auth_token']], session[['session_key']])
-          if (!identical(REQ[['SESSION']][['draft_id']], session[['draft_id']]))
-            stop_http(409L, "The open project changed while this was running.")
-        }
+      } else {
 
-        resp <- out[['finish']](result)
+        db_transaction(REQ[['DB']], {
 
-        if (inherits(resp, "job"))
-          stop("The finish step of a job returned another job: ", out[['fn']])
+          # Other requests ran in the meantime. Reload the session, and give
+          # up if it has moved on to a different project.
+          if (!is.null(session[['session_key']])) {
+            resume_session(REQ, session[['auth_token']], session[['session_key']])
+            if (!identical(REQ[['SESSION']][['draft_id']], session[['draft_id']]))
+              stop_http(409L, "The open project changed while this was running.")
+          }
 
-        resp
-      })
+          resp <- out[['finish']](result[['value']])
+
+          if (inherits(resp, "job"))
+            stop("The finish step of a job returned another job: ", out[['fn']])
+
+          resp
+        })
+      }
     }))
   }
 
@@ -644,6 +689,7 @@ request_done <- function (REQ, started, resp) {
     event   = "request",
     method  = REQ[['METHOD']],
     path    = REQ[['ROUTE']][['path']] %||% "(no route)",
+    rpc     = REQ[['RPC']],
     status  = resp[['status']],
     ms      = round(as.numeric(difftime(Sys.time(), started, units = "secs")) * 1000),
     user_id = REQ[['SESSION']][['user_id']] )
@@ -682,6 +728,21 @@ request_client <- function (request, config = list()) {
     oidc_login  = oidc_login,
     https       = request_is_https(request, config),
     ip_address  = request[['REMOTE_ADDR']] %||% "" )
+}
+
+
+#______________________________________________________________________________
+#' A request as it came, for a `raw` route: its body and its headers.
+#' @return `list(body = <raw>, headers = <named character>)`
+#' @noRd
+request_raw <- function (request) {
+
+  body  <- NULL
+  input <- request[['rook.input']]
+  if (identical(request[['REQUEST_METHOD']], "POST") && !is.null(input) && is.function(input$read))
+    body <- input$read()
+
+  list(body = body %||% raw(0), headers = request[['HEADERS']] %||% character(0))
 }
 
 

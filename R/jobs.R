@@ -31,11 +31,16 @@
 #' @param finish  A function of the job's result that returns the handler's
 #'                response. It runs in the main process inside a database
 #'                transaction, after the router has reloaded the session.
+#' @param failed  A function of the error a failed job ended with (a 400
+#'                from the worker, a time-out, a full queue, a crash) that
+#'                returns the response to send instead. Without one the
+#'                router answers as it does for any error. For callers that
+#'                report errors in a form of their own (`R/mcp.R`).
 #' @return An object of class `job`, for a handler to return.
 #' @noRd
-job <- function (fn, args = list(), finish = function (result) result) {
-  stopifnot(is_scalar_character(fn), is.list(args), is.function(finish))
-  structure(list(fn = fn, args = args, finish = finish), class = "job")
+job <- function (fn, args = list(), finish = function (result) result, failed = NULL) {
+  stopifnot(is_scalar_character(fn), is.list(args), is.function(finish), is.null(failed) || is.function(failed))
+  structure(list(fn = fn, args = args, finish = finish, failed = failed), class = "job")
 }
 
 
