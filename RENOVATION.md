@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 12).
+at release (step 13).
 
 ## How each step runs
 
@@ -37,7 +37,8 @@ it to that step's list instead of fixing it now.
 | 9 | MCP server, local | done (2026-11-13) |
 | 10 | Deployment, docs, load testing | not started |
 | 11 | MCP server, shared (sign-in) | not started |
-| 12 | Release | not started |
+| 12 | Usage monitoring | not started |
+| 13 | Release | not started |
 
 ## Decision log
 
@@ -68,7 +69,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 12 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 13 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -508,6 +509,13 @@ it to that step's list instead of fixing it now.
   they may be cached for five minutes, by anyone (`cacheScope:
   "public"`). (l) `jsonvalidate` (and with it V8) is a Suggests, used
   only by tests, which skip without it.
+- **Usage monitoring (added 2026-11-13).** Daniel asked for an
+  administrators' page that quantifies atima's use among researchers
+  (active users over time, where they come from, browser against MCP,
+  which analyses) and shows when the server is outgrown. It is step 12,
+  and release moved to step 13. His reason: in academia a tool that many
+  people use is what earns grant money, so the numbers must measure
+  reach and repeat use, not the usual profit-focused statistics.
 
 ## Conventions (apply from step 2 onward)
 
@@ -2272,12 +2280,141 @@ and other apps to the lab's server and work with their own projects.
     specification describes it under "dual-era" servers.
 
 Decisions for Daniel: whether this ships in the first release (if not, it
-moves after step 12 and the status table says so); atima as its own
+moves after step 13 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
 browser also disconnects apps.
 
-## Step 12: Release
+## Step 12: Usage monitoring
+
+An administrators' page on the shared server that answers two questions
+with numbers that hold up in a grant application or a paper: how many
+researchers use atima, from where, for what; and is the server still big
+enough for them. This is not product analytics: no funnels, conversion or
+revenue, and no following of individual people. Added by Daniel on
+2026-11-13; it comes after steps 10 and 11 so that it covers the deployed
+server (client addresses behind the proxy, the per-account job limit) and
+both interfaces in both modes.
+
+What the reading for this step turned up (check again when the step runs):
+
+- Count people who did work, not page loads. Galaxy's public servers
+  report "registered" and "active" users separately, where active means
+  "ran at least one job in the period", next to jobs per month, countries
+  reached and citing publications. Use the same definitions so the
+  numbers can be compared, and print each definition on the page.
+- No single number is trustworthy. Afiaz et al., "Evaluation of software
+  impact designed for biomedical research" (2023, arXiv 2306.03255, from
+  NCI's ITCR programme) recommend several measures side by side, stated
+  transparently, and warn that a metric that is chased stops meaning
+  anything. Show counts with what they leave out (bots, the lab's own
+  use, load tests).
+- Privacy-preserving counting is an established pattern (Plausible,
+  GoatCounter, Swetrix and others): no cookie, no stored address;
+  visitors without an account are told apart for one day by a hash of
+  address, user agent and a secret that is replaced daily and never
+  written to disk. The cost, to be stated on the page: such a visitor
+  counts again on another day, so weekly and monthly "unique" numbers are
+  only exact for people with an account (guests included, since a guest
+  is a row in `users`).
+
+What exists to build on, and what does not:
+
+- `request_done()` (`R/router.R`) logs one `request` line per request
+  with path, status, duration and user id, to stderr or a file. A log
+  file is not something the server can chart from, and it has no
+  function name, interface or waiting time. `users.seen_utc` records the
+  last visit only.
+- The job layer (`R/jobs.R`) does not record when a job was submitted,
+  when a worker took it, or whether the answer came from the cache.
+  Recording those is the main addition to the design.
+- `/mcp` goes through the same router, and `initialize` carries the
+  client's name (`clientInfo`), which tells Claude Code from other apps.
+- The schema gives every function an `area` (`alpha`, `beta`, `taxa`,
+  `rarefaction`) and a `use`, which is the grouping the charts need.
+
+To build:
+
+- Recording, in one place (the router and the job layer, never in
+  handlers), into tables added by migration `inst/sql/007_<name>.sql`:
+  - Actions: time, who (user id, or the daily hash for a visitor with no
+    session), interface (`ui` or `mcp`, and the MCP client's name), kind
+    (visit, plot, statistics, table, clusters, export, upload, save,
+    share, publish, import), function and area, outcome (done, rejected
+    argument, failed, replaced, cancelled, timed out, refused for load),
+    time waiting for a worker, time running, cache hit. No argument
+    values, field names, titles or anything else from a user's data.
+  - Arrivals, once per visit: the referring host and path (query string
+    dropped, atima's own pages ignored), read from the `Referer` header
+    of the page request; country; and the network's organisation. Many
+    sites send only their origin, so paths will be sparse.
+  - Country and organisation come from the client address looked up in an
+    offline database file the administrator supplies (the address is
+    then discarded; nothing is sent to a lookup service). The
+    organisation that owns the network is what makes "used at N
+    institutions" countable, since universities and institutes mostly
+    run their own networks. Behind the proxy this needs the forwarded
+    address from a trusted header, which is step 10's configuration.
+  - Capacity samples on a timer: workers busy, jobs waiting, and space
+    used under `data_dir`.
+  - Daily roll-ups, so raw rows can be deleted after a set time while
+    the long charts survive. Distinct people per week, month and year
+    cannot be added up from daily counts: keep one small row per person
+    per active day, or compute the period counts at roll-up time.
+  - Excluded from every count but kept visible as their own line:
+    administrators, recognised bots and health checks, and load tests.
+- The page (administrators only, declared in the route table like any
+  other route), with a date range, every chart's data downloadable as
+  CSV, and a "summary for a report" for a chosen period (a grant year)
+  that gives the headline numbers with their definitions:
+  - Reach: active users in the last 7, 30, 90 and 365 days and in total,
+    beside registered accounts; active users per day, week and month
+    over time; cumulative users over time; new against returning users
+    per month.
+  - Repeat use, which is what separates a tool people rely on from one
+    they tried once: the share of each month's new users seen again in
+    later months (a cohort table), and how many days each user was
+    active in the last 90 (a histogram).
+  - Where from: countries (ranked bars, and the count of countries);
+    institutions or networks (ranked, and the count); referring sites
+    and pages; sign-in provider.
+  - What for: jobs per month stacked by area; functions ranked (which
+    answers boxplot against corrplot); browser against MCP over time,
+    and which MCP apps; datasets uploaded, projects analysed, exports,
+    shares, published projects and legacy imports per month.
+  - Capacity: median and 95th-percentile wait for a worker per day, with
+    the share of jobs that waited more than 1 and more than 10 seconds;
+    worker use and longest queue per hour; a weekday by hour-of-day heat
+    map of load; requests refused for load (503, 429) and timed out
+    (504); 95th-percentile run time per function; cache hit rate; disk
+    use against capacity. One plain sentence at the top says whether the
+    server is keeping up, by a stated rule (for example: the
+    95th-percentile wait passed 5 seconds on more than 3 of the last 30
+    days).
+- Tests: every kind of action is recorded once and with the right
+  interface; nothing from a request's arguments reaches the tables; the
+  daily secret is not stored; roll-ups match the raw rows; the page and
+  its data routes refuse everyone but administrators; the charts' data
+  routes answer for an empty database. Run step 10's load test and check
+  that the capacity charts show it.
+- Docs: what is recorded and what is not, in words that can go into the
+  site's privacy notice; how to supply the lookup file; and where the
+  numbers this page cannot give come from (citations, CRAN or r-universe
+  downloads, GitHub stars). Local installs are invisible by design.
+
+Decisions for Daniel: whether anything is recorded in `auth = "none"`
+(recommended: nothing, and no page; a local install must never report
+use to anyone); which lookup database, given their licences (DB-IP Lite,
+MaxMind GeoLite2), and whether institutions are taken from the network,
+from the sign-in provider, or both; how long raw rows are kept; whether
+visitors who never start a session are counted at all; how charts are
+drawn with no chart library in the front end (hand-written SVG, one
+small vendored library, or figures drawn in R); whether a public
+"atima in numbers" page is wanted later, which would need small counts
+hidden; and whether Baylor has rules on recording use of a public
+research server that this must follow.
+
+## Step 13: Release
 
 - Version, NEWS, citation, DOI.
 - CRAN or r-universe submission. Remove `Remotes: cmmr/rbiom` from
