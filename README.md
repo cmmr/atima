@@ -161,9 +161,20 @@ not installed.
 atima" in the menu, enters their old email address and password, and ticks
 the projects to import. What to know:
 
+- The import runs on the server, in the background, one project at a time
+  per person. People can keep working, or close the page, while it runs,
+  and are told when it is done. Most projects take a few seconds; one with
+  tens of thousands of taxa can take several minutes.
 - The old password is checked, and the projects are decrypted, in memory in
-  a worker process. The password and the keys it unlocks are never written
-  to the database, the log or a file.
+  a worker process. The server keeps the password in memory while that
+  person's import runs and drops it when the last project is done. The
+  password and the keys it unlocks are never written to the database, the
+  log or a file. Restarting the server ends running imports; what was
+  imported stays, and the rest can be started again.
+- Samples, metadata, taxonomy and tree come over as the project last had
+  them on the old site, with the creation date and rarefaction depth. A
+  project whose counts are not whole numbers is only imported after the
+  person has agreed to have them scaled, as for an upload.
 - A project is imported once. If someone else who could open it on the old
   site imports it later, they are given the same project, with the access
   they had there (editor or viewer), so sharing carries over as people

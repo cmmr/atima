@@ -397,12 +397,19 @@ it to that step's list instead of fixing it now.
   for the signed-in person and separately for the old account, counted
   in the database so that a restart does not reset them, with the old
   email address kept only as a hash.
-- **Import design (step 8).** Daniel agreed: the old email address and
-  password are sent with every import request; bcrypt, RSA, AES and all
-  reading of the old database happen in a worker, in memory; one request
-  per project; the metadata, taxonomy and tree that atima 2 kept beside
-  the uploaded BIOM file (and let users edit) are laid over the file, as
-  the old migration code did.
+- **Import design (step 8).** Daniel agreed: bcrypt, RSA, AES and all
+  reading of the old database happen in a worker, in memory; the
+  metadata, taxonomy and tree that atima 2 kept beside the uploaded BIOM
+  file (and let users edit) are laid over the file, as the old migration
+  code did.
+- **Imports run in the background (step 8, 2026-11-13).** Daniel asked
+  for this once the real data showed how long imports take: "Import
+  selected" is one request that hands the server the list and returns;
+  the server imports one project at a time per person and the person
+  keeps using the site. This replaces "one request per project". Its
+  cost, accepted: the old password stays in the main process's memory
+  (never on disk) for as long as that person's import runs, and a
+  restart ends running imports.
 - **Step 8 choices not put to Daniel.** (a) The first importer gets the
   level they had, not editor: a viewer who imports first has a project
   with no editor until an old editor imports it (the question put to
@@ -416,14 +423,26 @@ it to that step's list instead of fixing it now.
   depth it was set to. (e) The import routes exist in both auth modes
   (the local owner is a user), and the page is linked only when a
   legacy file is registered. (f) An attempt is counted before the
-  password is checked and taken back when it proves right, so a job
-  that times out or a worker that dies counts as a wrong attempt.
+  password is checked and taken back when it proves right, so a check
+  that times out or whose worker dies counts as a wrong attempt. Only
+  "find my projects" and "start" are counted; the projects of a started
+  import are not, since its password has been checked.
   (g) `bcrypt` and `RMariaDB` are Suggests; `sodium` did not need to
   come back, because nothing verifies a scrypt hash now. (h) Schema
   version 6. (i) atima 2's user key came out of a base64 decoding of
   text that is not base64, so it depended on the old server's OpenSSL;
   the adapter tries each key a plausible decoder would have given and
   lets AES-GCM's authentication choose (see the step 8 notes).
+  Decided after the real data was tried (2026-11-13): (j) atima 2's
+  stored MD5 of each object is not checked, because it is wrong for
+  objects that decrypt and read correctly; AES-GCM already refuses
+  anything altered. (k) A sample that atima 2's metadata table has no
+  row for is kept, with empty metadata, as atima 2 showed it; laying
+  the table over the file as it is would have dropped such samples
+  (10 to 106 of them in three of the first twelve real projects).
+  (l) One project of a background import may run for 15 minutes
+  (`legacy_time_limit`), not the 60 seconds a request gets. (m) Each
+  person has one import at a time, kept until they start another.
 
 ## Conventions (apply from step 2 onward)
 
@@ -1550,23 +1569,36 @@ version, plus a test account for each.
 **Done, for atima 2 only. Decisions are in the decision log. Notes for
 later steps:**
 
-- **Not tested against real data.** The adapter and converter were
-  tested only against a synthetic atima 2 database that the tests build
-  with atima 2's own routines (copied from `lib/Crypto.r` and
-  `lib/ObjectIO.r` in `archive/atima2.zip`). Daniel offered a dump of the
-  live site; it had not arrived when the step ended. Until someone has
-  imported a real project with a real old password, treat the atima 2
-  adapter as unproven. To test when the dump is there (keep it in the
-  gitignored `archive/legacy/`): restore it into a throwaway MariaDB
-  server (the `mariadb` Docker image will do), connect with `RMariaDB`,
-  run `legacy_convert()`, start `run(legacy = )` and import with a test
-  account. The three things most likely to differ from the synthetic
-  data: (1) the user key, below; (2) how `RMariaDB` returns `BIGINT`
-  ids, `DATETIME` and `LONGTEXT` (the converter coerces them, tested
-  only through RSQLite); (3) what today's rbiom makes of old metadata
-  and taxonomy objects (each is laid over in a `tryCatch` and skipped
-  if rbiom refuses it, so a project still imports with what its BIOM
-  file has).
+- **Tested against the live site's data (2026-11-13).** Daniel supplied
+  a `mysqldump` of the live atima 2 database (MariaDB 10.3, taken with
+  the commands in the session's notes) and one account. It was restored
+  into a throwaway `mariadb:10.11` container, converted with
+  `legacy_convert()` through `RMariaDB` (35 seconds; 368 accounts with
+  projects, 5,152 projects, 19,407 objects, an 854 MB file), and
+  registered with a running server. The account's password verified,
+  its 73 projects were listed, and all 73 were imported, first through
+  the worker function and then through the running server's routes, and
+  each was read back with rbiom. Eight needed their counts scaled.
+  What this did and did not show:
+  - The user key: the "complete groups of four" candidate opened this
+    account's private key. The "nothing decoded" candidate, for accounts
+    whose hash has a `.` early on, has not met real data, because one
+    account's password is all there was. If such an account cannot
+    import, the message and log line described below will say so.
+  - Old initialisation vectors: 57 accounts and 1,499 small objects in
+    the dump have 16-byte vectors, of which the first 12 are used.
+    Whether this account's projects include such objects was not
+    checked one by one; all 73 decrypted.
+  - `RMariaDB` returns the ids as 64-bit integers and the dates as
+    times; the converter's coercions handled both.
+  - Time: the median project took 5 seconds, but seven took over a
+    minute and the longest 265 seconds; those have 50,000 to 120,000
+    taxa. Hence the background import and its own time limit.
+  - Found and fixed: a wrong stored MD5 on a readable project, and
+    samples without a metadata row being dropped (decision log, (j)
+    and (k)).
+  The dump, the converted file and the account are in the gitignored
+  `archive/legacy/` on the dev machine. They are real users' data.
 - **The user key.** atima 2 computed
   `sha256(base64_decode(substr(bcrypt::hashpw(password, key_salt), 30, 61)))`.
   Those 31 characters are in bcrypt's own alphabet, not base64. OpenSSL
@@ -1596,14 +1628,35 @@ later steps:**
   `projects(con, account)` and `fetch(con, project, dir)` for it, add
   them to `legacy_adapters()` under a format name, and have a converter
   write that name into the file's `meta` table. Nothing else changes.
-- Routes: `POST /api/legacy/sources` (`{sources: [{id, label}]}`),
-  `/api/legacy/list` (`source`, `email`, `password`; answers `{projects:
-  [{id, title, created, level, status}]}` with `status` `new`, `shared`
-  or `have`) and `/api/legacy/import` (the same plus `project` and
-  `inflate`; answers `{status, tree_node}` with `status` `imported`,
-  `added` or `have`). All three need an account. A wrong email address
-  or password is a 400 with `error.code == "wrong_credentials"`, the
-  limit a 429. `CONF.legacy` tells the page whether to show the link.
+- Routes, all for people with an account: `POST /api/legacy/sources`
+  (`{sources: [{id, label}]}`); `/api/legacy/list` (`source`, `email`,
+  `password`; answers `{projects: [{id, title, created, level,
+  status}]}` with `status` `new`, `shared` or `have`);
+  `/api/legacy/start` (the same plus `projects`, a list of old ids, and
+  `inflate`; starts the background import and answers as `status`
+  does, or 409 if the person already has one running);
+  `/api/legacy/status` (`tree`, default false; answers `{active,
+  source, projects: [{id, title, state, message}], tree?}` with `state`
+  one of `queued`, `running`, `imported`, `added`, `have`,
+  `needs_scaling`, `failed`, `cancelled`); `/api/legacy/cancel`. A
+  wrong email address or password is a 400 with `error.code ==
+  "wrong_credentials"`, the limit a 429. `CONF.legacy` tells the page
+  whether to show the link.
+- How a background import runs. `api_legacy_start()` checks the
+  password with a job like any compute route, then makes a batch in
+  `REQ$LEGACY` (an environment in the app state, by user id) and
+  returns. `legacy_advance()` gives the batch's next project to the
+  pool with `pool_submit()` (no session, no supersede, its own time
+  limit), `legacy_record()` writes the result in a transaction of its
+  own, and the two take turns through `later::later()` until nothing is
+  queued. A full queue (503) is retried every 5 seconds. A project that
+  fails for a reason nobody planned gets the state `failed` with an
+  error id, and a `legacy_import_failed` line in the log. New log
+  events: `legacy_start`, `legacy_list`, `legacy_import`,
+  `legacy_import_failed`, `legacy_done`. In the browser,
+  `watchImport()` in `js/pages/legacy.js` polls the status every 3
+  seconds while an import runs, from whichever page is open (`main.js`
+  starts it), and fetches the project tree when a project has arrived.
 - `arg_secret()` is a new argument type: the handler gets the value
   wrapped in an environment (`secret()`), which cannot be printed,
   deparsed into a logged call stack, or bound as an SQL parameter by
@@ -1619,14 +1672,21 @@ later steps:**
   through the same code as an upload (including `confirm_inflate`).
 - Verified in a browser (the app's built-in browser pane, Chromium;
   Windows; `auth = "none"`; a server installed in a scratch library with
-  the synthetic file registered): the link in the navigation, a wrong
-  password and its message, the list of projects, importing three at
-  once (one imported, one that asks about scaling and is imported after
-  "Scale and import", one damaged and refused with a message), the
-  imported project opened with its old date, depth and edited metadata,
-  and the list afterwards saying "Already in your projects". The server
-  log and data directory were searched for the password and the email
-  address: neither is there. **Not verified in a browser:** `auth =
+  the synthetic file registered, and the synthetic account): the link in
+  the navigation, a wrong password and its message, the list of
+  projects, starting an import of three and leaving for a plot page
+  while it ran (the figure was drawn, and the notice said when the
+  import had finished), the result (one imported, one waiting for
+  agreement to scale, one damaged and refused with a message), "Scale
+  and import" after typing the password again, and the imported project
+  opened with its old date, depth and edited metadata. The real
+  account's import was driven over HTTP by a script, not typed into the
+  browser: while its 73 projects were imported, a status request took
+  about 30 ms and a box plot of another project about 0.4 seconds. The
+  server log and data directory were searched for the password and the
+  email address: neither is there. **Not verified in a browser:**
+  cancelling a running import (tested), the real account's projects
+  on screen, `auth =
   "oidc"` (the sign-in card, a second person being added to a project;
   both are covered by tests), the lock after five wrong passwords (also
   tested), and more than one registered installation.
@@ -1762,8 +1822,16 @@ tables; whether a later version may change data (upload, save).
   five wrong passwords, the lock is per account. The legacy-import
   vignette can start from the README section; it should say plainly
   that a forgotten old password means the projects cannot be recovered
-  by anyone. **Before the public server opens, run a real import** (see
-  the step 8 notes): the adapter has only seen synthetic data.
+  by anyone. The adapter has imported one real account's 73 projects
+  (see the step 8 notes); when the public server opens, watch the log
+  for `legacy_import_failed` and for "encryption key could not be
+  rebuilt", which would mean an account whose key was derived the other
+  way. A background import holds a worker for up to 15 minutes per
+  project, one project per person at a time, so with `workers = 1`
+  everyone's figures wait behind it: give the public server at least
+  two workers. Imports are not counted by step 10's per-account job
+  limit unless that is added to `legacy_advance()`. Stopping the server
+  ends running imports (they can be started again).
   `legacy_attempts` rows older than a day are deleted when the next
   attempt is made, not by the cleanup timer.
 - From step 2: `vignettes/articles/nginx.Rmd` is stale (it calls
