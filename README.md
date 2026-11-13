@@ -189,6 +189,67 @@ the projects to import. What to know:
 - When everyone has moved, remove the `legacy` setting and delete the file.
 
 
+## Using atima from an AI app
+
+A local atima (`auth = "none"`) is also a
+[Model Context Protocol](https://modelcontextprotocol.io) (MCP) server, so
+an AI app that speaks MCP can explore your projects, run statistics and
+make figures when you ask it to. The endpoint is the server's address
+followed by `/mcp`; `run()` prints it when it starts:
+
+```
+AI apps can connect to http://127.0.0.1:8080/mcp
+```
+
+Add that address to your app as a remote ("HTTP" or "Streamable HTTP") MCP
+server. With [Claude Code](https://claude.com/claude-code), for example:
+
+```sh
+claude mcp add --transport http atima http://127.0.0.1:8080/mcp
+```
+
+Then ask in plain words: "List my atima projects", "Which metadata fields
+of hmp50 are related to alpha diversity?", "Draw an ordination of hmp50
+colored by body site". atima has to be running while you do.
+
+The app is given six tools:
+
+| Tool                | What it does |
+|---------------------|--------------|
+| `list_projects`     | Lists the projects you can open, with their keys. |
+| `describe_project`  | Samples, sequencing depths, metadata fields and their values, taxonomic ranks, and whether there is a tree. |
+| `describe_function` | The arguments of an rbiom statistics or plot function, as a JSON Schema. |
+| `run_stats`         | Runs `adiv_stats()`, `bdiv_stats()`, `taxa_stats()` or `taxa_da()` and returns the table. |
+| `make_plot`         | Draws any of the plots the web interface offers and returns the image, its statistics table and the R code. |
+| `export`            | Writes a BIOM file, an Excel workbook or a CSV table and returns a link to it. |
+
+What to know:
+
+- **The tools read and compute. None of them changes anything.** They
+  cannot upload, save, rename, publish or delete, and they work on saved
+  projects, not on unsaved changes in an open browser tab.
+- **Your data goes where the app sends it.** atima itself only answers
+  requests from this computer, but what a tool returns (metadata values,
+  statistics, figures) is handed to the AI app, and most apps send it on
+  to their provider's servers. If the data must stay on your machine, use
+  an app that runs its model locally, or do not connect one.
+- **Text in your files is read by the model.** Project titles,
+  descriptions, metadata and taxon names are returned as data, never as
+  part of a tool's description, but a model can still be misled by text
+  written to mislead it. This matters for files you did not make yourself.
+- Statistics tables come back with at most 50 rows (the app can ask for up
+  to 500), smallest p-values first; the result says how many rows there
+  are and links to the whole table as a CSV file. Figures come back as PNG
+  images of at most 2000 pixels a side; use the web interface for PDF or
+  SVG. Links to figures, tables and exports work for `session_hours`.
+- A tool call is a job like any other: it waits for a free worker and is
+  stopped after `time_limit` seconds.
+- atima speaks revision 2026-07-28 of the MCP specification (Streamable
+  HTTP, without sessions). An app that only knows earlier revisions is
+  told so when it tries to connect, and cannot.
+- Shared servers (`auth = "oidc"`) do not offer the endpoint yet.
+
+
 ## Development
 
 ```r

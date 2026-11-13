@@ -34,7 +34,7 @@ it to that step's list instead of fixing it now.
 | 6 | rbiom 4 schema (R side) | done (2026-11-12) |
 | 7 | Front end: schema-driven controls | done (2026-11-12) |
 | 8 | Legacy data import | done (2026-11-12) |
-| 9 | MCP server, local | not started |
+| 9 | MCP server, local | done (2026-11-13) |
 | 10 | Deployment, docs, load testing | not started |
 | 11 | MCP server, shared (sign-in) | not started |
 | 12 | Release | not started |
@@ -443,6 +443,71 @@ it to that step's list instead of fixing it now.
   (l) One project of a background import may run for 15 minutes
   (`legacy_time_limit`), not the 60 seconds a request gets. (m) Each
   person has one import at a time, kept until they start another.
+
+- **MCP protocol revision (step 9).** The specification had moved on
+  since the plan was written. The current revision, 2026-07-28, is
+  stateless: there is no `initialize` handshake, no
+  `notifications/initialized`, no `ping` and no session; every request
+  carries its protocol version and the client's capabilities in
+  `params._meta` and repeats the version, method and tool name in
+  headers; `server/discover` is mandatory. Daniel chose to serve the
+  current revision only, over also answering the 2025 handshake
+  ("dual-era", which the specification allows) and over building the
+  plan's handshake. An app that opens with `initialize` is refused with
+  an error that names 2026-07-28. Claude Code 2.1.325 speaks the current
+  revision and connects.
+- **MCP tools (step 9).** Daniel chose six tools: the plan's five
+  (`list_projects`, `describe_project`, `run_stats`, `make_plot`,
+  `export`) plus `describe_function`. `run_stats` and `make_plot` take
+  the name of an rbiom function and an `args` object; the function's
+  argument schema is fetched on demand with `describe_function`, so the
+  tool list is about 10 kB. One tool per rbiom function (about 23 tools,
+  about 80 kB of definitions in every conversation) and five tools with
+  no way to ask for a schema were the alternatives.
+- **Rows in a result (step 9).** Daniel chose 50 rows of a statistics
+  table by default, the caller may ask for up to 500 (`max_rows`), the
+  rows come as rbiom sorts them (smallest p-value first), and the whole
+  table is always written to a CSV file whose address is in the result,
+  with a note that says rows were left out and how to narrow the request.
+- **Tools that change data (step 9).** Daniel chose to leave room for
+  them: no tool changes data now, but each tool declares the permission
+  it needs and whether it only reads, and a tool that writes is offered
+  only when the configuration says so (`mcp_writes`, which `run()` sets
+  to `FALSE` and has no argument for yet). Adding upload or save later is
+  a line in the tool table, a handler, and that switch.
+- **Step 9 choices not put to Daniel.** (a) A tool call that names a
+  project needs a grant on it, or the project must be public. Knowing a
+  private key is not enough and never creates a grant (in the browser it
+  does both), and a key the caller may not use gets the same answer as a
+  key that does not exist. This settles for step 9 the question step 11
+  lists; with one local owner it only shuts out projects of users who
+  came from a shared server's database. (b) Error mapping: unreadable
+  JSON, a missing field, mismatched headers, an unknown method (HTTP
+  404) or tool are JSON-RPC errors with an HTTP error status; from a
+  known tool on, every error written for the user (400, 403, 404, 409,
+  503, 504) is a result with `isError: true` and HTTP 200; anything else
+  is JSON-RPC -32603 with HTTP 500 and the error id. (c) Results carry
+  their data twice, as the specification recommends: `structuredContent`
+  and the same JSON as text. No tool declares an `outputSchema`.
+  (d) Figures are PNG, 900 x 600 pixels at 100 dpi unless the call says
+  otherwise, 200 to 2000 pixels a side; other formats are for the
+  browser. Numbers in a result's table are rounded to four significant
+  digits (the CSV file has them in full). (e) `describe_project` lists at
+  most 50 values per categorical field, the 10 most abundant taxa per
+  rank and 40 depths; `list_projects` at most 200 projects. (f) Each
+  call's files go into a directory of their own with a random 24
+  character name under `<temp_dir>/mcp/`, served at `/tmp/mcp/...`; the
+  name is the only protection, as a session key is for a tab's files.
+  (g) `export` offers `biom`, `xlsx`, `metadata`, `taxonomy`, `tree`,
+  `alpha`, `beta` and `taxa`, not the file as uploaded. (h) `mcp` and
+  `oauth` are reserved project keys. (i) `GET /mcp` answers 405 without
+  accounts; with accounts the POST route does not exist (404) and a GET
+  is, like any word after the slash, a request for the app's page.
+  (j) Requests are logged with their method and tool name (`rpc`), never
+  with their arguments. (k) The tool list and the discovery answer say
+  they may be cached for five minutes, by anyone (`cacheScope:
+  "public"`). (l) `jsonvalidate` (and with it V8) is a Suggests, used
+  only by tests, which skip without it.
 
 ## Conventions (apply from step 2 onward)
 
@@ -1799,6 +1864,104 @@ after reworking sessions and auth.
 Decisions for Daniel: the first tool list and names; the row cap for stats
 tables; whether a later version may change data (upload, save).
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- **What differs from the list above.** The specification's current
+  revision is 2026-07-28, and that is what was built: `server/discover`,
+  `tools/list` and `tools/call`; no `initialize` and no `ping` (both are
+  gone from the protocol; `initialize` is answered with an error naming
+  the revision, `ping` with "method not found"). There are six tools, not
+  five. Everything else is as listed.
+- Where things are. `R/mcp.R`: the protocol (`mcp_post()`, the checks
+  every request must pass in `mcp_check_request()`, `mcp_dispatch()`,
+  `mcp_call_tool()`, how results and the two kinds of error are built).
+  `R/mcp-tools.R`: `mcp_tool_table()`, `tool()` and `tool_arg()`,
+  `tool_call()` (caller, project, permission, arguments, handler),
+  `mcp_caller()`, and the handlers `tool_<name>()`. `R/worker-stats.R`:
+  `work_stats()`. `R/access.R`: `caller_project()`, the one permission
+  rule for a project named in a call. `R/schema.R`: the four statistics
+  functions (`use = "stats"`), and `fn_rules()`, `rules_text()`,
+  `rules_json_schema()`, `condition_text()`.
+  `tests/testthat/test-mcp.R` and `helper-mcp.R`.
+- What the router gained, for any route that needs it. `route(raw =
+  TRUE)`: the handler gets `body` (raw) and `headers` instead of parsed
+  arguments (`arg_body()`, `arg_headers()`). `job(failed = )`: a function
+  of the error a job ended with that returns the response to send, so a
+  caller with its own error format hears of time-outs, a full queue and
+  worker crashes. `error_report()` in `R/errors.R` logs an error and
+  returns `list(status, message, id, code)`; `error_response()` is built
+  on it. `REQ$RPC`, if set, is logged with the request.
+- How a tool call runs. `mcp_post()` reads and checks the message;
+  `mcp_call_tool()` finds the tool; `tool_call()` asks `mcp_caller()` who
+  is calling, has `caller_project()` open the project named in `project`
+  (which stops if the caller may not use it), puts the result in
+  `REQ$SESSION`, runs `validate_args()` over the tool's declared
+  arguments exactly as for a route, and calls the handler. For the length
+  of the call `REQ$SESSION` looks like a tab's session (user, project,
+  the saved project's `full_bf_id` and `rare_bf_id`, `access`,
+  `project_key`) without `session_id` or `session_key`. That is why
+  `known_summary()`, `memo_get()`, `biom_path()` and the argument types
+  `arg_fn_args()`, `arg_subset_args()`, `arg_rank()` and `arg_metric()`
+  work unchanged, why the router does not reload a session after the job,
+  and why jobs are submitted with no session and no supersede key.
+- To add a tool: a `tool()` entry in `mcp_tool_table()` (its arguments
+  made with `tool_arg(<arg_*()>, <description>, <JSON Schema>)`) and a
+  handler `tool_<name>(REQ, <arguments>)` that returns `list(data)` or
+  `list(data, image)`, or a job whose `finish` returns that. (An
+  argument the model calls `function` reaches the handler as `fn`:
+  R's code checker cannot read a function with a parameter of that name.) Tests fail
+  until the handler takes exactly the declared arguments and
+  `examples` in `test-mcp.R` has a call that satisfies the schema. A
+  tool that changes data declares `read_only = FALSE` and the level it
+  needs (`editor` for the named project), and is offered only when
+  `config$mcp_writes` is true; `run()` needs an argument for that when
+  the first such tool is written, and its handler must do its writing in
+  `finish`, as the browser's handlers do.
+- Depth. A call's `depth` rarefies for that call only: `work_plot()` and
+  `work_stats()` store the rarefied file (it is in the cache, and the
+  cleanup timer removes the stored file after a day, since no row
+  refers to it) and nothing in the database changes. The R code in a
+  result then loads `full.json` and calls `rarefy()`; without `depth` it
+  loads `rare.json`. A `samples` filter is not part of that code; the
+  code says so in a comment.
+- Bugs found on the way, fixed with tests: rarefying to a depth no sample
+  reaches was an internal error ("Matrix is all zeroes"); `rarefy_to()`
+  now refuses it with a message, for the browser too. `work_plot()`
+  reports a failed worker-side check under the caller's own argument
+  names (`keys`).
+- For rbiom (not worked around): `fn_schema()` gives `adiv`'s default as
+  `"Shannon"` while its choices are lower-case ids (`"shannon"`); a model
+  reading the JSON Schema noticed. The default of `layers` is likewise
+  the letter form (`"x"`), not a name from the choices.
+- `describe_project` reports `samples` from the `projects` table, which
+  counts every sample; at the saved depth some are left out (hmp50: 50
+  samples, 49 at depth 1,183). The result says how depths work, and a
+  model worked it out, but a count at the saved depth would be clearer;
+  the summary does not carry one.
+- **Verified with a real MCP client** (2026-11-13, Windows): Claude Code
+  2.1.325, added with `claude mcp add --transport http`, against a server
+  installed in a scratch library and run with `auth = "none"`, `workers =
+  2` and the two example projects. It connected (the server log shows
+  `server/discover` then `tools/list`; no `initialize`), and, driven with
+  `claude -p`, listed the six tools, listed the projects, described
+  `hmp50`, called `describe_function` twice, ran `adiv_stats` and
+  `taxa_stats` (200 rows, 10 returned, the note quoted back, rbiom's
+  warning about comparisons it could not compute passed on), drew an
+  `adiv_boxplot` and a `bdiv_ord_plot` and described what the images
+  show, was refused a misspelled field with rbiom's message and corrected
+  the call, and exported the metadata. The figure and table links were
+  fetched with curl. The entry was removed from Claude Code afterwards.
+  Also by hand with curl: `initialize` (400, -32022) and `GET /mcp`
+  (405).
+- **Not verified with a real client:** any app other than Claude Code
+  (Claude Desktop, claude.ai, other vendors' apps); an app that only
+  speaks an earlier revision (the refusal is tested, and was sent by
+  curl, but what such an app shows its user was not seen); `export` of
+  the larger formats and `taxa_da` through a client (tests cover them);
+  a tool call that runs into the time limit or a full queue (tested
+  through real workers and with a stand-in, not through a client); Linux
+  and macOS (CI only).
+
 ## Step 10: Deployment, docs, load testing
 
 - Docker image and a compose file with Caddy for TLS; configuration only via
@@ -1952,6 +2115,28 @@ tables; whether a later version may change data (upload, save).
 - From the MCP decision: the vignettes gain one on connecting an AI app
   to a local install (step 9's README section, expanded). Step 11 adds
   shared servers to it.
+- From step 9: what the per-account job limit has to cover. A tool call's
+  job has no `session_id`; the caller is `REQ$SESSION$user_id` when
+  `mcp_call_tool()` returns its job, so that is where a `user_id` for
+  `pool_submit()` comes from. The specification says servers must rate
+  limit tool invocations; today the only limit is the shared queue (503
+  as a tool result with `isError`, which a model may retry at once). A
+  429 for one user's flood should be a tool result too (it will be, if
+  it is raised as an `atima_http_error`). The load test should include an
+  agent calling `make_plot` several times at once: each result carries
+  the PNG as base64 inside JSON (about 50 kB for a box plot at the
+  default size), built and sent by the main process.
+- From step 9: the proxy must pass `/mcp` once step 11 opens it on a
+  shared server, must not buffer or cache it (answers say `Cache-Control:
+  no-store`), and must let the three request headers through
+  (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`). Files for tool
+  calls are under `/tmp/mcp/`, already covered by `/tmp/`. The image
+  needs no new package: `jsonvalidate` is for tests only. New in the
+  log: `rpc` on request lines for `/mcp` (`server/discover`,
+  `tools/list`, `tools/call <tool>`, `notification`). The vignette on
+  connecting an AI app should say, as the README does, that what a tool
+  returns goes to the app's provider, and should name the protocol
+  revision, since apps that only know earlier ones cannot connect.
 
 - From step 6: optional packages decide what works on a server. rbiom
   only suggests them, so the image must install them itself: `openxlsx`
@@ -2045,6 +2230,47 @@ and other apps to the lab's server and work with their own projects.
   claude.ai (it needs the public HTTPS address) and explore a project.
 - Docs: the MCP vignette gains connecting to a shared server.
 
+- From step 9: what is there to build on, and what has to change.
+  - The protocol is revision 2026-07-28, stateless: no handshake and no
+    session, so a bearer token is checked on every request and there is
+    nothing to tie it to. Read the authorization part of the revision
+    current then; in 2026-07-28 it prefers Client ID Metadata Documents
+    and has deprecated Dynamic Client Registration, and asks clients to
+    check `iss` in the authorization response (RFC 9207).
+  - Who is calling is decided in one function, `mcp_caller()` in
+    `R/mcp-tools.R`, which returns `list(user_id)`. Today it is the local
+    owner and refuses any other mode. Make it read the bearer token
+    (`mcp_post()` has the headers; pass them on, and take the token with
+    `arg_secret()`'s `secret()` so it cannot be logged). A missing or bad
+    token must be a 401 with `WWW-Authenticate` from `mcp_post()` itself,
+    before the message is looked at, not a tool result.
+  - The route: `POST /mcp` and `GET /mcp` are declared with `modes =
+    "none"`. Opening them for `oidc` is a change to those two lines.
+    `check_origin()` already refuses a POST from another site's page.
+  - Nothing else in the tools should need to change: `caller_project()`
+    applies `project_access()` for whatever user `mcp_caller()` names,
+    never makes a grant, and gives one answer for "no such key" and "not
+    yours". A guest cannot be a caller unless `mcp_caller()` lets one be,
+    which is the "public projects without signing in" decision.
+  - `tools/list` and `server/discover` say `cacheScope: "public"`. That
+    is right while every caller is shown the same tools. If the list
+    comes to depend on the token (scopes, or `mcp_writes` per user), it
+    must say `"private"`.
+  - Links in results (`figure_url`, `table_url`, `download_url`) start
+    with `config$base_url`, which is `public_url` on a shared server.
+    They are not behind sign-in: whoever has the address has the file
+    for a day. That is the rule for a tab's files too, but an agent's
+    transcript is a likelier place for an address to leak from; decide
+    whether that is acceptable for private projects or whether the files
+    need a route that checks the token.
+  - Per-user limits (step 10) matter more here, and so does the size of
+    results: every `make_plot` result holds the image.
+  - Apps that only speak the 2025 revisions cannot connect (Daniel's
+    choice in step 9). If claude.ai or another app that matters has not
+    moved by then, answering `initialize` as well is about 80 lines in
+    `R/mcp.R` (`mcp_check_request()` is where the two eras part) and the
+    specification describes it under "dual-era" servers.
+
 Decisions for Daniel: whether this ships in the first release (if not, it
 moves after step 12 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
@@ -2070,4 +2296,10 @@ browser also disconnects apps.
   whether the legacy import ships in the CRAN release or is removed once
   the lab's users have moved; it is self-contained (`R/legacy*.R`,
   `inst/sql/006_legacy.sql`, three routes, one page, one `CONF` field).
+- From step 9: `DESCRIPTION`'s text and the README's opening still
+  describe a web interface only; say that the package is also an MCP
+  server. NEWS should name the MCP revision (2026-07-28) the release
+  speaks. `jsonvalidate` is a new Suggests (tests only); it needs V8,
+  which CRAN's machines have. Check before release that the revision is
+  still current, and that the apps named in the README still connect.
 - Delete this file.
