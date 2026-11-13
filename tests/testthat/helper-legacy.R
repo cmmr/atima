@@ -134,6 +134,10 @@ local_atima2_db <- function (env = parent.frame()) {
     Collected = as.Date("2020-01-01") + seq_len(nrow(metadata)) )
   rownames(metadata) <- metadata$SampleID
 
+  # Two samples have no metadata row, as in real projects. atima 2 kept
+  # such samples, so the import must too.
+  metadata <- metadata[-(1:2), ]
+
   taxonomy <- as.data.frame(biom$taxonomy)
   taxonomy <- structure(as.matrix(taxonomy[, -1]), dimnames = list(taxonomy$.otu, names(taxonomy)[-1]))
 
@@ -155,7 +159,12 @@ local_atima2_db <- function (env = parent.frame()) {
   add_project(16, list('Biom Data' = data, 'Project Name' = "Dot's"), editors = "dot")
   add_project(17, list('Biom Data' = data, 'Project Name' = "Broken"), editors = "ada", created = "2019-01-01 01:01:01")
 
-  DBI::dbExecute(con, "UPDATE `Objects` SET `md5sum` = 'not-the-checksum' WHERE `ProjectID` = 17 AND `Object Name` = 'Biom Data'")
+  # Project 17's file was encrypted with some other key. Project 13's stored
+  # checksum is wrong although its data is fine, as happens in real atima 2
+  # databases.
+  DBI::dbExecute(con, "UPDATE `Objects` SET `Base64` = ? WHERE `ProjectID` = 17 AND `Object Name` = 'Biom Data'",
+    params = list(old_encode_object(data, openssl::aes_keygen(16))))
+  DBI::dbExecute(con, "UPDATE `Objects` SET `md5sum` = 'not-the-checksum' WHERE `ProjectID` = 13")
   DBI::dbExecute(con, "INSERT INTO `Tokens` VALUES (101, 'md5', 'a user key that must not be copied')")
 
   con
@@ -190,14 +199,31 @@ local_legacy_app <- function (file, env = parent.frame(), pool = NULL) {
     user_id <- add_test_user(REQ$DB, name, is_guest = is_guest)
     project <- add_test_project(REQ$DB, user_id, title = paste(name, "placeholder"))
     session <- add_test_session(REQ$DB, user_id, project$project_id)
-    list(
-      user_id = user_id,
-      session = session,
-      post    = function (path, args = list()) {
-        out <- handle_request(fake_request("POST", path, args, session), test_app(REQ, pool))
-        if (promises::is.promise(out)) out <- await(out)$value
-        out
-      })
+    post <- function (path, args = list()) {
+      out <- handle_request(fake_request("POST", path, args, session), test_app(REQ, pool))
+      if (promises::is.promise(out)) out <- await(out)$value
+      out
+    }
+
+    # Let the user's background import run to its end; returns its status.
+    wait <- function (seconds = 120) {
+      deadline <- Sys.time() + seconds
+      repeat {
+        later::run_now(timeoutSecs = 0.05)
+        if (!legacy_active(legacy_batch(REQ$LEGACY, user_id))) break
+        if (Sys.time() > deadline) stop("The import did not finish within ", seconds, " seconds.")
+      }
+      response_json(post("/api/legacy/status", list(tree = TRUE)))
+    }
+
+    # Start an import of old projects `ids` and wait for it.
+    import <- function (login, ids, inflate = FALSE) {
+      resp <- post("/api/legacy/start", c(login, list(projects = as.list(ids), inflate = inflate)))
+      if (resp$status != 200L) stop("The import was not started: ", resp$status, " ", response_json(resp)$error$message)
+      wait()
+    }
+
+    list(user_id = user_id, session = session, post = post, wait = wait, import = import)
   }
 
   list(REQ = REQ, DB = REQ$DB, source = names(REQ$CONFIG$legacy)[[1]], sign_in = sign_in)

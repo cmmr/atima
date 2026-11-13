@@ -198,6 +198,10 @@ async function start() {
   window.addEventListener('hashchange', showPage);
   startHeartbeat();
 
+  // An import from an older atima may be running on the server, started
+  // from this tab or another: follow it from whichever page is open.
+  if (store.get('conf').legacy && store.hasAccount()) legacy.watchImport();
+
   // A file dropped anywhere on the page is uploaded as a new project.
   const hasFile = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
   window.addEventListener('dragover', e => { if (hasFile(e)) { e.preventDefault(); document.body.classList.add('dropping'); } });

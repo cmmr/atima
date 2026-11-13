@@ -214,8 +214,11 @@ atima2_projects <- function (con, user) {
 #' @noRd
 atima2_fetch <- function (con, project, dir) {
 
+  # atima 2 also stored an MD5 of each object. It is not checked: in the real
+  # database it is wrong for objects that decrypt and read perfectly well,
+  # and AES-GCM already refuses anything that was altered.
   sql  <- sprintf(
-    "SELECT object_name, md5sum, base64 FROM objects WHERE project_id = ? AND object_name IN (%s)",
+    "SELECT object_name, base64 FROM objects WHERE project_id = ? AND object_name IN (%s)",
     paste0("'", atima2_objects, "'", collapse = ", ") )
   rows <- dbGetQuery(con, sql, params = list(as.numeric(project[['id']])))
 
@@ -226,11 +229,7 @@ atima2_fetch <- function (con, project, dir) {
     name <- rows[i, 'object_name']
 
     objects[[name]] <- tryCatch(
-      expr = {
-        if (!identical(as.character(openssl::md5(rows[i, 'base64'])), rows[i, 'md5sum']))
-          stop("checksum mismatch")
-        atima2_decode_object(rows[i, 'base64'], project[['key']])
-      },
+      expr  = atima2_decode_object(rows[i, 'base64'], project[['key']]),
       error = function (e) {
         # The BIOM file is the project. Anything else can be done without.
         if (name == "Biom Data")
@@ -252,9 +251,9 @@ atima2_fetch <- function (con, project, dir) {
 
   # Each of these is applied on its own: one that today's rbiom will not
   # accept is left out, and the project keeps what its BIOM file has.
-  lay_over <- function (code) tryCatch(code, error = function (e) NULL)
+  lay_over <- function (code) tryCatch(suppressWarnings(suppressMessages(code)), error = function (e) NULL)
 
-  metadata <- atima2_metadata(objects[['Metadata']])
+  metadata <- atima2_metadata(objects[['Metadata']], biom$samples)
   if (!is.null(metadata)) lay_over(biom$metadata <- metadata)
 
   taxonomy <- atima2_taxonomy(objects[['Taxonomy']])
@@ -272,12 +271,19 @@ atima2_fetch <- function (con, project, dir) {
 #______________________________________________________________________________
 #' atima 2's metadata table as rbiom wants one: a `.sample` column, and
 #' dates as text.
+#'
+#' rbiom drops a sample that the metadata does not list. atima 2 did not: a
+#' sample without a row simply had no metadata. So every sample of the
+#' dataset gets a row here, empty if atima 2 had none for it.
+#'
+#' @param samples  The sample names of the dataset.
 #' @noRd
-atima2_metadata <- function (metadata) {
+atima2_metadata <- function (metadata, samples = character(0)) {
 
   if (!is.data.frame(metadata) || nrow(metadata) == 0) return (NULL)
 
-  samples <- if (hasName(metadata, "SampleID")) as.character(metadata[['SampleID']]) else rownames(metadata)
+  listed <- if (hasName(metadata, "SampleID")) as.character(metadata[['SampleID']]) else rownames(metadata)
+  listed <- trimws(listed)
 
   metadata <- metadata[, setdiff(names(metadata), c("SampleID", ".sample")), drop = FALSE]
 
@@ -286,7 +292,18 @@ atima2_metadata <- function (metadata) {
       metadata[[i]] <- as.character(metadata[[i]])
 
   rownames(metadata) <- NULL
-  cbind(data.frame(.sample = samples, stringsAsFactors = FALSE), metadata)
+  metadata <- cbind(data.frame(.sample = listed, stringsAsFactors = FALSE), metadata)
+
+  missing <- setdiff(samples, listed)
+
+  if (length(missing) > 0 && ncol(metadata) > 1) {
+    blank <- metadata[rep(NA_integer_, length(missing)), , drop = FALSE]
+    blank[['.sample']] <- missing
+    metadata <- rbind(metadata, blank)
+    rownames(metadata) <- NULL
+  }
+
+  metadata
 }
 
 

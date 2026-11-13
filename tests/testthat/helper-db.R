@@ -33,6 +33,7 @@ local_test_req <- function (env = parent.frame(), auth = "oidc") {
       signin_ttl  = 30 * 86400,
       auth        = auth ),
     MEMO    = memo_new(),
+    LEGACY  = legacy_state(),
     AUTH    = auth_new(auth, if (auth == "oidc") test_oidc),
     SESSION = list() ))
 }
@@ -41,7 +42,7 @@ local_test_req <- function (env = parent.frame(), auth = "oidc") {
 # The `app` argument of handle_request() for a test REQ. Without a `pool`,
 # jobs run in the test process.
 test_app <- function (REQ, pool = NULL) {
-  list(db = REQ$DB, config = REQ$CONFIG, pool = pool, memo = REQ$MEMO, auth = REQ$AUTH)
+  list(db = REQ$DB, config = REQ$CONFIG, pool = pool, memo = REQ$MEMO, auth = REQ$AUTH, legacy = REQ$LEGACY)
 }
 
 

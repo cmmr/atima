@@ -117,9 +117,11 @@
 #' and name the file in `legacy`. Someone who is signed in (or, with
 #' `auth = "none"`, the local user) then finds "Import from an older atima"
 #' in the menu, types the email address and password they used on the old
-#' site, and chooses the projects to bring over. The password is checked
-#' and the projects are decrypted in memory; neither the password nor any
-#' key is stored or logged. A project is imported once: when someone else
+#' site, and chooses the projects to bring over. They are imported in the
+#' background, one at a time, while the person keeps working. The password
+#' is checked and the projects are decrypted in memory; the server holds
+#' the password only while that person's import runs, and neither it nor
+#' any key is stored or logged. A project is imported once: when someone else
 #' who could open it on the old site imports it later, they are given the
 #' same project with the access they had (editor or viewer). After five
 #' wrong passwords a person, and the old account they tried, must wait 15
@@ -339,7 +341,7 @@ run <- function(
   if (config[['auth']] == 'none')
     db_transaction(db, local_owner(db))
 
-  app_state <- list(db = db, config = config, pool = pool, memo = memo_new(), auth = auth_state)
+  app_state <- list(db = db, config = config, pool = pool, memo = memo_new(), auth = auth_state, legacy = legacy_state())
 
   stop_cleanup <- cleanup_start(app_state)
   on.exit(stop_cleanup(), add = TRUE, after = FALSE)

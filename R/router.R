@@ -160,6 +160,21 @@ arg_secret <- function (min = 1L, max = 1000L, ...) {
   })
 }
 
+#' One or more short strings, such as a list of ids. What the handler gets
+#' is a character vector without duplicates.
+#' @param pattern  A regular expression each value must match.
+#' @param max_n    The most values to accept.
+#' @noRd
+arg_strings <- function (pattern, max_n = 1000L, ...) {
+  arg_spec("strings", ..., check = function (x) {
+    if (is.list(x) && all(vapply(x, function (v) is.character(v) && length(v) == 1, logical(1)))) x <- unlist(x)
+    if (!is.character(x) || length(x) == 0 || anyNA(x)) stop("must be a list of strings")
+    if (length(x) > max_n) stop("must have at most ", max_n, " values")
+    if (!all(grepl(pattern, x, perl = TRUE))) stop("has a value with an invalid format")
+    unique(x)
+  })
+}
+
 #' A string of HTML that a user wrote, such as a project description. It is
 #' reduced to harmless formatting (`sanitize_html()`), so what the handler
 #' gets, and stores, is safe to put into a page.
@@ -508,6 +523,7 @@ handle_request <- function (request, app) {
     CONFIG  = app[['config']],
     POOL    = app[['pool']],
     MEMO    = app[['memo']],
+    LEGACY  = app[['legacy']],
     AUTH    = app[['auth']],
     METHOD  = request[['REQUEST_METHOD']],
     PATH    = request[['PATH_INFO']],

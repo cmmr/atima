@@ -9,18 +9,18 @@
 #
 # What happens where:
 #
-#  * This file is the main process's part: the settings, the three routes,
-#    the limit on wrong passwords, and the database rows of an imported
-#    project.
+#  * This file is the main process's part: the settings, the routes, the
+#    limit on wrong passwords, the batches that import in the background,
+#    and the database rows of an imported project.
 #  * `R/legacy-worker.R` and the adapters (`R/legacy-atima2.R`) run in a
 #    worker. Only there is the old database read, the password checked and
 #    anything decrypted.
 #
-# The old password is needed for every request, because atima 2 encrypted
-# each project with keys that only the password unlocks. It is held in
-# memory for the length of one request and is never written to the
-# database, the log or a file: it travels as a `secret()`, which neither
-# prints nor deparses its contents.
+# The old password is needed for every project, because atima 2 encrypted
+# each one with keys that only the password unlocks. It is held in memory,
+# for the length of a request or of a running import, and is never written
+# to the database, the log or a file: it travels as a `secret()`, which
+# neither prints nor deparses its contents.
 #
 # Importing twice makes no copy. `legacy_imports` remembers which old
 # project became which new one. The first person to import a project gets
@@ -301,30 +301,80 @@ api_legacy_list <- function (REQ, source, email, password) {
 
 
 #______________________________________________________________________________
-#' Import one project of an old account into the caller's project tree.
-#'
-#' @param project  The project's id in the old database.
-#' @param inflate  As for an upload: scale counts that are not whole numbers.
-#' @return list(status, tree_node). `status` is `"imported"`, `"added"` (the
-#'         project had been imported by someone else, and the caller now
-#'         has it too) or `"have"`.
+# Imports run in the background.
+#
+# Someone with many projects, or large ones, should not have to keep a page
+# open, or wait, while they are copied. So "import these" is one request
+# that starts a batch and returns. The main process then gives the batch's
+# projects to the worker pool one at a time (one per person, so that the
+# workers stay free for everyone's figures), records each as it arrives,
+# and answers "how far along is it" whenever a browser asks.
+#
+# A batch lives in the main process's memory only, with the old password
+# inside it as a `secret()`, for as long as it has projects left to import.
+# When the last one is done, or the batch is cancelled, the password is
+# dropped. A restart forgets every batch; what was imported stays, and the
+# rest can be started again.
+#______________________________________________________________________________
+
+
+# Longest one project of a batch may take, in seconds. More than a request
+# gets, because nobody is waiting on it and old projects can be large.
+legacy_time_limit <- 900
+
+# How often a project is offered to the pool again when its queue is full,
+# and the seconds between tries.
+legacy_retries    <- 120L
+legacy_retry_wait <- 5
+
+
+#______________________________________________________________________________
+#' Where the running server keeps its import batches, by user id.
 #' @noRd
-api_legacy_import <- function (REQ, source, email, password, project, inflate = FALSE) {
+legacy_state <- function () new.env(parent = emptyenv())
+
+
+#______________________________________________________________________________
+#' A user's batch, or `NULL`.
+#' @noRd
+legacy_batch <- function (state, user_id) {
+  if (is.null(state)) return (NULL)
+  state[[as.character(user_id)]]
+}
+
+#' Does a batch still have projects to import?
+#' @noRd
+legacy_active <- function (batch) {
+  !is.null(batch) && any(vapply(batch$items, function (item) item$state %in% c("queued", "running"), logical(1)))
+}
+
+
+#______________________________________________________________________________
+#' Start importing projects of an old account, in the background.
+#'
+#' @param projects  The projects' ids in the old database.
+#' @param inflate   As for an upload: scale counts that are not whole
+#'                  numbers. Without it such a project is left with the
+#'                  state `needs_scaling` and the warning to show.
+#' @return As `api_legacy_status()`.
+#' @noRd
+api_legacy_start <- function (REQ, source, email, password, projects, inflate = FALSE) {
 
   DB      <- REQ[['DB']]
+  state   <- REQ[['LEGACY']]
   user_id <- REQ[['SESSION']][['user_id']]
   source  <- legacy_source(REQ, source)
-  charge  <- legacy_charge(DB, user_id, source, email)
 
-  # A project that is already here needs no data, only proof that this old
-  # account could open it.
-  fetch <- is.null(legacy_imported(DB, source, project))
+  if (legacy_active(legacy_batch(state, user_id)))
+    stop_http(409L, "An import is already running. Wait for it to finish, or cancel it.")
 
+  charge <- legacy_charge(DB, user_id, source, email)
+
+  # Checking the password also says which of the projects asked for this
+  # account can open, and what they are called.
   job(
-    fn   = "work_legacy_import",
-    args = list(
-      ctx = worker_ctx(REQ[['CONFIG']]), source = source[c("path", "format")], email = email, password = password,
-      project = project, fetch = fetch, inflate = inflate ),
+    fn     = "work_legacy_list",
+    args   = list(ctx = worker_ctx(REQ[['CONFIG']]), source = source[c("path", "format")], email = email, password = password),
     finish = function (result) {
 
       if (!isTRUE(result[['verified']])) return (legacy_refused(REQ, source))
@@ -333,67 +383,282 @@ api_legacy_import <- function (REQ, source, email, password, project, inflate = 
 
       if (!is.null(result[['error']])) return (legacy_error(REQ, result[['error']]))
 
-      if (!isTRUE(result[['found']]))
-        return (legacy_error(REQ, list(status = 404L, message = "That project is not one this account can open.")))
+      if (legacy_active(legacy_batch(state, user_id)))
+        return (legacy_error(REQ, list(status = 409L, message = "An import is already running.")))
 
-      level      <- if (isTRUE(result[['is_editor']])) "edit" else "view"
-      project_id <- legacy_imported(DB, source, project)
+      known  <- result[['projects']]
+      names(known) <- vapply(known, function (p) p[['id']], character(1))
+      chosen <- known[intersect(projects, names(known))]
 
-      if (is.null(project_id) && is.null(result[['imported']]))
-        return (legacy_error(REQ, list(status = 409L, message = "That project changed while it was being imported. Please try again.")))
+      if (length(chosen) == 0)
+        return (legacy_error(REQ, list(status = 404L, message = "None of those projects is one this account can open.")))
 
-      if (is.null(project_id)) {
+      batch <- new.env(parent = emptyenv())
 
-        project_id <- add_project(REQ, result[['imported']])
-        status     <- "imported"
+      batch$user_id   <- user_id
+      batch$full_name <- REQ[['SESSION']][['full_name']]
+      batch$source    <- source
+      batch$email     <- email
+      batch$password  <- password
+      batch$inflate   <- isTRUE(inflate)
+      batch$items     <- lapply(chosen, function (p) c(p[c("id", "title")], list(state = "queued", message = NULL, tries = 0L)))
 
-        # add_project() makes the caller an editor. Someone who could only
-        # view the old project can only view the new one.
-        if (level == "view") {
-          db_query(DB, "UPDATE permissions SET is_editor = 0 WHERE user_id = ? AND project_id = ?", "ALImp1", list(user_id, project_id))
-          db_query(DB, "UPDATE projects SET editors = '[]' WHERE project_id = ?", "ALImp2", list(project_id))
-        }
+      state[[as.character(user_id)]] <- batch
 
-        created <- result[['created']]
-        if (is_scalar_character(created) && grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$", created))
-          db_query(DB, "UPDATE projects SET created_utc = ? WHERE project_id = ?", "ALImp3", list(created, project_id))
+      log_event("info", "legacy_start", user_id = user_id, source = source[['id']], projects = length(chosen))
 
-        db_insert(
-          DB = DB, table = "legacy_imports", err_code = "ALImp4",
-          source = source[['id']], old_project = project, project_id = project_id, user_id = user_id )
+      # After this request has been answered and its transaction closed.
+      app <- list(db = DB, config = REQ[['CONFIG']], pool = REQ[['POOL']])
+      later::later(function () legacy_advance(app, batch), 0)
 
-      } else {
-
-        sql <- "SELECT is_editor FROM permissions WHERE user_id = ? AND project_id = ?"
-        own <- db_query(DB, sql, "ALImp5", list(user_id, project_id))
-
-        if (is.null(own)) {
-          update_permissions(DB, user_id, project_id, level)
-          status <- "added"
-        } else {
-          # An old editor who so far only had view access here gets their level back.
-          if (level == "edit" && !isTRUE(own)) update_permissions(DB, user_id, project_id, "edit")
-          status <- "have"
-        }
-      }
-
-      sql <- paste0(
-        "SELECT * FROM permissions",
-        " LEFT JOIN projects USING (project_id)",
-        " WHERE user_id = ? AND project_id = ?" )
-      row <- db_query(DB, sql, "ALImp6", list(user_id, project_id))
-
-      log_event("info", "legacy_import", user_id = user_id, source = source[['id']], project_id = project_id, status = status)
-
-      list(status = unbox(status), tree_node = tree_node(row))
+      api_legacy_status(REQ)
     })
 }
 
 
 #______________________________________________________________________________
+#' How the caller's import is getting on.
+#'
+#' @param tree  Include the caller's project tree? A page asks for it when
+#'              a project has arrived since it last looked.
+#' @return `list(active, source, projects, tree)`. Each project is
+#'         `list(id, title, state, message)` with `state` one of `queued`,
+#'         `running`, `imported`, `added` (someone else had imported it; the
+#'         caller now has it too), `have`, `needs_scaling`, `failed` or
+#'         `cancelled`. With no batch, `projects` is empty.
+#' @noRd
+api_legacy_status <- function (REQ, tree = FALSE) {
+
+  batch <- legacy_batch(REQ[['LEGACY']], REQ[['SESSION']][['user_id']])
+
+  if (is.null(batch))
+    return (list(active = unbox(FALSE), projects = list()))
+
+  list(
+    active   = unbox(legacy_active(batch)),
+    source   = unbox(batch$source[['label']]),
+    projects = lapply(unname(batch$items), function (item) list(
+      id      = unbox(item$id),
+      title   = unbox(item$title),
+      state   = unbox(item$state),
+      message = unbox(item$message %||% NA_character_) )),
+    tree     = if (isTRUE(tree)) tree_data(REQ) )
+}
+
+
+#______________________________________________________________________________
+#' Stop the caller's import. The project being imported at this moment is
+#' finished; the ones still waiting are not started.
+#' @return As `api_legacy_status()`.
+#' @noRd
+api_legacy_cancel <- function (REQ) {
+
+  batch <- legacy_batch(REQ[['LEGACY']], REQ[['SESSION']][['user_id']])
+
+  if (!is.null(batch)) {
+    for (id in names(batch$items))
+      if (batch$items[[id]]$state == "queued") batch$items[[id]]$state <- "cancelled"
+    if (!legacy_active(batch)) batch$password <- NULL
+  }
+
+  api_legacy_status(REQ)
+}
+
+
+#______________________________________________________________________________
+#' Give the next project of a batch to the pool, or end the batch.
+#'
+#' @param app  `list(db, config, pool)`. Without a pool the project is
+#'             imported in this process, which is how most tests run.
+#' @noRd
+legacy_advance <- function (app, batch) {
+
+  waiting <- Filter(function (item) item$state == "queued", batch$items)
+
+  if (length(waiting) == 0 || is.null(batch$password)) {
+    batch$password <- NULL
+    log_event("info", "legacy_done", user_id = batch$user_id, source = batch$source[['id']])
+    return (invisible(NULL))
+  }
+
+  id <- waiting[[1]]$id
+  batch$items[[id]]$state <- "running"
+
+  args <- list(
+    ctx      = worker_ctx(app[['config']]),
+    source   = batch$source[c("path", "format")],
+    email    = batch$email,
+    password = batch$password,
+    project  = id,
+    # A project that is already here needs no data, only proof that this
+    # old account could open it.
+    fetch    = is.null(legacy_imported(app[['db']], batch$source, id)),
+    inflate  = batch$inflate )
+
+  settle <- function (outcome) {
+
+    # The pool's queue was full: wait, and offer the project again.
+    if (inherits(outcome, "atima_http_error") && outcome[['status']] == 503L && batch$items[[id]]$tries < legacy_retries) {
+      batch$items[[id]]$tries <- batch$items[[id]]$tries + 1L
+      batch$items[[id]]$state <- "queued"
+      later::later(function () legacy_advance(app, batch), legacy_retry_wait)
+      return (invisible(NULL))
+    }
+
+    legacy_record(app, batch, id, outcome)
+
+    # Nothing left to do: the password is not needed a moment longer.
+    if (!legacy_active(batch)) batch$password <- NULL
+
+    later::later(function () legacy_advance(app, batch), 0)
+    invisible(NULL)
+  }
+
+  if (is.null(app[['pool']])) {
+    settle(tryCatch(run_inline("work_legacy_import", args), error = function (e) e))
+
+  } else {
+    promises::then(
+      promise     = pool_submit(app[['pool']], "work_legacy_import", args, time_limit = legacy_time_limit),
+      onFulfilled = settle,
+      onRejected  = settle )
+  }
+
+  invisible(NULL)
+}
+
+
+#______________________________________________________________________________
+#' Record the outcome of one project of a batch: the rows of the imported
+#' project, and the state the browser is shown.
+#'
+#' @param outcome  What `worker_run()` returned, or the error the job ended
+#'                 with.
+#' @noRd
+legacy_record <- function (app, batch, id, outcome) {
+
+  DB <- app[['db']]
+
+  # Anything that goes wrong becomes this project's state. An error the
+  # user can read is shown; any other is logged under an id.
+  failed <- function (e) {
+
+    if (inherits(e, "atima_http_error") && identical(e[['code']], "confirm_inflate"))
+      return (list(state = "needs_scaling", message = conditionMessage(e)))
+
+    if (inherits(e, "atima_http_error") && e[['status']] < 500L)
+      return (list(state = "failed", message = conditionMessage(e)))
+
+    error_id <- random_string(8)
+
+    log_event(
+      level   = "error",
+      event   = "legacy_import_failed",
+      id      = error_id,
+      user_id = batch$user_id,
+      source  = batch$source[['id']],
+      old_project = id,
+      message = log_truncate(conditionMessage(e), 2000L),
+      detail  = if (!is.null(e[['detail']])) log_truncate(e[['detail']], 2000L) )
+
+    list(state = "failed", message = paste0(
+      if (inherits(e, "atima_http_error")) conditionMessage(e) else "This project could not be imported.",
+      " (Error id: ", error_id, ")" ))
+  }
+
+  done <- tryCatch(error = failed, expr = {
+
+    if (inherits(outcome, "condition")) stop(outcome)
+
+    result <- job_value(outcome)
+
+    if (!isTRUE(result[['verified']]))
+      stop_http(500L, "The old account's password was no longer accepted.")
+
+    if (!is.null(result[['error']]))
+      stop(http_condition(
+        result[['error']][['status']] %||% 500L, result[['error']][['message']],
+        result[['error']][['detail']], result[['error']][['code']] ))
+
+    if (!isTRUE(result[['found']]))
+      stop_user("This is not a project the old account can open.")
+
+    db_transaction(DB, legacy_adopt(DB, batch, id, result))
+  })
+
+  batch$items[[id]]$state   <- done[['state']]
+  batch$items[[id]]$message <- done[['message']]
+
+  invisible(NULL)
+}
+
+
+#______________________________________________________________________________
+#' Make an imported project the user's: create it, or, if someone else
+#' imported it first, add the user to that one.
+#'
+#' @param result  What `work_legacy_import()` returned.
+#' @return `list(state)`: `imported`, `added` or `have`.
+#' @noRd
+legacy_adopt <- function (DB, batch, id, result) {
+
+  user_id    <- batch$user_id
+  source     <- batch$source
+  level      <- if (isTRUE(result[['is_editor']])) "edit" else "view"
+  project_id <- legacy_imported(DB, source, id)
+
+  if (is.null(db_query(DB, "SELECT user_id FROM users WHERE user_id = ?", "LAdo1", list(user_id))))
+    stop_user("The account that started this import no longer exists.")
+
+  if (is.null(project_id) && is.null(result[['imported']]))
+    stop_http(409L, "This project changed while it was being imported. Please try again.")
+
+  if (is.null(project_id)) {
+
+    owner      <- list(DB = DB, SESSION = list(user_id = user_id, full_name = batch$full_name))
+    project_id <- add_project(owner, result[['imported']])
+    state      <- "imported"
+
+    # add_project() makes the user an editor. Someone who could only view
+    # the old project can only view the new one.
+    if (level == "view") {
+      db_query(DB, "UPDATE permissions SET is_editor = 0 WHERE user_id = ? AND project_id = ?", "LAdo2", list(user_id, project_id))
+      db_query(DB, "UPDATE projects SET editors = '[]' WHERE project_id = ?", "LAdo3", list(project_id))
+    }
+
+    created <- result[['created']]
+    if (is_scalar_character(created) && grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$", created))
+      db_query(DB, "UPDATE projects SET created_utc = ? WHERE project_id = ?", "LAdo4", list(created, project_id))
+
+    db_insert(
+      DB = DB, table = "legacy_imports", err_code = "LAdo5",
+      source = source[['id']], old_project = id, project_id = project_id, user_id = user_id )
+
+  } else {
+
+    sql <- "SELECT is_editor FROM permissions WHERE user_id = ? AND project_id = ?"
+    own <- db_query(DB, sql, "LAdo6", list(user_id, project_id))
+
+    if (is.null(own)) {
+      update_permissions(DB, user_id, project_id, level)
+      state <- "added"
+    } else {
+      # An old editor who so far only had view access here gets their level back.
+      if (level == "edit" && !isTRUE(own)) update_permissions(DB, user_id, project_id, "edit")
+      state <- "have"
+    }
+  }
+
+  log_event("info", "legacy_import", user_id = user_id, source = source[['id']], project_id = project_id, status = state)
+
+  list(state = state)
+}
+
+
+#______________________________________________________________________________
 #' The response to an error a worker reported after it found the password
-#' right. Returned, not raised, so that the transaction it is built in (and
-#' with it `legacy_settle()`) is kept.
+#' right, or to a request that cannot be met. Returned, not raised, so that
+#' the transaction it is built in (and with it `legacy_settle()`) is kept.
 #' @noRd
 legacy_error <- function (REQ, error) {
   error_response(REQ = REQ, e = http_condition(

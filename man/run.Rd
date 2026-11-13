@@ -174,9 +174,11 @@ Instead, save the old database to a file once with \code{\link[=legacy_convert]{
 and name the file in \code{legacy}. Someone who is signed in (or, with
 \code{auth = "none"}, the local user) then finds "Import from an older atima"
 in the menu, types the email address and password they used on the old
-site, and chooses the projects to bring over. The password is checked
-and the projects are decrypted in memory; neither the password nor any
-key is stored or logged. A project is imported once: when someone else
+site, and chooses the projects to bring over. They are imported in the
+background, one at a time, while the person keeps working. The password
+is checked and the projects are decrypted in memory; the server holds
+the password only while that person's import runs, and neither it nor
+any key is stored or logged. A project is imported once: when someone else
 who could open it on the old site imports it later, they are given the
 same project with the access they had (editor or viewer). After five
 wrong passwords a person, and the old account they tried, must wait 15

@@ -153,12 +153,19 @@ route_table <- function () {
       email    = arg_string(min = 3L, max = 255L),
       password = arg_secret(min = 1L, max = 200L) )),
 
-    route("POST /api/legacy/import", "api_legacy_import", "session", "compute", account = TRUE, args = list(
+    # An import runs in the background: `start` hands the server a list
+    # of projects and returns, `status` says how far it has come.
+    route("POST /api/legacy/start", "api_legacy_start", "session", "compute", account = TRUE, args = list(
       source   = arg_string(min = 1L, max = 40L, pattern = "^[a-z0-9]+$"),
       email    = arg_string(min = 3L, max = 255L),
       password = arg_secret(min = 1L, max = 200L),
-      project  = arg_string(min = 1L, max = 20L, pattern = "^[0-9]+$"),
+      projects = arg_strings(pattern = "^[0-9]{1,20}$", max_n = 2000L),
       inflate  = arg_bool(default = FALSE) )),
+
+    route("POST /api/legacy/status", "api_legacy_status", "session", "fast", account = TRUE, args = list(
+      tree = arg_bool(default = FALSE) )),
+
+    route("POST /api/legacy/cancel", "api_legacy_cancel", "session", "fast", account = TRUE),
 
 
     #__________________________________________________________________________

@@ -18,6 +18,9 @@ project_biom <- function (REQ, project_id) {
 
 by_id <- function (projects) stats::setNames(projects, vapply(projects, function (p) p$id, character(1)))
 
+# The state of each project in a status reply, named by old project id.
+states <- function (status) vapply(by_id(status$projects), function (p) p$state, character(1))
+
 
 # The converter ---------------------------------------------------------------
 
@@ -189,6 +192,11 @@ test_that("a project is rebuilt with the metadata, taxonomy and tree atima 2 kep
   expect_identical(fetched$depth, 1200)
   expect_true(file.exists(fetched$file))
 
+  # Every sample is kept, also the two that atima 2 had no metadata for.
+  rebuilt <- as.data.frame(fetched$biom$metadata)
+  expect_setequal(rebuilt$.sample, rbiom::hmp50$samples)
+  expect_identical(sum(is.na(rebuilt$Edited)), 2L)
+
   # The column added after upload, and the dates as text.
   expect_true(all(c("Edited", "Collected", "Age", "Body Site") %in% fetched$biom$fields))
   expect_false("Sex" %in% fetched$biom$fields)
@@ -202,6 +210,11 @@ test_that("a project is rebuilt with the metadata, taxonomy and tree atima 2 kep
 
   err <- expect_error(atima2_fetch(con, projects[['17']], dir), class = "atima_http_error")
   expect_match(conditionMessage(err), "damaged")
+
+  # A wrong stored checksum is no obstacle: real databases have them on
+  # objects that decrypt and read correctly.
+  grace <- by_id(atima2_projects(con, atima2_verify(con, "grace@example.org", legacy_password("grace"))))
+  expect_identical(atima2_fetch(con, grace[['13']], dir)$biom$n_samples, 50L)
 })
 
 
@@ -212,8 +225,9 @@ test_that("the import routes are for people with an account", {
   app   <- local_legacy_app(legacy_file)
   guest <- app$sign_in("Guest", is_guest = TRUE)
 
-  for (path in c("/api/legacy/sources", "/api/legacy/list", "/api/legacy/import")) {
-    resp <- guest$post(path, c(ada_login(app), list(project = "11")))
+  for (path in c("/api/legacy/sources", "/api/legacy/list", "/api/legacy/start", "/api/legacy/status", "/api/legacy/cancel")) {
+    args <- switch(path, "/api/legacy/list" = ada_login(app), "/api/legacy/start" = c(ada_login(app), list(projects = list("11"))), list())
+    resp <- guest$post(path, args)
     expect_identical(resp$status, 403L, info = path)
   }
 
@@ -276,14 +290,28 @@ test_that("a project is imported once, readable by rbiom, with its old level and
   ada  <- app$sign_in("Ada New")
   before <- n_rows(app$DB, "projects")
 
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "11")))
+  # Starting returns at once, with everything still to do.
+  resp <- ada$post("/api/legacy/start", c(ada_login(app), list(projects = list("11"))))
   body <- response_json(resp)
 
   expect_identical(resp$status, 200L)
-  expect_identical(body$status, "imported")
-  expect_identical(body$tree_node$text, "Gut study")
-  expect_true(body$tree_node$editor)
+  expect_true(body$active)
+  expect_identical(body$source, "Old ATIMA")
+  expect_identical(body$projects, list(list(id = "11", title = "Gut study", state = "queued", message = NULL)))
+  expect_identical(n_rows(app$DB, "projects"), before)
+
+  # A second batch cannot be started on top of it.
+  expect_identical(ada$post("/api/legacy/start", c(ada_login(app), list(projects = list("12"))))$status, 409L)
+
+  body <- ada$wait()
+
+  expect_false(body$active)
+  expect_identical(states(body), c(`11` = "imported"))
   expect_identical(n_rows(app$DB, "projects"), before + 1L)
+
+  # Asked for, the status carries the project tree, with the new project in it.
+  expect_true("Gut study" %in% vapply(body$tree$private, function (node) node$text, ""))
+  expect_null(response_json(ada$post("/api/legacy/status"))$tree)
 
   record <- DBI::dbGetQuery(app$DB, "SELECT * FROM legacy_imports")
   expect_identical(record$source, app$source)
@@ -295,6 +323,7 @@ test_that("a project is imported once, readable by rbiom, with its old level and
   expect_identical(project$created_utc, "2021-03-04 05:06:07")
   expect_identical(project$n_samples, 50L)
   expect_match(project$access_key, "^[a-z0-9]{12}$")
+  expect_identical(DBI::dbGetQuery(app$DB, "SELECT is_editor FROM permissions WHERE project_id = ?", params = list(record$project_id))[[1]], 1L)
 
   biom <- project_biom(app$REQ, record$project_id)
   expect_identical(biom$n_samples, 50L)
@@ -307,8 +336,7 @@ test_that("a project is imported once, readable by rbiom, with its old level and
   expect_true(all(rbiom::sample_sums(rare) == 1200))
 
   # Again: no second project.
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "11")))
-  expect_identical(response_json(resp)$status, "have")
+  expect_identical(states(ada$import(ada_login(app), "11")), c(`11` = "have"))
   expect_identical(n_rows(app$DB, "projects"), before + 1L)
   expect_identical(n_rows(app$DB, "legacy_imports"), 1L)
 
@@ -316,12 +344,70 @@ test_that("a project is imported once, readable by rbiom, with its old level and
   expect_identical(listed[['11']]$status, "have")
   expect_identical(listed[['12']]$status, "new")
 
-  # A project that is not hers, and one that does not exist.
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "13")))
-  expect_identical(resp$status, 404L)
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "999")))
+  # Projects that are not hers, or do not exist, are not started at all.
+  resp <- ada$post("/api/legacy/start", c(ada_login(app), list(projects = list("13", "999"))))
   expect_identical(resp$status, 404L)
   expect_identical(n_rows(app$DB, "legacy_attempts"), 0L)
+})
+
+
+test_that("a batch imports several projects, each with its own outcome", {
+
+  skip_if_not(pandoc::pandoc_available(), "pandoc is not installed")
+
+  app <- local_legacy_app(legacy_file)
+  ada <- app$sign_in("Ada New")
+
+  # Hers are 11, 12 (counts that are not whole numbers) and 17 (damaged);
+  # 13 is someone else's and is left out.
+  body <- ada$import(ada_login(app), c("11", "12", "13", "17"))
+
+  expect_identical(states(body), c(`11` = "imported", `12` = "needs_scaling", `17` = "failed"))
+
+  problems <- by_id(body$projects)
+  expect_match(problems[['12']]$message, "not whole numbers")
+  expect_match(problems[['17']]$message, "damaged")
+  expect_null(problems[['11']]$message)
+
+  expect_identical(n_rows(app$DB, "legacy_imports"), 1L)
+  expect_identical(n_rows(app$DB, "legacy_attempts"), 0L)
+
+  # With the user's agreement the counts are scaled, as for an upload.
+  expect_identical(states(ada$import(ada_login(app), "12", inflate = TRUE)), c(`12` = "imported"))
+  expect_identical(n_rows(app$DB, "legacy_imports"), 2L)
+})
+
+
+test_that("the password is forgotten when a batch ends, and a batch can be cancelled", {
+
+  skip_if_not(pandoc::pandoc_available(), "pandoc is not installed")
+
+  app <- local_legacy_app(legacy_file)
+  ada <- app$sign_in("Ada New")
+
+  expect_identical(response_json(ada$post("/api/legacy/status")), list(active = FALSE, projects = list()))
+
+  ada$post("/api/legacy/start", c(ada_login(app), list(projects = list("11", "12", "17"))))
+
+  batch <- legacy_batch(app$REQ$LEGACY, ada$user_id)
+  expect_s3_class(batch$password, "atima_secret")
+
+  # Cancelled before anything ran: nothing is imported.
+  body <- response_json(ada$post("/api/legacy/cancel"))
+  expect_false(body$active)
+  expect_identical(states(body), c(`11` = "cancelled", `12` = "cancelled", `17` = "cancelled"))
+  expect_null(batch$password)
+
+  ada$wait()
+  expect_identical(n_rows(app$DB, "legacy_imports"), 0L)
+
+  # One that runs to its end forgets the password too.
+  ada$import(ada_login(app), "11")
+  expect_null(legacy_batch(app$REQ$LEGACY, ada$user_id)$password)
+
+  # Someone else's batch is their own.
+  grace <- app$sign_in("Grace New")
+  expect_identical(response_json(grace$post("/api/legacy/status"))$projects, list())
 })
 
 
@@ -333,7 +419,7 @@ test_that("someone else who could open the old project is added to the same one"
   ada   <- app$sign_in("Ada New")
   grace <- app$sign_in("Grace New")
 
-  ada$post("/api/legacy/import", c(ada_login(app), list(project = "11")))
+  ada$import(ada_login(app), "11")
   project_id <- DBI::dbGetQuery(app$DB, "SELECT project_id FROM legacy_imports")[[1]]
   before     <- n_rows(app$DB, "projects")
 
@@ -341,10 +427,7 @@ test_that("someone else who could open the old project is added to the same one"
   expect_identical(listed[['11']]$status, "shared")
   expect_identical(listed[['11']]$level, "viewer")
 
-  resp <- grace$post("/api/legacy/import", c(grace_login(app), list(project = "11")))
-  body <- response_json(resp)
-  expect_identical(body$status, "added")
-  expect_false(body$tree_node$editor)
+  expect_identical(states(grace$import(grace_login(app), "11")), c(`11` = "added"))
   expect_identical(n_rows(app$DB, "projects"), before)
 
   perms <- DBI::dbGetQuery(app$DB, "SELECT user_id, is_editor FROM permissions WHERE project_id = ? ORDER BY user_id", params = list(project_id))
@@ -361,48 +444,52 @@ test_that("a viewer who imports first can only view, and the editor gets it back
   ada   <- app$sign_in("Ada New")
   grace <- app$sign_in("Grace New")
 
-  body <- response_json(grace$post("/api/legacy/import", c(grace_login(app), list(project = "11"))))
-  expect_identical(body$status, "imported")
-  expect_false(body$tree_node$editor)
-  expect_identical(body$tree_node$info$editors, list())
+  expect_identical(states(grace$import(grace_login(app), "11")), c(`11` = "imported"))
 
-  body <- response_json(ada$post("/api/legacy/import", c(ada_login(app), list(project = "11"))))
-  expect_identical(body$status, "added")
-  expect_true(body$tree_node$editor)
+  project <- DBI::dbGetQuery(app$DB, "SELECT project_id, editors FROM projects WHERE project_id = (SELECT project_id FROM legacy_imports)")
+  editor  <- function (user) DBI::dbGetQuery(
+    app$DB, "SELECT is_editor FROM permissions WHERE user_id = ? AND project_id = ?", params = list(user$user_id, project$project_id) )[[1]]
+
+  expect_identical(project$editors, "[]")
+  expect_identical(editor(grace), 0L)
+
+  expect_identical(states(ada$import(ada_login(app), "11")), c(`11` = "added"))
+  expect_identical(editor(ada), 1L)
   expect_identical(n_rows(app$DB, "legacy_imports"), 1L)
 })
 
 
-test_that("counts that are not whole numbers are asked about, as for an upload", {
+test_that("a project that cannot be imported is logged under an id, and the batch goes on", {
 
   skip_if_not(pandoc::pandoc_available(), "pandoc is not installed")
 
-  app <- local_legacy_app(legacy_file)
-  ada <- app$sign_in("Ada New")
-
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "12")))
-  expect_identical(resp$status, 400L)
-  expect_identical(response_json(resp)$error$code, "confirm_inflate")
-  expect_identical(n_rows(app$DB, "legacy_imports"), 0L)
-
-  # The password was right, so this did not count as an attempt.
-  expect_identical(n_rows(app$DB, "legacy_attempts"), 0L)
-
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "12", inflate = TRUE)))
-  expect_identical(response_json(resp)$status, "imported")
-})
-
-
-test_that("a damaged project is refused with a message and costs no attempt", {
-
   app  <- local_legacy_app(legacy_file)
+  logs <- local_log()
   ada  <- app$sign_in("Ada New")
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "17")))
 
-  expect_identical(resp$status, 400L)
-  expect_match(response_json(resp)$error$message, "damaged")
-  expect_identical(n_rows(app$DB, "legacy_attempts"), 0L)
+  # The first project's job breaks in a way nobody planned for.
+  calls <- 0L
+  real  <- import_biom
+  local_mocked_bindings(import_biom = function (...) {
+    calls <<- calls + 1L
+    if (calls == 1L) stop("something unforeseen")
+    real(...)
+  })
+
+  body <- ada$import(ada_login(app), c("11", "13"))
+
+  # 13 is not hers; 11 failed.
+  expect_identical(states(body), c(`11` = "failed"))
+  expect_match(body$projects[[1]]$message, "Error id: [A-Za-z0-9]{8}")
+  expect_no_match(body$projects[[1]]$message, "unforeseen")
+
+  failures <- Filter(function (e) e$event == "legacy_import_failed", logs())
+  expect_length(failures, 1)
+  expect_match(body$projects[[1]]$message, failures[[1]]$id, fixed = TRUE)
+
+  # Nothing was half made, and it works the next time.
   expect_identical(n_rows(app$DB, "legacy_imports"), 0L)
+  expect_identical(states(ada$import(ada_login(app), "11")), c(`11` = "imported"))
 })
 
 
@@ -423,7 +510,7 @@ test_that("five wrong passwords lock the person out for a while", {
   expect_identical(resp$status, 429L)
   expect_match(response_json(resp)$error$message, "wait 1[45] minutes")
   expect_identical(ada$post("/api/legacy/list", grace_login(app))$status, 429L)
-  expect_identical(ada$post("/api/legacy/import", c(ada_login(app), list(project = "11")))$status, 429L)
+  expect_identical(ada$post("/api/legacy/start", c(ada_login(app), list(projects = list("11"))))$status, 429L)
 
   # Refused requests are not counted on top.
   expect_identical(n_rows(app$DB, "legacy_attempts"), 10L)
@@ -494,8 +581,7 @@ test_that("nothing secret reaches the log, the database or a file", {
 
   ada$post("/api/legacy/list",   list(source = app$source, email = "ada@example.org", password = "a-wrong-guess-77"))
   ada$post("/api/legacy/list",   ada_login(app))
-  ada$post("/api/legacy/import", c(ada_login(app), list(project = "11")))
-  ada$post("/api/legacy/import", c(ada_login(app), list(project = "17")))
+  ada$import(ada_login(app), c("11", "17"))
 
   # A failure inside the adapter: the account's private key is unreadable.
   broken <- withr::local_tempfile(fileext = ".sqlite")
@@ -541,7 +627,7 @@ test_that("nothing secret reaches the log, the database or a file", {
 
 # Through real worker processes -----------------------------------------------
 
-test_that("an import runs in a worker process", {
+test_that("a batch runs in a worker process", {
 
   skip_if_not(pandoc::pandoc_available(), "pandoc is not installed")
 
@@ -552,8 +638,6 @@ test_that("an import runs in a worker process", {
   resp <- ada$post("/api/legacy/list", list(source = app$source, email = "ada@example.org", password = "wrong"))
   expect_identical(resp$status, 400L)
 
-  resp <- ada$post("/api/legacy/import", c(ada_login(app), list(project = "11")))
-  expect_identical(resp$status, 200L)
-  expect_identical(response_json(resp)$status, "imported")
+  expect_identical(states(ada$import(ada_login(app), "11")), c(`11` = "imported"))
   expect_identical(project_biom(app$REQ, DBI::dbGetQuery(app$DB, "SELECT project_id FROM legacy_imports")[[1]])$n_samples, 50L)
 })

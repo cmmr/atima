@@ -150,7 +150,6 @@ legacy_convert <- function (con, file) {
   message("Copying the objects of ", nrow(projects), " project", if (nrow(projects) != 1) "s")
 
   names_sql <- paste0("'", atima2_objects, "'", collapse = ", ")
-  n_objects <- 0L
 
   # One project at a time: an object can be many megabytes.
   for (project_id in projects[['project_id']]) {
@@ -161,15 +160,16 @@ legacy_convert <- function (con, file) {
 
     if (nrow(objects) == 0) next
 
+    # A name stored twice keeps its latest copy.
     insert("objects", data.frame(
       stringsAsFactors = FALSE,
       project_id  = project_id,
       object_name = objects[[1]],
       md5sum      = objects[[2]],
       base64      = objects[[3]] ))
-
-    n_objects <- n_objects + nrow(objects)
   }
+
+  n_objects <- dbGetQuery(out, "SELECT COUNT(*) FROM objects")[[1]]
 
   insert("meta", data.frame(
     stringsAsFactors = FALSE,

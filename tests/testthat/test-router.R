@@ -20,7 +20,7 @@ valid_args <- list(
   "POST /api/sharing/user_search"      = list(query = "ada"),
   "POST /api/sharing/update"           = list(user_id = 5, permissions = "view"),
   "POST /api/legacy/list"              = list(source = "abc123", email = "ada@example.org", password = "old password"),
-  "POST /api/legacy/import"            = list(source = "abc123", email = "ada@example.org", password = "old password", project = "11"),
+  "POST /api/legacy/start"             = list(source = "abc123", email = "ada@example.org", password = "old password", projects = list("11", "12")),
   "POST /api/metadata/change_class"    = list(col_num = 2),
   "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
