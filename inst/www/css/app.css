@@ -75,6 +75,7 @@ code, pre { font-family: var(--mono); font-size: 12.5px; }
 .nav-group > summary { list-style: none; font-weight: 600; margin-top: 4px; }
 .nav-group > summary::-webkit-details-marker { display: none; }
 .nav-group > summary > span { flex: 1; }
+.nav-outside { font-size: 9px !important; width: auto !important; opacity: .55; margin-left: auto; }
 .nav-arrow { font-size: 10px !important; transition: transform .15s; opacity: .7; }
 .nav-group[open] > summary .nav-arrow { transform: rotate(180deg); }
 .nav-group > .nav-link { margin-left: 17px; padding-left: 16px; border-left: 2px solid rgb(255 255 255 / 12%); border-radius: 0 var(--radius) var(--radius) 0; font-size: 13px; }
@@ -114,6 +115,8 @@ body.nav-closed #nav { display: none; }
 .page { max-width: 1180px; margin: 0 auto; padding: 22px 26px 60px; }
 .page.narrow { max-width: 760px; }
 .terms h1 { margin-bottom: 12px; }
+.reference { display: flex; align-items: flex-start; gap: 12px; }
+.reference p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 .terms ul { margin: 0 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .terms .card > :last-child { margin-bottom: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -313,6 +316,7 @@ img.figure.stale, .figure-box.busy img.figure { opacity: .35; }
 .figure-caption { margin: 8px 2px 0; font-size: 12px; color: var(--text-soft); height: 18px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: none; }
 
 .stats-title { font-weight: 650; margin-bottom: 4px; }
+.stats-note { background: var(--accent-soft); border-radius: var(--radius); padding: 6px 10px; font-size: 13px; }
 .stats-model { font-family: var(--mono); font-size: 12.5px; color: var(--text-soft); }
 
 .code-block { position: relative; }

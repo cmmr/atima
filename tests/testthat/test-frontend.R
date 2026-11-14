@@ -123,7 +123,10 @@ test_that("no page of the app asks another host for anything", {
   # Addresses of other hosts may only appear as links for people to follow.
   links <- c(
     "https://www.bcm.edu/",
-    "https://www.bcm.edu/research/centers/metagenomics-and-microbiome-research" )
+    "https://www.bcm.edu/research/centers/metagenomics-and-microbiome-research",
+    "https://cmmr.github.io/atima/",
+    "https://github.com/cmmr/atima",
+    "https://github.com/cmmr/rbiom" )
 
   for (file in own_files("\\.(html|js|css)$")) {
     text  <- read_text(www(file))
@@ -185,7 +188,9 @@ test_that("navigation labels are short, and every control's label fits its line"
   main   <- read_text(www("js", "main.js"))
   labels <- all_matches(main, "(?<=navLink\\('#/[a-z]{1,20}', ')[^']+(?=')")
   expect_gte(length(labels), 8)
-  expect_true(all(c("Import", "Privacy") %in% labels))
+  expect_true(all(c("Import", "Privacy", "Cite") %in% labels))
+  labels <- c(labels, all_matches(main, "(?<=navOutside\\([A-Z_]{1,20}, ')[^']+(?=')"))
+  expect_true(all(c("Docs", "GitHub") %in% labels))
   expect_true(all(nchar(labels) <= 12L), info = paste(labels[nchar(labels) > 12L], collapse = ", "))
 
   # Headings of the groups of links may be a little longer.

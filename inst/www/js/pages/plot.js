@@ -16,6 +16,7 @@ const STAT_TOOLTIPS = {
   stat:        'Test statistic. Closer to zero is less significant.',
   mean:        'Estimated marginal mean (least-squares mean).',
   mean_diff:   'Difference in means.',
+  lfc:         'Log2 fold change. For a comparison "A - B", above zero means more abundant in A, below zero in B; for a numeric variable, the change per unit.',
   slope:       'Slope of the trend line. A horizontal line has slope 0.',
   slope_diff:  'Difference in slopes.',
   h1:          'Alternative hypothesis.',
@@ -38,6 +39,24 @@ const STAT_TOOLTIPS = {
 };
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+/**
+ * Which way a fold change points, as a sentence, for statistics that
+ * compare groups: rbiom writes a comparison as "A - B" in the column named
+ * after the field, and a fold change above zero means more in A.
+ * @return {string} Empty when the table has no fold change between groups.
+ */
+function foldDirection(table, biom) {
+  if (!table || !table.length || !('lfc' in table[0])) return '';
+  const column = Object.keys(table[0])[0];
+  const f      = S.field(biom, column);
+  if (!f || f.class !== 'categorical') return '';
+  const pairs = [...new Set(table.map(row => row[column]))];
+  if (pairs.length === 1)
+    for (const a of f.levels) for (const b of f.levels)
+      if (pairs[0] === `${a} - ${b}`) return `Fold change above zero: more abundant in ${a}. Below zero: more abundant in ${b}.`;
+  return 'Each comparison is "A - B". Fold change above zero: more abundant in A. Below zero: more abundant in B.';
+}
 
 /** The R code shown beside a figure. */
 function figureCode(code) {
@@ -385,7 +404,9 @@ export function show(container, fn) {
       ? `Made from counts rarefied to ${biom.depth.toLocaleString()} reads per sample.`
       : 'Made from the counts before rarefying.';
     const n = filter.count();
-    caption.textContent = depth + (n ? ` ${n} sample filter${n > 1 ? 's' : ''} applied.` : '');
+    const made = depth + (n ? ` ${n} sample filter${n > 1 ? 's' : ''} applied.` : '');
+    caption.textContent = [foldDirection(resp.stats_table, biom), made].filter(Boolean).join(' ');
+    caption.title = caption.textContent;
   }
 
   function showStats(resp) {
@@ -393,7 +414,9 @@ export function show(container, fn) {
       fill(statsPane, h('p.empty', 'This figure has no statistics. Statistics need groups to compare or a trend to test.'));
       return;
     }
+    const direction = foldDirection(resp.stats_table, store.get('biom'));
     fill(statsPane,
+      direction ? h('p.stats-note', direction) : null,
       Object.values(resp.stats_title || {}).map(line => h(String(line).includes(' ~ ') ? 'p.stats-model' : 'p.stats-title', String(line))),
       localTable(resp.stats_table, { tooltips: STAT_TOOLTIPS, filename: `${fn}_stats.csv` }),
       resp.code && resp.code.stats

@@ -20,6 +20,7 @@ import * as plot      from './pages/plot.js';
 import * as clusters  from './pages/clusters.js';
 import * as legacy    from './pages/legacy.js';
 import * as privacy   from './pages/privacy.js';
+import * as cite      from './pages/cite.js';
 
 const pages = {
   home:     { show: home.show },
@@ -32,7 +33,12 @@ const pages = {
   clusters: { show: clusters.show },
   legacy:   { show: legacy.show },
   privacy:  { show: privacy.show },
+  cite:     { show: cite.show },
 };
+
+// Where the documentation and the source code are.
+const DOCS_URL   = 'https://cmmr.github.io/atima/';
+const SOURCE_URL = 'https://github.com/cmmr/atima';
 
 const main    = document.getElementById('main');
 const nav     = document.getElementById('nav-links');
@@ -47,6 +53,12 @@ let   current = null;     // what the page on screen returned: {onBiom, destroy}
 // checks); the page's full name is its tooltip and the page's own heading.
 function navLink(hash, label, ico, title = null) {
   return h('a.nav-link', { href: hash, title, dataset: { hash } }, ico ? icon(ico) : null, h('span', label));
+}
+
+/** A link that leaves the app: it opens in a new tab and says so. */
+function navOutside(url, label, title) {
+  return h('a.nav-link', { href: url, title, target: '_blank', rel: 'noopener noreferrer' },
+    h('span', label), icon('arrow-up-right-from-square', 'nav-outside'));
 }
 
 function buildNav() {
@@ -76,8 +88,14 @@ function buildNav() {
     // Only when the administrator registered an older installation, and
     // only for someone the imported projects can belong to.
     store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import', 'file-import', 'Import from an older atima') : null,
-    // A shared server says what it keeps and on what terms it is used.
-    store.hasAccounts() ? navLink('#/privacy', 'Privacy', 'shield-halved', 'Privacy and terms') : null);
+    // About the software: how to use it, how to cite it, where its code is,
+    // and what this copy keeps and on what terms it is used.
+    h('details.nav-group', { open: true },
+      h('summary', icon('circle-info'), h('span', 'About'), icon('chevron-down', 'nav-arrow')),
+      navOutside(DOCS_URL, 'Docs', 'Documentation and tutorials (opens in a new tab)'),
+      navLink('#/cite', 'Cite', null, 'How to cite ATIMA and rbiom'),
+      navOutside(SOURCE_URL, 'GitHub', 'Source code and issue tracker (opens in a new tab)'),
+      navLink('#/privacy', 'Privacy', null, 'Privacy and terms')));
 }
 
 // The button in the top bar folds the navigation away. A narrow window has
