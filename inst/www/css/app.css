@@ -263,8 +263,7 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .control input[type="text"], .control input[type="number"], .control select, .control .picker-face { min-height: 24px; padding: 1px 6px; font-size: 12.5px; }
 .control select { text-overflow: ellipsis; padding-right: 2px; }
 
-/* Changed from the default: a stronger label, and the reset button shows. */
-.control.changed > .control-row .control-label { font-weight: 700; color: var(--navy-2); }
+/* Changed from the default: the reset button at the row's edge shows; nothing else. */
 
 /* No effect at the moment (a `when` rule): greyed out; the help icon says why. */
 .control.inactive > .control-row .control-label { color: #9aa3ad; }
