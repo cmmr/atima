@@ -278,8 +278,11 @@ const editors = {
     const plain   = typeof def === 'boolean';
     const options = plain ? [] : [{ value: UNSET, label: AUTO, title: noDot(p.default_note || p.null) || null }];
     if (forms.includes('logical') || forms.includes('true')) options.push({ value: true, label: 'Yes' });
-    if (forms.includes('logical')) options.push({ value: false, label: 'No' });
-    if (p.null !== undefined && def !== null) options.push({ value: null, label: nullWord(p), title: noDot(p.null) });
+    // Where "No" is an answer, rbiom's "leave it empty" says the same thing
+    // (no "Other" taxon, no title, no line), so it is not offered twice.
+    const sameAsNo = forms.includes('logical') && p.null !== undefined && def !== null;
+    if (forms.includes('logical')) options.push({ value: false, label: 'No', title: sameAsNo ? noDot(p.null) : null });
+    if (p.null !== undefined && def !== null && !sameAsNo) options.push({ value: null, label: nullWord(p), title: noDot(p.null) });
     if (forms.includes('choice')) for (const c of p.choices) options.push({ value: c, label: c });
 
     const custom = forms.includes('string') ? 'string' : forms.includes('integer') ? 'integer' : null;
@@ -298,7 +301,8 @@ const editors = {
         : subRow('Number', numberBox({ type: 'integer', min: 1 }, start, emit, { problem: env.problem })));
     };
 
-    const select = dropdown(options, isCustom ? CUSTOM : value === UNSET && plain ? def : value, v => {
+    const shown  = value === UNSET && plain ? def : value === null && sameAsNo ? false : value;
+    const select = dropdown(options, isCustom ? CUSTOM : shown, v => {
       drawExtra(v === CUSTOM);
       if (v !== CUSTOM) emit(plain && v === def ? UNSET : v);
     }, id);

@@ -646,6 +646,12 @@ it to that step's list instead of fixing it now.
   empty choice whose wording is longer than 18 characters is "None".
   A parameter that takes one number or several (the p-value brackets)
   is a number box with a small button for entering several.
+  A yes/no control whose answers include "No" no longer also offers
+  rbiom's "leave it empty" (`NULL`): Daniel asked what the difference
+  was, and there is none (`other`, `title`, `rline`: checked by drawing
+  both, 2026-11-14). For rbiom: `rare_multiplot()`'s description says
+  `rline = NULL` means "No line", but the function refuses `NULL`
+  ("must be TRUE, FALSE, or an integer"); atima no longer sends it.
 - **A field and the look of its values (step 11).** rbiom 4 has no
   `color.by`, `shape.by` or `pattern.by`: one field drives all three (see
   the step 11 notes). Daniel chose: Colors, Shapes and Patterns are one
