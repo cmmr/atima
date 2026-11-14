@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 13).
+at release (step 14).
 
 ## How each step runs
 
@@ -38,7 +38,8 @@ it to that step's list instead of fixing it now.
 | 10 | Deployment, docs, load testing | done (2026-11-14) |
 | 11 | MCP server, shared (sign-in), and tools that change data | not started |
 | 12 | Usage monitoring | not started |
-| 13 | Release | not started |
+| 13 | Interface refinement: compact controls, navigation | not started |
+| 14 | Release | not started |
 
 ## Decision log
 
@@ -69,7 +70,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 13 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 14 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -518,6 +519,14 @@ it to that step's list instead of fixing it now.
   and release moved to step 13. His reason: in academia a tool that many
   people use is what earns grant money, so the numbers must measure
   reach and repeat use, not the usual profit-focused statistics.
+- **Interface refinement (added 2026-11-14).** Daniel finds the plot
+  controls of the new front end too tall: a label above every control,
+  like the R Shiny interface of atima 2, which he does not like. He
+  wants them compact, as in the plot controls he designed for atima 4,
+  with an unopened dropdown and its label on one line, and usable on a
+  wide range of screen sizes. Two navigation links are much longer than
+  the rest and are to be renamed. It is step 13, after the steps that
+  still add pages; release moved to step 14.
 
 - **Hosting (step 10).** Daniel has not decided where the public server
   runs, so nothing in the repository names a host. The deployment files
@@ -2558,7 +2567,7 @@ and other apps to the lab's server and work with their own projects.
     to get one.
 
 Decisions for Daniel: whether this ships in the first release (if not, it
-moves after step 13 and the status table says so); atima as its own
+moves after step 14 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
 browser also disconnects apps. For the tools that change data: whether
@@ -2723,7 +2732,80 @@ small vendored library, or figures drawn in R); whether a public
 hidden; and whether Baylor has rules on recording use of a public
 research server that this must follow.
 
-## Step 13: Release
+## Step 13: Interface refinement: compact controls, navigation
+
+The front end from step 7 works, and Daniel approved its layout
+(navigation left, figure in the middle, controls right). This step is
+about how it looks and how much room it takes, not what it does. It
+comes after steps 11 and 12 so that the pages they add (connected apps,
+usage) are refined with the rest.
+
+- The reference is the plot controls Daniel designed for atima 4. They
+  are not in this repository: its history starts at a pre-renovation
+  5.0, whose `inst/www/modules/` (`controls.js`, `dd.js`, `selz.js`,
+  `layers.js`, `aes.js`) and `inst/www/style.css` in the first commit
+  are the nearest thing here, and the local `archive/` holds atima 1 to
+  3 only. Ask Daniel for the atima 4 source or screenshots (the old
+  history is in the private `cmmr/atima-old`; nothing from it may be
+  committed here) and look at them before designing anything. What not
+  to resemble: atima 2's Shiny controls, a label on its own line above
+  each full-width input, which is what step 7's controls look like now.
+- Compact plot controls:
+  - A dropdown that is not open, with its label, takes one line: label
+    on the left, current value on the right. The same for numbers,
+    short text and switches. A control grows past one line only while
+    it is open or when it holds several values (layers, a list of taxa,
+    color assignments).
+  - The marks a control carries today must survive in the smaller
+    form: the dot for "changed from the default", reset, the help text
+    (now a small icon beside the label), the reason a control is greyed
+    out by a `when` rule, and messages for a rejected value.
+  - Today's styles are in `inst/www/css/` (`.controls`, `.control`,
+    `.control-head`, `.control-body`, `.control-pair`, `.toggles`), and
+    the controls are built in one renderer from the schema, so this is
+    mostly a change to that renderer's markup and the style sheet, with
+    no change to what is sent to the server.
+  - Long labels and long values (a metadata field's name comes from the
+    user's file) are cut with an ellipsis and shown whole on hover and
+    to screen readers; they never push a row onto two lines.
+- A wide range of screens: decide the sizes to support and check each
+  one, from a small laptop (about 1280 x 720, and narrower when the
+  browser is not full screen) to a large desktop monitor, and at
+  browser zoom of 125 and 150 percent. On a large screen the figure
+  gets the space, not the controls. On a narrow one the controls and
+  the navigation must still leave room for the figure: for example a
+  navigation that folds to icons and a controls column that can be
+  collapsed or moves under the figure. Whether phones and tablets are
+  supported at all is Daniel's decision. No horizontal scrolling of the
+  page at any supported size.
+- Navigation labels: two links are much longer than the others,
+  "Import from an older atima" and "Privacy and terms" (`buildNav()` in
+  `inst/www/js/main.js`); the group names come from `areaLabels` in
+  `js/schema.js` and the plot names from `shortLabel()`. Give every
+  link a short label of about the same length (for example "Import"
+  and "Privacy"), keep the longer wording as the page's heading and
+  the link's tooltip, and check the labels step 11 and step 12 added.
+- Keep what step 7 settled: no framework and no build step, one
+  hand-written style sheet, nothing inline (the Content-Security-Policy
+  forbids inline script and style), text from users inserted as text.
+  Keyboard use and visible focus must still work on every control, and
+  labels stay tied to their inputs.
+- Tests and checks: the front-end tests still pass; add what can be
+  tested without a browser (every nav label within a set length; no
+  inline styles). Check in a browser at each supported size, with
+  rbiom's example dataset and with one that has long field names and
+  many fields, in both auth modes. Show Daniel screenshots or a running
+  server of the plot page at the smallest and largest size before
+  finishing, and again after his comments.
+
+Decisions for Daniel: the atima 4 reference (source or screenshots) and
+which of its details to keep; the screen sizes to support, and whether
+phones and tablets are among them; what the page does when it is too
+narrow for three columns; the new navigation labels; whether the
+tables, dialogs and other pages get the same pass now or only the plot
+controls and navigation.
+
+## Step 14: Release
 
 - Version, NEWS, citation, DOI.
 - CRAN or r-universe submission. Remove `Remotes: cmmr/rbiom` from
