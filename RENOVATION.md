@@ -697,7 +697,15 @@ it to that step's list instead of fixing it now.
   which opens that dialog as "Edit title and description". There is
   still no route that changes the title and description alone: it is
   `/api/project/save`, so unsaved changes of the working copy are saved
-  with them, and the dialog says so.
+  with them, and the dialog says so. At Daniel's request the project's
+  title in the top bar opens the same dialog for someone who can edit
+  the project (for anyone else it still leads to the summary).
+- **Summary page (step 11).** Daniel asked for it to be reorganized with
+  less empty space, and left the design open: the title with Save, Save
+  a copy and Publish beside it; a strip of numbers (samples, OTUs,
+  depth, fields, ranks, tree); then two columns, the description, the
+  data (fields and ranks as chips) and the links on the left, the
+  downloads on the right.
 
 ## Conventions (apply from step 2 onward)
 

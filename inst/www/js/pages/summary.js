@@ -81,44 +81,65 @@ export function show(container) {
 
     //_________________________________________________________________________
 
-    fill(container, h('div.page',
-      h('div.page-head',
+    // The project in numbers. Names and values come from the user's file: text.
+    const nOtus = (((biom.taxa || {})['.otu']) || []).length;
+    const tile  = (value, label, title = null) => h('div.tile', { title }, h('strong', value), h('span', label));
+    const tiles = h('div.tiles',
+      tile(nSamples.toLocaleString(), 'samples', 'Samples with at least as many reads as the rarefaction depth'),
+      tile(nOtus.toLocaleString(), 'OTUs', 'OTUs left after rarefying'),
+      tile(Number(biom.depth).toLocaleString(), 'reads per sample', 'The rarefaction depth. Change it above any figure.'),
+      tile(String(fields.length), fields.length === 1 ? 'metadata field' : 'metadata fields'),
+      tile(String(ranks.length), ranks.length === 1 ? 'taxonomic rank' : 'taxonomic ranks'),
+      tile(biom.tree ? 'Yes' : 'No', 'phylogenetic tree', biom.tree ? null : 'UniFrac and Faith\'s PD need a tree'));
+
+    const chip = (name, note) => h('span.field-chip', { title: `${name} (${note})` }, h('b', name), h('i', note));
+
+    fill(container, h('div.page.summary',
+
+      h('div.summary-head',
         h('h1', biom.title),
         h('div.tags',
           biom.is_public ? h('span.tag', 'public') : h('span.tag', 'private'),
           h('span.tag', biom.is_editor ? 'you can edit' : 'view only'),
-          biom.is_saved ? null : h('span.tag.warn', 'unsaved changes'))),
+          biom.is_saved ? null : h('span.tag.warn', 'unsaved changes')),
+        actions),
+
+      biom.is_saved ? null : h('p.warning', icon('triangle-exclamation'),
+        ' Your working copy differs from the saved project. Save it, or save a copy, to keep the changes.'),
+
+      tiles,
 
       h('div.summary-grid',
-        h('div.card',
-          h('div.card-head',
-            h('h2', 'Description'),
-            biom.is_editor
-              ? button('Edit', () => saveProject({ details: true }), { icon: 'pen', title: 'Edit this project\'s title and description' })
-              : h('span.hint', { title: 'Save a copy to give it a title and description of your own.' }, 'view only')),
-          serverHtml(h('div.description'), biom.description || '<p><em>No description.</em></p>'),
-          biom.is_saved ? null : h('p.warning', icon('triangle-exclamation'),
-            ' Your working copy differs from the saved project. Save it, or save a copy, to keep the changes.'),
-          actions,
-          links.length ? h('div.links', links) : null),
 
-        h('div.card',
-          h('h2', 'Contents'),
-          h('dl.facts',
-            h('dt', 'Samples'), h('dd', `${nSamples.toLocaleString()} at this depth`),
-            h('dt', 'OTUs'),    h('dd', `${(((biom.taxa || {})['.otu']) || []).length.toLocaleString()} at this depth`),
-            h('dt', 'Ranks'),   h('dd', ranks.join(', ') || 'none'),
-            h('dt', 'Rarefied to'), h('dd', `${Number(biom.depth).toLocaleString()} reads per sample`),
-            h('dt', 'Phylogenetic tree'), h('dd', biom.tree ? 'yes' : 'no (UniFrac and Faith\'s PD need one)'),
-            h('dt', 'Metadata'), h('dd', fields.length
-              ? fields.map(f => `${f.name} (${f.class === 'numeric' ? 'numeric' : `${f.levels.length} groups`})`).join(', ')
-              : 'none')),
-          h('div.card-actions',
-            button('Metadata', () => go('#/metadata'), { icon: 'table' }),
-            button('Taxonomy', () => go('#/taxonomy'), { icon: 'sitemap' }),
-            button(biom.tree ? 'Replace the tree' : 'Add a tree', () => uploadComponent('tree'), { icon: 'upload', title: 'A Newick file' }))),
+        h('div.summary-col',
+          h('div.card',
+            h('div.card-head',
+              h('h2', 'Description'),
+              biom.is_editor
+                ? button('Edit', () => saveProject({ details: true }), { icon: 'pen', title: 'Edit this project\'s title and description' })
+                : h('span.hint', { title: 'Save a copy to give it a title and description of your own.' }, 'view only')),
+            serverHtml(h('div.description'), biom.description || '<p><em>No description.</em></p>')),
 
-        h('div.card.wide', h('h2', 'Downloads'), downloads))));
+          h('div.card',
+            h('div.card-head',
+              h('h2', 'Data'),
+              h('div.card-actions',
+                button('Metadata', () => go('#/metadata'), { icon: 'table', title: 'See and replace the sample metadata' }),
+                button('Taxonomy', () => go('#/taxonomy'), { icon: 'sitemap', title: 'See and replace the taxonomy' }),
+                button(biom.tree ? 'Replace tree' : 'Add a tree', () => uploadComponent('tree'), { icon: 'upload', title: 'Upload a phylogenetic tree as a Newick file' }))),
+            h('h3', 'Metadata fields'),
+            fields.length
+              ? h('div.fields', fields.map(f => chip(f.name, f.class === 'numeric' ? 'numeric' : `${f.levels.length} groups`)))
+              : h('p.hint', 'This project has no sample metadata.'),
+            h('h3', 'Taxonomic ranks'),
+            ranks.length
+              ? h('div.fields', ranks.map(r => chip(r, `${((biom.taxa || {})[r] || []).length.toLocaleString()} taxa`)))
+              : h('p.hint', 'This project has no taxonomy.')),
+
+          links.length ? h('div.card', h('h2', 'Links'), h('div.links', links)) : null),
+
+        h('div.summary-col',
+          h('div.card', h('h2', 'Downloads'), downloads)))));
   }
 
   function linkRow(label, url, hint, extra = null) {

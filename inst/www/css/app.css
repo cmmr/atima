@@ -98,6 +98,11 @@ body.nav-closed #nav { display: none; }
 }
 .project-title { color: #fff; text-decoration: none; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .project-title:hover { text-decoration: underline; }
+button.project-title { display: flex; align-items: center; gap: 8px; font-family: inherit; background: none; border: 0; padding: 4px 6px; margin-left: -6px; border-radius: var(--radius); cursor: pointer; }
+button.project-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+button.project-title:hover { text-decoration: none; background: rgb(255 255 255 / 12%); }
+.project-title-edit { flex: none; font-size: 11px; opacity: .55; }
+button.project-title:hover .project-title-edit, button.project-title:focus-visible .project-title-edit { opacity: 1; }
 .topbar-space { flex: 1; }
 #topbar select { width: auto; background: var(--navy-2); color: #fff; border-color: rgb(255 255 255 / 25%); }
 .account { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -142,7 +147,7 @@ body.nav-closed #nav { display: none; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 8px; }
 .card-head h2 { margin: 0; }
 .card-head .btn { padding: 4px 10px; font-size: 12.5px; }
 .card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -393,10 +398,27 @@ table.people select { width: auto; }
 
 /* ---- Summary, sharing, home ---------------------------------------------- */
 
-.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-.summary-grid .card { margin: 0; }
-.summary-grid .card.wide { grid-column: 1 / -1; }
-.links { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+/* The summary page: a head with the title and what can be done with the
+   project, a strip of numbers, then two columns: about the project on the
+   left, downloads on the right. */
+.summary-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.summary-head h1 { min-width: 0; overflow-wrap: anywhere; }
+.summary-head .card-actions { margin-left: auto; }
+.summary .warning { margin-bottom: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; display: flex; flex-direction: column; min-width: 0; }
+.tile strong { font-size: 19px; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile span { font-size: 12px; color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.summary-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.summary-grid .card { margin: 0; padding: 13px 16px; min-width: 0; }
+.summary-grid h3 { font-size: 12px; font-weight: 650; color: var(--text-soft); text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 6px; }
+.summary-grid h3:first-of-type { margin-top: 0; }
+.fields { display: flex; flex-wrap: wrap; gap: 5px; }
+.field-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; background: var(--bg); border: 1px solid var(--line-soft); border-radius: 5px; padding: 2px 8px; font-size: 12.5px; }
+.field-chip b { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-chip i { flex: none; font-style: normal; font-size: 11px; color: var(--text-soft); white-space: nowrap; }
+.links { display: flex; flex-direction: column; gap: 10px; }
 /* The import page: a short form, and a list of projects to tick. */
 .form-grid { display: grid; grid-template-columns: max-content minmax(0, 340px); gap: 8px 14px; align-items: center; margin: 14px 0 4px; }
 .form-grid label { font-size: 13px; font-weight: 600; }
@@ -408,9 +430,12 @@ table.data.wrap td:nth-child(2) { white-space: normal; width: 100%; }
 .link-row code { background: var(--bg); padding: 3px 7px; border-radius: 4px; overflow-wrap: anywhere; }
 .link-row .hint { flex-basis: 100%; margin: 0; }
 .link-label { font-weight: 600; font-size: 12.5px; }
-.download-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-soft); flex-wrap: wrap; }
-.download-name { flex: 1; min-width: 200px; }
-.download-row select, .download-row .picker { width: 230px; flex: none; }
+.downloads .hint { margin-bottom: 6px; }
+.download-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px 8px; padding: 5px 0; border-top: 1px solid var(--line-soft); flex-wrap: wrap; font-size: 13px; }
+.download-name { flex: 1 1 150px; min-width: 0; }
+.download-row select, .download-row .picker { width: 150px; flex: 0 1 auto; min-width: 0; }
+.download-row select, .download-row .picker-face { min-height: 28px; padding: 2px 8px; }
+.download-row .btn { padding: 5px 10px; }
 .button-pair { display: inline-flex; }
 .button-pair .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .button-pair .btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: 0; }
@@ -499,6 +524,7 @@ body.dropping::after {
 
 @media (max-width: 1000px) {
   .summary-grid, .projects, .two-col { grid-template-columns: minmax(0, 1fr); }
+  .summary-head .card-actions { margin-left: 0; flex-basis: 100%; }
 }
 
 @media (max-width: 899px) {

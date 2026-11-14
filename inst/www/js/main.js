@@ -215,7 +215,12 @@ function buildTopbar() {
   fill(topbar,
     h('button.nav-toggle', { type: 'button', title: 'Show or hide the navigation', 'aria-label': 'Navigation',
       'aria-controls': 'nav', 'aria-expanded': String(navIsOpen()), onclick: () => setNav(!navIsOpen()) }, icon('bars')),
-    h('a.project-title', { href: '#/summary', title: `The open project: ${biom.title}` }, biom.title),
+    // Someone who can edit the project changes its title and description
+    // from here; for anyone else the title leads to the project's summary.
+    biom.is_editor
+      ? h('button.project-title', { type: 'button', title: `${biom.title}: edit the title and description`,
+          onclick: () => saveProject({ details: true }) }, h('span', biom.title), icon('pen', 'project-title-edit'))
+      : h('a.project-title', { href: '#/summary', title: `The open project: ${biom.title}` }, biom.title),
     biom.is_saved ? null : h('button.tag.warn', { type: 'button', title: 'Your working copy has changes that are not saved. Click to save.',
       onclick: () => saveProject({ copy: !biom.is_editor }) }, 'unsaved'),
     h('span.topbar-space'),
