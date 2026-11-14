@@ -225,9 +225,15 @@ anything atima does.
 If your data must stay on your computer, do not add atima's address to an
 AI app, unless the app runs its model on your computer and sends nothing
 out. Check `claude mcp list`, or the equivalent list in other apps, if
-you are unsure whether you connected one in the past. The tools cannot
-change or delete your projects. [Connecting an AI app](ai-apps.html) has
-the details.
+you are unsure whether you connected one in the past.
+
+An app that has the address can also change your projects: upload files,
+edit, copy, publish and delete. A deleted project can be restored for 30
+days from "Deleted" on the Projects page, and every change an app made is
+listed under "AI apps" in the menu at the top right. To let apps read and
+analyse but change nothing, start atima with
+`atima::run(mcp_writes = FALSE)`. [Connecting an AI app](ai-apps.html)
+has the details.
 
 
 ## Checking these statements yourself

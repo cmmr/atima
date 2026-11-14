@@ -108,8 +108,11 @@
 		}
 	}
 
-	# Where AI apps will sign in once shared servers offer /mcp.
-	@oauth path /oauth/* /.well-known/*
+	# Connecting an AI app, the part a person's browser does: the approval
+	# page and its answer. Each makes atima fetch the app's description
+	# from the address the request names, and remember the request for ten
+	# minutes.
+	@oauth path /oauth/authorize /oauth/approve
 	rate_limit @oauth {
 		zone oauth {
 			key    {client_ip}
@@ -118,9 +121,38 @@
 		}
 	}
 
+	# The part the apps themselves do: reading how to sign in, exchanging
+	# a code, and renewing a token every hour. A hosted app's requests come
+	# from its maker's servers, so everyone who uses that app shares those
+	# addresses: the limit is much higher. A wrong code or token costs
+	# atima one database lookup.
+	@oauth_apps path /oauth/token /oauth/revoke /.well-known/*
+	rate_limit @oauth_apps {
+		zone oauth_apps {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_OAUTH_APPS:600}
+			window 1m
+		}
+	}
+
+	# Files sent with an upload ticket from an AI app. A request is read
+	# whole before its ticket is looked at.
+	@upload {
+		method POST
+		path /api/upload
+	}
+	rate_limit @upload {
+		zone upload {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_UPLOAD:30}
+			window 1m
+		}
+	}
+
 	# A ceiling on API calls as a whole. Not on /mcp: an AI app's requests
-	# come from its maker's servers, so many people share those addresses,
-	# and atima limits each account's jobs itself.
+	# come from its maker's servers, so many people share those addresses.
+	# There atima itself answers nothing without a token, limits each
+	# account's jobs, and caps each connected app's changes per hour.
 	@api path /api/*
 	rate_limit @api {
 		zone api {

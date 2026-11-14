@@ -55,7 +55,8 @@ whether the main process keeps answering while the workers are busy.
 the mock provider, which waits 2 seconds before it answers the token
 request, while the probe runs five times a second.
 
-**AI apps** (a server without accounts, the only kind that offers `/mcp`).
+**AI apps** (a server without accounts: with accounts `/mcp` needs a token
+for each simulated person, which the script has no way to get yet).
 Two apps each call the `make_plot` tool six times at once, wait for all
 six answers, and repeat five times. Every answer carries the figure as a
 PNG in base64.

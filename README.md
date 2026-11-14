@@ -83,6 +83,10 @@ default is used if none is set.
 | `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `50` | Largest upload accepted, in MB. |
 | `session_hours` | `ATIMA_SESSION_HOURS` | `24` | A browser tab not heard from for this long loses its session, unsaved changes and temporary files. |
 | `guest_days` | `ATIMA_GUEST_DAYS` | `30` | A guest who has not visited for this long is forgotten, with the projects only they could open. |
+| `trash_days` | `ATIMA_TRASH_DAYS` | `30` | A deleted project is kept this long, and can be restored by its editors, before it is erased. |
+| `mcp_writes` | `ATIMA_MCP_WRITES` | `TRUE` | May AI apps change data (upload, edit, copy, share, publish, delete)? `FALSE` offers them reading and analysing only. |
+| `app_days` | `ATIMA_APP_DAYS` | `30` | With `auth = "oidc"`: a connected AI app stays connected until it has not been used for this long. |
+| `app_changes_per_hour` | `ATIMA_APP_CHANGES_PER_HOUR` | `60` | The most changes one connected AI app may make in an hour. |
 | `legacy` | `ATIMA_LEGACY` | none | Older installations to import from; see "Importing from an older atima". |
 | `open` | `ATIMA_OPEN` | `interactive()` | Open a browser once the server is up. |
 
@@ -161,12 +165,13 @@ comes over, and what to watch for.
 
 ## Using atima from an AI app
 
-A local atima (`auth = "none"`) is also a
+atima is also a
 [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server, so
 an AI app that speaks MCP can explore your projects, run statistics and
-make figures when you ask it to. The endpoint is the server's address
-followed by `/mcp`; `run()` prints it when it starts. With
-[Claude Code](https://claude.com/claude-code), for example:
+make figures when you ask it to, and, if you allow it, upload files and
+change, copy, share, publish and delete projects. The endpoint is the
+server's address followed by `/mcp`; `run()` prints it when it starts.
+With [Claude Code](https://claude.com/claude-code), for example:
 
 ```sh
 claude mcp add --transport http atima http://127.0.0.1:8080/mcp
@@ -175,16 +180,23 @@ claude mcp add --transport http atima http://127.0.0.1:8080/mcp
 Then ask in plain words: "List my atima projects", "Draw an ordination of
 hmp50 colored by body site". What to know:
 
-- The app is given six tools. They read and compute; none of them changes
-  anything.
-- **Your data goes where the app sends it.** atima itself only answers
-  requests from this computer, but what a tool returns (metadata values,
-  statistics, figures) is handed to the AI app, and most apps send it on
-  to their provider's servers. If the data must stay on your machine, use
-  an app that runs its model locally, or do not connect one.
-- atima speaks revision 2026-07-28 of the MCP specification. An app that
-  only knows earlier revisions cannot connect.
-- Shared servers (`auth = "oidc"`) do not offer the endpoint yet.
+- A local atima (`auth = "none"`) lets in any app on the computer that is
+  given the address, as you. On a shared server (`auth = "oidc"`) each
+  person signs in and approves an app, and chooses whether it may only
+  read or may also change things.
+- The app is given six tools that read and compute and, unless
+  `mcp_writes` is `FALSE`, tools that change data. Sharing, publishing
+  and deleting act only when the app confirms them; a deleted project can
+  be restored for `trash_days`; every change an app makes is listed on
+  the "Connected apps" page; and one app can make
+  `app_changes_per_hour` changes an hour.
+- **Your data goes where the app sends it.** What a tool returns
+  (metadata values, statistics, figures) is handed to the AI app, and
+  most apps send it on to their provider's servers. If the data must stay
+  where it is, use an app that runs its model locally, or do not connect
+  one.
+- atima speaks revision 2026-07-28 of the MCP specification, and also
+  answers apps that only know the revisions of 2025.
 
 See [Connecting an AI app](https://cmmr.github.io/atima/articles/ai-apps.html) for the tools, limits and
 troubleshooting, and [Where your data goes](https://cmmr.github.io/atima/articles/data-handling.html) for what

@@ -168,6 +168,10 @@ from `.env`:
 | `ATIMA_MAX_UPLOAD_MB` | 50 | Largest upload. Caddy enforces the same number. |
 | `ATIMA_CACHE_SIZE_MB` | 100 | Size of the cache of computed results. |
 | `ATIMA_SESSION_HOURS`, `ATIMA_GUEST_DAYS`, `ATIMA_SIGNIN_DAYS` | 24, 30, 30 | How long an idle tab, a guest and a sign-in last. |
+| `ATIMA_TRASH_DAYS` | 30 | How long a deleted project can still be restored. |
+| `ATIMA_MCP_WRITES` | true | May AI apps change data, for people who let them? `false` offers reading and analysing only. See [AI apps](#ai-apps). |
+| `ATIMA_APP_DAYS` | 30 | An AI app stays connected until it has not been used for this many days. |
+| `ATIMA_APP_CHANGES_PER_HOUR` | 60 | The most changes one connected AI app may make in an hour. |
 | `ATIMA_TRUSTED_PROXIES` | none | Only [behind another proxy](#behind-another-proxy). |
 | `ATIMA_HSTS` | off | `max-age=31536000` once HTTPS works. |
 | `ATIMA_HTTP_PORT`, `ATIMA_HTTPS_PORT` | 80, 443 | The host's ports for Caddy. |
@@ -202,6 +206,77 @@ choosing, and public projects are not reviewed before they appear; the
 sign in, upload them, and publish them.
 
 
+## AI apps
+
+People can connect an AI app (Claude, ChatGPT and others that speak the
+[Model Context Protocol](https://modelcontextprotocol.io)) to their
+account, and have it explore their projects, run statistics and draw
+figures, and, if they allow it, upload, change, share, publish and delete
+projects. [Connecting an AI app](ai-apps.html) is the article for the
+people who use the server; this section is what you need to know to run
+it. There is nothing to switch on: the endpoint is `<public address>/mcp`.
+
+**How an app gets in.** atima is the OAuth 2.1 authorization server for
+its own `/mcp` endpoint, as the MCP specification describes. An app's
+first request is answered 401 with a pointer to
+`/.well-known/oauth-protected-resource/mcp`; from there the app finds
+`/.well-known/oauth-authorization-server`, sends the person's browser to
+`/oauth/authorize`, and exchanges the code it is returned with at
+`/oauth/token`. The person signs in through your sign-in provider exactly
+as in the browser, then sees atima's own approval page and chooses
+whether the app may only read, or may also change things. Nothing is
+registered with your sign-in provider for this, and the provider never
+hears of the app.
+
+**Which apps.** Any app may ask. An app names itself with a Client ID
+Metadata Document: an `https://` address that atima fetches (once an
+hour at most per app) to learn the app's name and the addresses it may
+return people to. To keep that from being used to make your server call
+computers inside your own network, atima refuses addresses that are not
+`https`, that resolve to private, loopback or link-local addresses, and
+follows no redirects. **The server therefore needs to be able to make
+outgoing HTTPS requests to the internet**, and to resolve names. If your
+network only lets it out through a proxy, set `https_proxy` for the
+`atima` service. An app is a "public client": there are no client
+secrets, and Dynamic Client Registration is not offered.
+
+**What is stored.** A connection is a row of `app_grants` (the person,
+the app's name and address, what it may do, when it was last used). Its
+tokens are stored as SHA-256 only. An access token lasts an hour; the
+refresh token is replaced each time it is used, and one that is used
+twice ends the connection. A connection that is not used for
+`ATIMA_APP_DAYS` ends by itself. Every change an app makes is a row of
+`app_changes`, which the person can read under "Connected apps" and
+which is kept for a year. All of it is in the database, so it is in your
+backups.
+
+**Switching changes off.** `ATIMA_MCP_WRITES=false` offers every app the
+six tools that read and compute and nothing else, and removes the second
+choice from the approval page. Apps that were approved for changes
+before lose those tools at once.
+
+**Hosted apps reach you from the internet.** A chat website's requests
+come from its maker's servers, not from the person's computer. For those
+apps the server must be reachable from the internet, over HTTPS, on port
+443, at the address in `ATIMA_PUBLIC_URL`, and so must the two
+`/.well-known/` documents and `/oauth/token`. Anthropic publishes the
+address ranges Claude connects from, if your firewall needs a list. A
+server that is only reachable inside your institution works with apps
+that run on people's own computers, such as Claude Code.
+
+**What an administrator cannot see.** Tool calls are logged by tool name
+only (`rpc` in a `request` line), never with their arguments, and tokens
+and upload tickets are never logged. Changes are logged as `app_change`
+lines with the tool and the numbers of the user and the project.
+
+Not yet tried: a hosted app against a public server, and an app's own
+exchange of its code for tokens. Against a test server with a stand-in
+sign-in provider, Claude Code found its way from the 401 to the approval
+page under its own identity and was returned to with a code; the exchange
+was then made by a script, and Claude Code used the resulting tokens for
+every tool, in both protocol revisions.
+
+
 ## What Caddy does, and why
 
 The configuration is `deploy/caddy/Caddyfile`. You should not need to
@@ -209,9 +284,9 @@ change it, but if you use a different proxy, this is the list to reproduce.
 
 - **Passes everything on.** `/api/` (the app's requests), `/auth/` (the
   way to and from the sign-in provider), `/www/` (the app's own files),
-  `/tmp/` (figures and exports), `/mcp` (for AI apps; not offered by shared
-  servers yet), and the pages and downloads at `/<project key>` and
-  `/<project key>/<file>`.
+  `/tmp/` (figures and exports), `/mcp` (for AI apps), `/oauth/` and
+  `/.well-known/` (where AI apps sign in), and the pages and downloads at
+  `/<project key>` and `/<project key>/<file>`.
 - **Says whether the visitor used HTTPS, and from which address.** Caddy
   sets `X-Forwarded-Proto`, `X-Forwarded-For`, `X-Forwarded-Host` and
   `X-Real-IP` itself on every request and discards what the visitor sent
@@ -251,8 +326,16 @@ wait.
 | `ATIMA_LIMIT_SIGNIN` | 30 | `/auth/` | Each sign-in is remembered for ten minutes and calls the provider. |
 | `ATIMA_LIMIT_LEGACY` | 10 | `POST /api/legacy/list`, `/api/legacy/start` | Checking an old password takes a worker about a second. |
 | `ATIMA_LIMIT_DOWNLOADS` | 60 | `GET /<key>/<file>` | Needs no session, so anyone with a key can queue work. |
-| `ATIMA_LIMIT_OAUTH` | 30 | `/oauth/`, `/.well-known/` | For AI apps signing in, in a later version. |
+| `ATIMA_LIMIT_OAUTH` | 30 | `/oauth/authorize`, `/oauth/approve` | A person connecting an AI app. Each request makes atima fetch the app's description from another site. |
+| `ATIMA_LIMIT_OAUTH_APPS` | 600 | `/oauth/token`, `/oauth/revoke`, `/.well-known/` | The AI apps themselves, signing in and renewing a token every hour. A hosted app's requests all come from its maker's servers, so the limit is high. |
+| `ATIMA_LIMIT_UPLOAD` | 30 | `POST /api/upload` | Files sent with an upload ticket from an AI app. |
 | `ATIMA_LIMIT_API` | 1200 | `/api/` as a whole | A ceiling. |
+
+`/mcp` itself has no limit by address, because everyone who uses a hosted
+AI app reaches the server from that app's maker. atima answers nothing
+there without a valid token, counts an app's jobs against its person's
+`ATIMA_JOBS_PER_USER`, and lets one connected app make
+`ATIMA_APP_CHANGES_PER_HOUR` changes an hour.
 
 A lecture room of people may share one address, so the defaults are
 generous. If a class is turned away with status 429 when everyone opens the
