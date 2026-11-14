@@ -35,7 +35,7 @@ it to that step's list instead of fixing it now.
 | 7 | Front end: schema-driven controls | done (2026-11-12) |
 | 8 | Legacy data import | done (2026-11-12) |
 | 9 | MCP server, local | done (2026-11-13) |
-| 10 | Deployment, docs, load testing | not started |
+| 10 | Deployment, docs, load testing | done (2026-11-14) |
 | 11 | MCP server, shared (sign-in), and tools that change data | not started |
 | 12 | Usage monitoring | not started |
 | 13 | Release | not started |
@@ -518,6 +518,62 @@ it to that step's list instead of fixing it now.
   and release moved to step 13. His reason: in academia a tool that many
   people use is what earns grant money, so the numbers must measure
   reach and repeat use, not the usual profit-focused statistics.
+
+- **Hosting (step 10).** Daniel has not decided where the public server
+  runs, so nothing in the repository names a host. The deployment files
+  serve both arrangements by setting: Caddy facing the internet with a
+  Let's Encrypt certificate, or Caddy on plain HTTP behind an
+  institution's own proxy (`ATIMA_SITE_ADDRESS=:80` and
+  `ATIMA_TRUSTED_PROXIES`). The sign-in provider is Globus Auth.
+- **Deployment files (step 10).** Daniel chose `deploy/` at the root of
+  the repository, outside the built package; the load test is beside it
+  in `loadtest/`. The old local `docker/` stays untracked and unused.
+- **Backups (step 10).** Daniel chose nightly, the newest 7 kept plus the
+  newest of each of the last 4 weeks, made by a `backup` service in the
+  compose stack: the database through SQLite's backup API, each stored
+  file once. The upgrade copies `sqlite.db.v<N>.*.bak` are pruned to the
+  newest 3 by the same service.
+- **Privacy and terms (step 10).** Daniel chose fixed text shipped in the
+  package, drafted in this step and still to be reviewed by him, shown as
+  a page of the app on shared servers only. Because other labs will run
+  the same text, it names nobody: `run(operator = , contact = )` say who
+  runs a server.
+- **Per-account job limit (step 10).** Daniel chose 16 jobs waiting or
+  running per account (guests included), `run(jobs_per_user = 16)`. A
+  server without accounts has one user and keeps only the queue limit.
+- **Public collections (step 10).** Daniel chose routes for
+  administrators and controls in the project tree, over a documented SQL
+  recipe.
+- **Clutter (step 10).** Daniel said to remove `todo.txt`, `logo.pptx`
+  and whatever else is not needed; the unused pictures
+  `inst/www/img/gallery/` and `AdrienSaraLogo.png` went too.
+- **GitHub Pages (step 10).** Daniel had the session switch Pages on for
+  `cmmr/atima`, with GitHub Actions as its source: the site is published
+  as a Pages artifact and no `gh-pages` branch exists.
+- **Step 10 choices not put to Daniel.** (a) The public collection routes
+  are separate, admin-level routes (`/api/public/*`) with their own rule,
+  not an extension of `/api/tree/*`; a public collection that still holds
+  something cannot be deleted, as for a user's own. Administrators can
+  also move public projects between collections. (b) `GET /api/health`
+  is the one API route that is a GET. (c) Sign-in asks the provider in
+  the background (this replaces step 5's choice (e)): the load test was
+  to decide, and a provider that takes two seconds would have stopped the
+  server for two seconds per sign-in. Only the fetch of the provider's
+  signing keys still blocks, when they are unknown or have changed.
+  (d) Responses to requests that used a worker carry a `Server-Timing`
+  header with the time the job waited and ran; the load test reads it.
+  (e) A background legacy import counts as one of its person's jobs, and
+  waits out a 429 as it does a full queue. (f) The image stops cleanly on
+  SIGTERM as well as SIGINT: `dumb-init` turns the first into the second
+  for R. (g) Caddy writes no access log, because request paths contain
+  private project keys. (h) Rate limits per address and minute: 120
+  session starts, 30 sign-in requests, 10 old-password checks, 60
+  key-in-URL downloads, 30 OAuth requests, 1,200 API calls; all settings.
+  `/mcp` has no limit by address. (i) `restore` refuses while
+  `sqlite.db-wal` exists, which is how a running server shows; `force`
+  overrides it after a crash. (j) `httr2 (>= 1.3.0)`. (k) The articles
+  are pkgdown articles under `vignettes/articles/`, not package
+  vignettes, so the package gains no dependency.
 
 ## Conventions (apply from step 2 onward)
 
@@ -2195,6 +2251,133 @@ tables; whether a later version may change data (upload, save).
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- Where things are. `deploy/Dockerfile` (the server image; its
+  `Dockerfile.dockerignore` lets only `DESCRIPTION`, `NAMESPACE`,
+  `LICENSE`, `R`, `inst`, `man` and two scripts into the build, so
+  `archive/` and `docker/` never reach Docker), `deploy/entrypoint.sh`,
+  `deploy/backup.R`, `deploy/caddy/` (Caddy with the rate-limit module,
+  and the Caddyfile), `deploy/compose.yaml`, `compose.legacy.yaml`,
+  `.env.example`. `loadtest/`: see its `README.md`. `R/health.R`.
+  `waiting()` in `R/jobs.R` and its branch in `handle_request()`.
+  `server_timing()` in `R/router.R`. `pool_user_jobs()` in `R/jobs.R`.
+  `api_public_*()` in `R/collections.r`, `check_public_nodes()` in
+  `R/access.R`. `inst/www/js/pages/privacy.js`. `_pkgdown.yml`,
+  `.github/workflows/pkgdown.yaml`, `vignettes/articles/*.Rmd`.
+- The image: `rocker/r-ver:4.6`, 153 R packages, about 2.7 GB; a first
+  build takes ten to fifteen minutes. It runs as user 10001 on a
+  read-only root file system, with volumes for `/var/lib/atima` and
+  `/var/tmp/atima` and a tmpfs `/tmp`. Building for an older R needs
+  `--build-arg CRAN_REPO=...`, because rocker pins old R versions to a
+  CRAN snapshot too old for rbiom 4 (its ecodive).
+- `waiting(start, finish)` is for any handler that must wait for
+  something other than a worker: `start()` returns a promise, the router
+  answers with a promise and runs `finish` in a new transaction. Step
+  11's token and metadata requests to other servers should use it.
+- New routes: `GET /api/health`; `POST /api/public/create`, `rename`,
+  `delete`, `move` (admin). New settings: `jobs_per_user`, `operator`,
+  `contact`. `CONF` gained `session_hours`, `guest_days`, and `operator`
+  and `contact` when set, with accounts only. New log event: `unhealthy`.
+  A 429 from the job limit has the message "Too many of your requests are
+  waiting or running at once. ..." and is a tool result for an MCP call.
+- **Verified on the development machine only** (Windows 11, Docker
+  Desktop 29.9 on WSL2; 2026-11-13 and 14): the image builds from a clean
+  context; the stack starts from `cp .env.example .env` and `docker
+  compose up -d --build`; the app loads through Caddy in a browser; a
+  whole sign-in in a browser through Caddy and the mock provider
+  (`loadtest/compose.mock.yaml`), and by curl over Caddy's local HTTPS;
+  a visitor's own `X-Forwarded-Proto` is ignored (the cookie stays
+  `Secure`); `docker stop` ends the server in 2 to 3 seconds with exit
+  status 0, for SIGINT and for SIGTERM, with the database checkpointed
+  (no `-wal` file left); a backup, a refused restore while the server
+  runs, a restore, and the server starting on the restored data; a
+  5.0.x data directory (the test fixture) upgraded in the container, with
+  its `.bak` copy.
+- **Not verified, and waiting for the real server:** a certificate from
+  Let's Encrypt and HSTS; the rate limits under real traffic (only that
+  the configuration loads, and that the load test is refused nothing
+  with them raised); `ATIMA_TRUSTED_PROXIES` behind a real proxy; the
+  legacy mount (`compose.legacy.yaml` was written, not run); the nightly
+  backup at its hour (the loop's `backup` step was run by hand) and
+  backups to a directory outside Docker; a secret given as a file; Linux
+  as the host rather than Docker Desktop; sign-in against Globus Auth or
+  ORCID; the administrators' tree controls with a real administrator
+  sign-in (they were tried with a guest row flagged as administrator),
+  and drag and drop in the public tree. The privacy text is a draft.
+- **The Linux shutdown hang did not show.** `loadtest/shutdown-stress.sh`
+  stops a busy pool in a fresh R process per round, in six variations
+  (one running and one queued, as in the test that hung; stopped before
+  the jobs' code started; four workers and a long queue; ...), each call
+  of `pool_stop()` traced. 300 rounds with R 4.6.2 and 300 with R 4.5.3
+  (both mirai 2.7.4, nanonext 1.10.4, in the image): none hung or failed.
+  So the cause of the two hangs seen in step 6 is still not known; what
+  is known is that it is rarer than about 1 in 600 pool stops with these
+  versions, and that the two hangs were in a test process that had
+  already started and stopped other pools, which these rounds do not do.
+- **A different shutdown fault was found and fixed.**
+  `loadtest/stop-under-load.sh` stops a whole server container while six
+  simulated people and two AI apps keep one or two workers busy. In its
+  first 30 rounds one stop was not clean: the server kept answering
+  requests after the signal until Docker killed it at 30 seconds. An
+  interrupt that reaches R while it runs a callback of the event loop (a
+  request handler, the end of a job) only ends that callback, and
+  `httpuv::runServer()` carries on. `R/shutdown.R` now has
+  `interruptible()`, which every such callback runs in and which notes
+  the request to stop, and `serve()`, a loop in place of `runServer()`
+  that ends when it sees the note. After that, 60 stops of 60 were clean,
+  in 1 to 6 seconds. A callback added later (a `later::later()` or a
+  promise handler in the main process) should run in `interruptible()`
+  too; the legacy import's callbacks do not yet. The CI job now has
+  `timeout-minutes: 45`, and a server that did hang on the way down would
+  be killed by Docker after `stop_grace_period` (30 s) with the database
+  intact, since SQLite's write-ahead log survives a kill.
+- **Load test** (`loadtest/README.md` has the method, the full tables
+  and how to run it again; `loadtest/results/` the data). Hardware: one
+  desktop, Intel Core i5-9600K (6 cores, no hyper-threading), 64 GB;
+  Docker Desktop on WSL2 with 6 CPUs and 31 GB; server, Caddy, mock
+  provider and load generator all on that machine; one CPU core per
+  job. Summary:
+  - The main process stayed responsive in every run, including those
+    where most jobs were turned away: a whole page load took at most 0.4
+    seconds at the 95th percentile, and a request that needs no worker
+    at most 0.3 seconds. All 6,108 page, static file, schema and session
+    requests succeeded.
+  - Capacity is the workers, and one kind of job sets it. Most jobs run
+    for one or two seconds; PERMANOVA with 999 permutations on the
+    1,006-sample example ran 31 to 36 seconds (median; 48 at most) on
+    one core, against under a second on the 50-sample one, and holds its
+    worker for that time. One action in ten was such a job.
+  - Ten people acting every 5 seconds: with 1 worker the median wait
+    for a worker was 5.0 s (95th percentile 65 s), with 2 workers 0.3 s
+    (28 s), with 4 workers 0.0 s (12 s); nobody was turned away.
+  - Thirty people acting every 20 seconds: 1 worker turned away 130 of
+    200 jobs (503), 2 workers 25 of 161, 4 workers none (median wait
+    3.0 s, 95th percentile 31 s). Thirty people every 5 seconds: 4
+    workers served all 204 jobs with a median wait of 15.5 s.
+  - No job reached the 60-second limit; the largest came within 12
+    seconds of it.
+  - One account starting 40 exports at once: 16 accepted and 24 answered
+    429 where the queue had room; where other people's jobs had filled
+    the queue, 503 like everyone else's.
+  - Ten sign-ins at once through a provider that takes 2 seconds: all
+    succeeded (2.3 s median, 4.3 s at most) and the probe was answered
+    within 0.26 s. This is after sign-in was moved to the background;
+    before, each would have stopped the server for 2 seconds.
+  - Two AI apps calling `make_plot` six times at once, five times: all
+    180 calls succeeded; median 8.8 s with 1 worker, 4.2 s with 2, 2.2 s
+    with 4; 59 kB per answer.
+  These are one machine's numbers with the generator on the same
+  machine. Run the series again on the real server before it opens.
+- Seen in the full test suite, once, while two other heavy jobs ran on
+  the machine: a trivial job in `test-jobs.R` passed its 3-second limit,
+  and the four tests after it failed with "object 'worker_run' ... not
+  found", which is a worker whose `pkgload::load_all()` was cut off by
+  that time limit. It is a weakness of the test pool (workers load atima
+  from source inside the job's time limit), not of the server, whose
+  workers load the installed package before any job. The file passes on
+  a quiet machine.
+
 ## Step 11: MCP server, shared (sign-in), and tools that change data
 
 Step 9's `/mcp` route for `auth = "oidc"`, so people can connect claude.ai
@@ -2356,6 +2539,24 @@ and other apps to the lab's server and work with their own projects.
     `R/mcp.R` (`mcp_check_request()` is where the two eras part) and the
     specification describes it under "dual-era" servers.
 
+- From step 10: what is ready for this step.
+  - The proxy already passes `/mcp` unbuffered and uncompressed, and
+    rate-limits `/oauth/` and `/.well-known/` by address (30 a minute,
+    `ATIMA_LIMIT_OAUTH`). `/mcp` itself has no limit by address, on
+    purpose; the per-account job limit (16, 429 as a tool result) is
+    what holds an app back. `mcp` and `oauth` are reserved keys already.
+  - Requests atima makes to other servers (a Client ID Metadata
+    Document, a provider's token endpoint) should go through
+    `waiting()` (`R/jobs.R`) with `httr2::req_perform_promise()`, as
+    sign-in now does, so that a slow server holds up one caller only.
+  - The privacy page (`inst/www/js/pages/privacy.js`) has a marked place
+    for a paragraph saying that what a tool returns goes to the AI app's
+    provider. `ai-apps.Rmd` and `server.Rmd` say shared servers do not
+    offer `/mcp` yet; both need the new section.
+  - `loadtest/loadtest.R` has an AI-app phase that only runs against a
+    server without accounts (`--mode local`); with tokens it needs a way
+    to get one.
+
 Decisions for Daniel: whether this ships in the first release (if not, it
 moves after step 13 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
@@ -2484,6 +2685,32 @@ To build:
   numbers this page cannot give come from (citations, CRAN or r-universe
   downloads, GitHub stars). Local installs are invisible by design.
 
+- From step 10: for this step.
+  - The visitor's address: Caddy sets `X-Real-IP` (and
+    `X-Forwarded-For`) itself on every request and drops what the
+    visitor sent; behind another proxy it takes that proxy's word only
+    if `ATIMA_TRUSTED_PROXIES` names it. atima does not read either
+    header yet: `request_client()` in `R/router.R` still records
+    `REMOTE_ADDR`, which in the container is Caddy's address
+    (`sessions.ip_address` holds it). Add a setting like
+    `forwarded_proto_header` for the address header, and set it in
+    `deploy/compose.yaml`.
+  - Job timing exists per job: `j$queued_at` and `j$started_at` in
+    `pool_submit()` and `pool_dispatch()`, and `data$timing` (queue and
+    run time in ms) on every finished job, which the router already
+    turns into the `Server-Timing` header. Record from there. Cache hits
+    are still not known to the job layer.
+  - Health checks arrive as `GET /api/health` every 30 seconds from the
+    container itself and are logged like any request; exclude them. The
+    load test's requests carry the user agent `atima-loadtest`.
+  - Re-running the load test: `sh loadtest/run-series.sh "2" "30"` and
+    `Rscript loadtest/summarise.R`; compare with the tables in
+    `loadtest/README.md`.
+  - The privacy page has a marked place, in "The server log", for what
+    use is recorded. It already says that the network address of each
+    open tab is stored, which is true of `sessions.ip_address`.
+  - No proxy access log exists to fall back on, by decision.
+
 Decisions for Daniel: whether anything is recorded in `auth = "none"`
 (recommended: nothing, and no page; a local install must never report
 use to anyone); which lookup database, given their licences (DB-IP Lite,
@@ -2521,4 +2748,30 @@ research server that this must follow.
   speaks. `jsonvalidate` is a new Suggests (tests only); it needs V8,
   which CRAN's machines have. Check before release that the revision is
   still current, and that the apps named in the README still connect.
+- From step 10: before release.
+  - Daniel has to read the privacy and terms text
+    (`inst/www/js/pages/privacy.js`); its last two "Terms of use" lines
+    are legal statements. Its header comment says "Draft".
+  - The app's shell shows the Baylor College of Medicine logo and the
+    home page the CMMR logo (`inst/www/img/BCM_120px.png`, `CMMR.png`)
+    on every server, including other labs'. Decide whether they ship.
+  - `projects.editors` (the creator's name, possibly "Guest 12") is sent
+    to every visitor for public projects (`info.editors` in the tree);
+    the interface does not show it. The privacy page says so; consider
+    not sending it.
+  - There is no way to delete an account; the privacy page tells people
+    to contact the operator, who has no tool for it either.
+  - `sign-in.Rmd` and `server.Rmd` say what has not been tested against
+    a real provider and a real server; remove those sentences when it
+    has been.
+  - The pkgdown workflow deletes `RENOVATION.md` from its checkout before
+    building (pkgdown makes a page of every top-level Markdown file);
+    drop that step when this file goes. `DESCRIPTION` still says nothing
+    of the site's articles or of the MCP server.
+  - `loadtest/` and `deploy/` are in `.Rbuildignore`; they ship with the
+    repository, not the package.
+  - Stale notes above, left as history: step 7's "there is still no
+    route to create, rename or delete public collections", step 5's
+    `CONF` field list and its choice (e), and step 10's note that imports
+    are not counted by the job limit.
 - Delete this file.

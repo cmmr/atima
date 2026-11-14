@@ -437,10 +437,31 @@ worker (loading the page, the project list, signing in) are answered by
 the main process and stay fast.
 
 The repository has a load test (`loadtest/`) that simulates people
-browsing, one person starting many jobs at once, and many people signing
-in together. `loadtest/README.md` has the measurements from the
-development machine and says how to run the test against your own server
-before you open it.
+browsing, one account starting many jobs at once, many people signing in
+together through a slow provider, and AI apps calling tools. On the
+development machine (a six-core desktop from 2018, everything in
+containers on that one machine, one core per job):
+
+- Loading the page took under 0.4 seconds for 19 of 20 visitors in every
+  run, including runs in which most jobs were being turned away. Requests
+  that need no worker were answered within 0.3 seconds.
+- Most plots ran for one or two seconds. A permutation test (PERMANOVA,
+  999 permutations) on a project of 1,006 samples ran for 30 to 48
+  seconds on one core, and holds its worker for that long. Jobs like that
+  decide how many workers a server needs.
+- One worker was too few for ten people working at once: half of their
+  requests waited five seconds or more.
+- Four workers served 30 people who each did something every 20 seconds,
+  with a median wait of 3 seconds and nobody turned away. Two workers
+  turned away one job in six under the same load.
+- Ten sign-ins at once through a provider that took two seconds to answer
+  did not slow the server for anyone else.
+
+`loadtest/README.md` in the repository has the method and the full
+tables, and says how to run the test against your own server before you
+open it. If people will bring projects of more than a thousand samples,
+consider a longer time limit (`ATIMA_TIME_LIMIT`): on this hardware the
+largest jobs came within 12 seconds of the default limit of 60.
 
 
 ## What is not protected
