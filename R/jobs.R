@@ -45,6 +45,27 @@ job <- function (fn, args = list(), finish = function (result) result, failed = 
 
 
 #______________________________________________________________________________
+#' Describe something a handler has to wait for that needs no worker, such
+#' as an answer from another server, and what to do with it.
+#'
+#' The router treats it as it does a `job()`: it commits the handler's
+#' database work, answers the request with a promise, and when the wait is
+#' over runs `finish` in the main process, in a new transaction. Any route
+#' may return one, whatever its lane.
+#'
+#' @param start   A function with no arguments that starts the waiting and
+#'                returns a promise of its result.
+#' @param finish  A function of that result that returns the handler's
+#'                response.
+#' @return An object of class `waiting`, for a handler to return.
+#' @noRd
+waiting <- function (start, finish) {
+  stopifnot(is.function(start), is.function(finish))
+  structure(list(start = start, finish = finish, failed = NULL), class = c("waiting", "job"))
+}
+
+
+#______________________________________________________________________________
 #' The context every `work_*()` function takes as its first argument.
 #' @noRd
 worker_ctx <- function (config) {

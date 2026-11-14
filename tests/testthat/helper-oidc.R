@@ -143,6 +143,17 @@ browser_get <- function (path, query = "", cookies = list()) {
 }
 
 
+# The response a request ends in. The callback asks the provider in the
+# background, so its answer is a promise; a sign-in refused before that is
+# a response at once.
+settled <- function (resp) {
+  if (!promises::is.promise(resp)) return (resp)
+  result <- await(resp)
+  if (!is.null(result$error)) stop("handle_request() rejected its promise")
+  result$value
+}
+
+
 # Go through a whole sign-in the way a browser would.
 #
 #   cookies   the cookies the browser holds before it starts (auth_token)
@@ -167,7 +178,7 @@ sign_in_through <- function (app, mock, cookies = list(), return_to = NULL, betw
   if (!is.null(between)) back <- between(back, asked) %||% back
 
   query <- paste0(names(back$query), "=", vapply(back$query, utils::URLencode, "", reserved = TRUE), collapse = "&")
-  callback <- handle_request(browser_get("/auth/callback", query, back$cookies), app)
+  callback <- settled(handle_request(browser_get("/auth/callback", query, back$cookies), app))
 
   for (name in names(set_cookies(callback))) {
     header <- set_cookies(callback)[[name]]

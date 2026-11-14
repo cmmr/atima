@@ -229,7 +229,7 @@ test_that("a bad state is refused", {
 
   kept$query$code <- mock$authorize(result$asked)
   query  <- paste0(names(kept$query), "=", unlist(kept$query), collapse = "&")
-  replay <- handle_request(browser_get("/auth/callback", query, kept$cookies), s$app)
+  replay <- settled(handle_request(browser_get("/auth/callback", query, kept$cookies), s$app))
   expect_identical(replay$status, 400L)
   expect_null(set_cookies(replay)[["auth_token"]])
   expect_identical(nrow(users(s$DB)), 1L)

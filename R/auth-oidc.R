@@ -282,7 +282,12 @@ oidc_validate_id_token <- function (
 
 #______________________________________________________________________________
 #' Exchange an authorization code for tokens.
-#' @return The token endpoint's JSON answer.
+#'
+#' The request is made in the background: this returns at once, and the
+#' server answers other requests while the provider takes its time.
+#' @return A promise of the token endpoint's JSON answer. It is rejected
+#'         with the error to show if the provider refuses or cannot be
+#'         reached.
 #' @noRd
 oidc_exchange <- function (provider, oidc, code, verifier) {
 
@@ -306,18 +311,20 @@ oidc_exchange <- function (provider, oidc, code, verifier) {
 
   req <- do.call(httr2::req_body_form, c(list(req), form))
 
-  resp <- tryCatch(
-    expr  = httr2::req_perform(req),
-    error = function (e) stop_signin(paste("The token request failed:", conditionMessage(e)), 502L) )
+  promises::then(
+    promise     = httr2::req_perform_promise(req),
+    onRejected  = function (e) stop_signin(paste("The token request failed:", conditionMessage(e)), 502L),
+    onFulfilled = function (resp) {
 
-  body <- tryCatch(httr2::resp_body_json(resp, check_type = FALSE), error = function (e) list())
+      body <- tryCatch(httr2::resp_body_json(resp, check_type = FALSE), error = function (e) list())
 
-  if (httr2::resp_status(resp) != 200L)
-    stop_signin(sprintf(
-      "The provider refused the code (HTTP %i, %s).",
-      httr2::resp_status(resp), log_truncate(as.character(body[['error']] %||% "no error code"), 100L) ))
+      if (httr2::resp_status(resp) != 200L)
+        stop_signin(sprintf(
+          "The provider refused the code (HTTP %i, %s).",
+          httr2::resp_status(resp), log_truncate(as.character(body[['error']] %||% "no error code"), 100L) ))
 
-  body
+      body
+    })
 }
 
 
@@ -352,7 +359,8 @@ oidc_profile <- function (claims) {
 #______________________________________________________________________________
 #' Fill in what the ID token left out from the provider's userinfo endpoint.
 #' Sign-in does not depend on it: if the call fails, the token's own claims
-#' are used.
+#' are used. Like the token request, the call is made in the background.
+#' @return The claims, or a promise of them when the provider is asked.
 #' @noRd
 oidc_with_userinfo <- function (provider, claims, access_token) {
 
@@ -360,12 +368,23 @@ oidc_with_userinfo <- function (provider, claims, access_token) {
   if (is.null(provider[['userinfo_endpoint']]))                  return (claims)
   if (!is_scalar_character(access_token))                        return (claims)
 
-  info <- tryCatch(oidc_get_json(provider[['userinfo_endpoint']], bearer = access_token), error = function (e) NULL)
+  req <- httr2::request(provider[['userinfo_endpoint']])
+  req <- httr2::req_timeout(req, oidc_timeout)
+  req <- httr2::req_headers(req, Accept = "application/json")
+  req <- httr2::req_auth_bearer_token(req, access_token)
 
-  # Userinfo about anyone else must not be used.
-  if (!is.list(info) || !identical(info[['sub']], claims[['sub']])) return (claims)
+  promises::then(
+    promise     = httr2::req_perform_promise(req),
+    onRejected  = function (e) claims,
+    onFulfilled = function (resp) {
 
-  c(claims, info[setdiff(names(info), names(claims))])
+      info <- tryCatch(httr2::resp_body_json(resp, check_type = FALSE), error = function (e) NULL)
+
+      # Userinfo about anyone else must not be used.
+      if (!is.list(info) || !identical(info[['sub']], claims[['sub']])) return (claims)
+
+      c(claims, info[setdiff(names(info), names(claims))])
+    })
 }
 
 
@@ -489,39 +508,51 @@ auth_callback <- function (REQ, code = NULL, state = NULL, error = NULL, error_d
   #________________________________________________________
   # Code -> ID token -> claims.
   #________________________________________________________
+  # The provider is asked in the background (`waiting()` in `R/jobs.R`),
+  # so that a slow provider holds up nobody but the person signing in. Only
+  # the provider's signing keys are fetched while everyone waits, and only
+  # when they are not known yet or have changed.
+  #________________________________________________________
   provider <- oidc_provider(auth)
-  tokens   <- oidc_exchange(provider, oidc, code, entry[['verifier']])
 
-  claims <- oidc_validate_id_token(
-    id_token  = tokens[['id_token']],
-    keys      = function (refresh) oidc_keys(provider, refresh),
-    issuer    = provider[['issuer']],
-    client_id = oidc[['client_id']],
-    nonce     = entry[['nonce']],
-    algs      = provider[['algs']] )
+  ask <- function () promises::then(
+    promise     = oidc_exchange(provider, oidc, code, entry[['verifier']]),
+    onFulfilled = function (tokens) {
 
-  claims <- oidc_with_userinfo(provider, claims, tokens[['access_token']])
+      claims <- oidc_validate_id_token(
+        id_token  = tokens[['id_token']],
+        keys      = function (refresh) oidc_keys(provider, refresh),
+        issuer    = provider[['issuer']],
+        client_id = oidc[['client_id']],
+        nonce     = entry[['nonce']],
+        algs      = provider[['algs']] )
+
+      oidc_with_userinfo(provider, claims, tokens[['access_token']])
+    })
 
 
   #________________________________________________________
   # Sign in.
   #________________________________________________________
-  admins <- oidc[['admins']]
+  waiting(ask, finish = function (claims) {
 
-  signed <- sign_in(
-    REQ      = REQ,
-    issuer   = provider[['issuer']],
-    sub      = claims[['sub']],
-    profile  = oidc_profile(claims),
-    is_admin = if (!is.null(admins)) claims[['sub']] %in% admins )
+    admins <- oidc[['admins']]
 
-  REQ[['SESSION']] <- list(user_id = signed[['user_id']])
-  log_event("info", "sign_in", user_id = signed[['user_id']])
+    signed <- sign_in(
+      REQ      = REQ,
+      issuer   = provider[['issuer']],
+      sub      = claims[['sub']],
+      profile  = oidc_profile(claims),
+      is_admin = if (!is.null(admins)) claims[['sub']] %in% admins )
 
-  response(
-    status = 302L,
-    header(Location = entry[['return_to']]),
-    header('Cache-Control' = "no-store"),
-    oidc_login_cookie(REQ, NULL),
-    auth_cookie(REQ, signed[['auth_token']], REQ[['CONFIG']][['signin_ttl']]) )
+    REQ[['SESSION']] <- list(user_id = signed[['user_id']])
+    log_event("info", "sign_in", user_id = signed[['user_id']])
+
+    response(
+      status = 302L,
+      header(Location = entry[['return_to']]),
+      header('Cache-Control' = "no-store"),
+      oidc_login_cookie(REQ, NULL),
+      auth_cookie(REQ, signed[['auth_token']], REQ[['CONFIG']][['signin_ttl']]) )
+  })
 }

@@ -217,8 +217,9 @@ pretend to be your server to the provider.
 
 ## Administrators
 
-An administrator can edit and unpublish any public project. An
-administrator cannot open other people's private projects, and there is no
+An administrator can edit and unpublish any public project, and arranges
+the collections that public projects are listed under. An administrator
+cannot open other people's private projects, and there is no
 page for managing users.
 
 Administrators are named by their `sub`, which you can only know after
@@ -353,9 +354,12 @@ a trailing slash unless the provider's has one.
 
 ### The provider is slow or down
 
-While atima waits for the provider during a sign-in (at most ten seconds
-per call), it answers no other requests. People who are already signed in
-are not affected by a provider that is down, until their sign-in runs out.
+A sign-in waits for the provider for at most ten seconds per call, and
+then fails with the message above. The server keeps answering everyone
+else meanwhile. (One short exception: the first sign-in after a start, or
+after the provider changed its signing keys, fetches the keys while other
+requests wait.) People who are already signed in are not affected by a
+provider that is down, until their sign-in runs out.
 
 
 ## Related articles

@@ -589,7 +589,7 @@ handle_request <- function (request, app) {
     # Nothing a handler writes is kept unless the handler finishes.
     out <- db_transaction(REQ[['DB']], call_handler(route, REQ, args))
 
-    if (inherits(out, "job") && route[['lane']] != "compute")
+    if (inherits(out, "job") && !inherits(out, "waiting") && route[['lane']] != "compute")
       stop("The handler of a fast route returned a job: ", route[['endpoint']])
 
     out
@@ -650,6 +650,17 @@ handle_request <- function (request, app) {
     }))
 
     server_timing(resp, timing)
+  }
+
+  # The handler waits for something that needs no worker.
+  if (inherits(out, "waiting")) {
+
+    waited <- tryCatch(out[['start']](), error = function (e) promises::promise_reject(e))
+
+    return (promises::then(
+      promise     = waited,
+      onFulfilled = function (value) finish(function () list(value = value)),
+      onRejected  = function (error) finish(function () stop(error)) ))
   }
 
   pool <- REQ[['POOL']]
