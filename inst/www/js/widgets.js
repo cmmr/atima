@@ -243,6 +243,73 @@ export function picker({ options = [], value = null, multiple = false, iconOnly 
 }
 
 //_____________________________________________________________________________
+// A menu: a button that opens a short list of things to do.
+
+/**
+ * @param {object} opts
+ *   face      what the button shows (nodes or text)
+ *   label     what the button is, for screen readers and as its tooltip
+ *   kind      extra classes for the button
+ *   header    nodes shown above the items, or a function returning them
+ *             (called each time the menu opens), or null
+ *   items     [{label, icon, onclick} | {label, icon, href, outside} | 'divider']
+ * @return {HTMLElement}
+ */
+export function menu({ face, label, kind = '', header = null, items = [] }) {
+
+  const id    = newId('menu');
+  const btn   = h('button.menu-button', { type: 'button', class: kind, title: label, 'aria-label': label,
+    'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': id }, face, icon('caret-down', 'menu-caret'));
+  const head  = h('div.menu-header');
+  const list  = h('div.menu-items', { role: 'menu', id, 'aria-label': label });
+  const popup = h('div.menu-popup', { hidden: true }, head, list);
+  const root  = h('div.menu', btn, popup);
+
+  const entries = () => [...list.querySelectorAll('[role="menuitem"]')];
+
+  function close(refocus = false) {
+    if (popup.hidden) return;
+    popup.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', outside, true);
+    if (refocus) btn.focus();
+  }
+
+  function open() {
+    fill(head, typeof header === 'function' ? header() : header);
+    head.hidden = !head.childNodes.length;
+    fill(list, items.filter(Boolean).map(item => {
+      if (item === 'divider') return h('div.menu-divider', { role: 'separator' });
+      const inside = [item.icon ? icon(item.icon) : h('i'), h('span', item.label),
+        item.outside ? icon('arrow-up-right-from-square', 'menu-outside') : null];
+      return item.href
+        ? h('a', { role: 'menuitem', href: item.href, tabindex: -1, onclick: () => close(),
+            ...(item.outside ? { target: '_blank', rel: 'noopener noreferrer' } : {}) }, inside)
+        : h('button', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => { close(true); item.onclick(); } }, inside);
+    }));
+    popup.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', outside, true);
+  }
+
+  function outside(e) { if (!root.contains(e.target)) close(); }
+
+  btn.addEventListener('click', () => (popup.hidden ? open() : close()));
+
+  root.addEventListener('keydown', e => {
+    const all = entries(), at = all.indexOf(document.activeElement);
+    if (e.key === 'Escape' && !popup.hidden) { e.stopPropagation(); close(true); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); if (popup.hidden) open(); const now = entries(); now[(at + 1) % now.length].focus(); }
+    else if (e.key === 'ArrowUp' && !popup.hidden) { e.preventDefault(); all[(at - 1 + all.length) % all.length].focus(); }
+    else if (e.key === 'Home' && !popup.hidden) { e.preventDefault(); all[0].focus(); }
+    else if (e.key === 'End' && !popup.hidden)  { e.preventDefault(); all[all.length - 1].focus(); }
+    else if (e.key === 'Tab') close();
+  });
+
+  return root;
+}
+
+//_____________________________________________________________________________
 // Tabs.
 
 /**

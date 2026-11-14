@@ -6,7 +6,7 @@
 
 import { h, fill, icon, button } from './dom.js';
 import { startSession, loadSchema, startHeartbeat, call } from './api.js';
-import { showError } from './widgets.js';
+import { showError, menu } from './widgets.js';
 import { uploadProject, saveProject, signIn, signOut, busy } from './actions.js';
 import * as S from './schema.js';
 import * as store from './store.js';
@@ -145,6 +145,64 @@ function markNav() {
 
 
 //_____________________________________________________________________________
+// The account, in the top right corner: "Sign in" for a visitor, and for
+// someone signed in their name, which opens a menu. A copy without
+// accounts says so in the same place.
+
+/** A person's initials, for the round mark beside their name. */
+function initials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return ((words[0] || '?')[0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+}
+
+function accountControl(conf) {
+
+  const places = [
+    { label: 'My projects', icon: 'folder-open', href: '#/projects' },
+    conf.legacy && store.hasAccount() ? { label: 'Import older projects', icon: 'file-import', href: '#/legacy' } : null,
+    { label: 'Privacy and terms', icon: 'shield-halved', href: '#/privacy' } ];
+
+  // No accounts: this copy has one user, the person at this computer.
+  if (conf.auth !== 'oidc')
+    return menu({
+      label: 'This copy of ATIMA', kind: 'account-button',
+      face: [h('span.avatar', icon('laptop')), h('span.account-name', 'Local')],
+      header: [h('strong', 'This computer only'),
+        h('span', 'This copy of ATIMA runs on your computer and has no accounts. Your projects stay here.')],
+      items: places });
+
+  // A visitor. Signing in is also how an account is made: the first time,
+  // the sign-in provider's details become the account.
+  if (conf.is_guest)
+    return h('div.account',
+      // Beside "Sign in": what signing in, and using the server at all, means.
+      h('a.topbar-link', { href: '#/privacy', title: 'Privacy and terms' }, 'Privacy'),
+      button('Sign in', signIn, { icon: 'right-to-bracket', kind: 'signin',
+        title: 'Sign in, or create an account, with your institution or ORCID' }));
+
+  // Signed in. The name comes from the identity provider: text, never HTML.
+  // The rest of what the server knows about the person is fetched when the
+  // menu first opens.
+  let details = null;
+  const about = h('div.account-about');
+  const showAbout = () => fill(about, details ? [
+    details.email ? h('span', details.email) : null,
+    details.affiliation ? h('span', details.affiliation) : null,
+    details.issuer ? h('span.hint', `Signed in through ${String(details.issuer).replace(/^https?:\/\//, '').replace(/\/.*$/, '')}`) : null ] : null);
+
+  return menu({
+    label: `Account: ${conf.full_name}`, kind: 'account-button',
+    face: [h('span.avatar', initials(conf.full_name)), h('span.account-name', conf.full_name)],
+    header: () => {
+      if (!details) call('/api/account/details').then(d => { details = d; showAbout(); }).catch(() => {});
+      showAbout();
+      return [h('strong', conf.full_name), conf.is_admin ? h('span.tag', 'Administrator') : null, about];
+    },
+    items: [...places, 'divider', { label: 'Sign out', icon: 'right-from-bracket', onclick: signOut }] });
+}
+
+
+//_____________________________________________________________________________
 // The bar across the top: the open project, its depth, and the account.
 
 function buildTopbar() {
@@ -160,16 +218,7 @@ function buildTopbar() {
       if (!done) depth.value = String(store.get('biom').depth);
     } }, depths.map(d => h('option', { value: d, selected: d === biom.depth }, d.toLocaleString())));
 
-  let account = null;
-  if (conf.auth === 'oidc') {
-    // The name comes from the identity provider: text, never HTML.
-    // Beside "Sign in": what signing in, and using the server at all, means.
-    account = conf.is_guest
-      ? h('div.account', h('a.topbar-link', { href: '#/privacy', title: 'Privacy and terms' }, 'Privacy'),
-          button('Sign in', signIn, { icon: 'right-to-bracket', kind: 'on-dark', title: 'Sign in' }))
-      : h('div.account', h('span.account-name', { title: 'Signed in' }, icon('user'), ' ', conf.full_name),
-          button('Sign out', signOut, { kind: 'on-dark' }));
-  }
+  const account = accountControl(conf);
 
   fill(topbar,
     h('button.nav-toggle', { type: 'button', title: 'Show or hide the navigation', 'aria-label': 'Navigation',
