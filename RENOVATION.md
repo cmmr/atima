@@ -39,7 +39,7 @@ it to that step's list instead of fixing it now.
 | 9 | MCP server, local | done (2026-11-13) |
 | 10 | Deployment, docs, load testing | done (2026-11-14) |
 | 11 | Interface refinement: compact controls, navigation | done (2026-11-14) |
-| 12 | MCP server, shared (sign-in), and tools that change data | not started |
+| 12 | MCP server, shared (sign-in), and tools that change data | done (2026-11-14) |
 | 13 | Usage monitoring | not started |
 | 14 | Cores given to jobs by what they can use | not started |
 | 15 | The lab's public server | not started |
@@ -734,6 +734,76 @@ it to that step's list instead of fixing it now.
   depth, fields, ranks, tree); then two columns, the description, the
   data (fields and ranks as chips) and the links on the left, the
   downloads on the right.
+
+- **AI apps on shared servers (step 12).** Daniel chose: it ships in
+  v6.0; atima is its own OAuth authorization server in front of the
+  existing sign-in (not Globus Auth); every request to `/mcp` on a shared
+  server needs a token, also for public projects; an access token lasts
+  an hour and a connection ends when the app has not been used for 30
+  days (`run(app_days = 30)`); signing out of the browser does not
+  disconnect apps. **Any app may connect** (not the recommended list of
+  domains): atima fetches whatever https address an app names itself by,
+  and refuses addresses in private networks. Links to figures and
+  exports in tool results stay as they were: unguessable, a day, no
+  sign-in.
+- **Both protocol eras (step 12).** Daniel chose to answer the 2025
+  handshake as well as revision 2026-07-28, because claude.ai's
+  documentation still describes `initialize`. This replaces his step 9
+  choice ("the current revision only").
+- **Tools that change data (step 12).** Daniel chose: **on by default
+  everywhere**, a local install included (`run(mcp_writes = TRUE)`; the
+  recommendation was off on local installs, which have no approval
+  page). Upload, in his words: "atima accepts a curl (or other cli tool)
+  upload to an upload endpoint, along with a token or auth string so it
+  knows who it belong to", built as a one-use ticket and
+  `POST /api/upload`; no base64 in the call, no path on the server's
+  disk, no browser page. "Save" is the full set: title and description,
+  saved depth, cluster fields, a field's type, replacing metadata,
+  taxonomy or tree by upload, and a copy of all or some samples. Share,
+  publish, delete and "new link" **act at once** (the recommendation was
+  to record a request that the person confirms in atima's pages), but
+  only with `confirm: true`; without it they change nothing and say what
+  would happen. A deleted project is kept 30 days and its editors can
+  restore it from the browser, whoever deleted it
+  (`run(trash_days = 30)`). An app **may search users** (the
+  recommendation was exact email or ORCID iD only). One connected app
+  may make 60 changes an hour (`run(app_changes_per_hour = 60)`).
+- **Step 12 choices not put to Daniel.** (a) Scopes are `read` and
+  `write`. The approval page always has reading chosen, whatever the app
+  asked for: Claude Code asks for both, so following the request would
+  have made "change" the default. (b) Apps are public clients identified
+  by a Client ID Metadata Document only; Dynamic Client Registration
+  (deprecated in the specification) is not offered, nor client secrets.
+  If an app that matters can only register dynamically, that is the
+  thing to add. (c) The port of a redirect address on this computer is
+  ignored (RFC 8252), which the specification's "exact match" does not
+  say but Claude Code needs. (d) `iss` is sent in every authorization
+  response (the specification says "should"). (e) A refresh token is
+  replaced at each use; presenting a replaced one ends the connection,
+  except within 60 seconds of its replacement. (f) Approval is asked
+  every time: nothing is remembered from an earlier approval of the same
+  app. (g) A read-only token that calls a changing tool gets HTTP 403
+  `insufficient_scope`, which is what makes an app send its user to
+  approve again; with `mcp_writes` off the tool is "unknown". (h) The
+  record of changes is kept a year; an upload ticket lasts 15 minutes
+  and an app may hold 10 unused. (i) The cap counts recorded changes,
+  and also stops calls made without `confirm`. (j) `find_users`,
+  `list_access` and `upload_status` only read but need the `write`
+  scope, since they exist to serve tools that change data and return
+  other people's names. (k) Deleting through a tool needs what the
+  browser needs: the project among one's own, as an editor; an
+  administrator who edits a public project by office cannot delete it.
+  (l) `publish_project` cannot choose the public collection; a project
+  lands at the top of the public list. (m) No tool restores a deleted
+  project: that is for a person, in the browser. (n) Re-importing an old
+  project whose first import is in the deleted list makes a new project.
+  (o) Rate limits by address: 30 a minute for the approval page, 600 for
+  the token endpoint and the metadata documents (a hosted app's users
+  all come from its maker's addresses), 30 for `/api/upload`. (p) Schema
+  version 7; `curl` moved from Suggests to Imports (for the name lookup
+  that guards the fetch). (q) The front end gained a test that every
+  script parses (in V8): a stray apostrophe stopped the whole app and
+  nothing noticed.
 
 ## Conventions (apply from step 2 onward)
 
@@ -2996,6 +3066,91 @@ file is uploaded; what "save" covers; whether share, publish, delete and
 that confirmation happens; whether deleted projects are kept for a
 period; whether an agent may search for users to share with.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- **What differs from the list above.** The guarded actions act at once
+  with `confirm: true` (Daniel's choice), so there is no page of pending
+  requests and the protocol's way of asking the person through the app
+  (it exists for stateless servers: a result with `resultType:
+  "input_required"`, answered by a second call) is not used. An app may
+  search users. Upload is a ticket and `POST /api/upload`. Both protocol
+  eras are answered. The specification says `iss` "should" be sent, not
+  "must"; it is sent. Everything else is as listed.
+- Where things are. `R/oauth.R`: the authorization server (metadata,
+  `oauth_authorize()`, the approval page, `oauth_approve()`,
+  `oauth_token()`, `oauth_revoke()`), Client ID Metadata Documents
+  (`oauth_client_target()` guards the fetch, `oauth_client_fetch()`
+  makes it), and `oauth_caller()`, which turns a bearer token into the
+  caller or into the 401. `R/apps.R`: the Connected apps routes,
+  `record_change()`, `check_change_cap()`, `cleanup_apps()`.
+  `R/mcp-write.R`: the declarations of the changing tools
+  (`mcp_write_tools()`) and their handlers. `R/mcp-upload.R`: tickets and
+  `api_upload_ticket()`. `R/mcp.R`: `mcp_identify()` runs before the
+  message is read; `mcp_check_request()` tells the two eras apart.
+  `R/collections.r`: `trash_project()`, `restore_project()` and the two
+  routes. `inst/sql/007_apps.sql`. Front end: `js/pages/apps.js`, the
+  "Deleted" tab in `js/pages/projects.js`, the "AI apps" section of
+  `js/pages/privacy.js`. Tests: `test-oauth.R`, `test-mcp-write.R`, the
+  end of `test-collections.R`, and `connect_app()` and
+  `local_mock_app()` in `helper-oidc.R`.
+- How a caller is known. `mcp_post()` puts `list(user_id, grant_id,
+  scope, app)` in `REQ$CALLER`. Without accounts `grant_id` is `NULL`,
+  `scope` is both, and `app` is what the app calls itself (`clientInfo`),
+  or "An AI app". With accounts `app` is the name in the app's metadata
+  document, kept in `app_grants`.
+- To add a tool that changes data: a `tool()` in `mcp_write_tools()`
+  with `read_only = FALSE`, its level, `rule =` an entry of
+  `access_rules` if the browser's route has one, `modes` if it needs
+  accounts, and `destructive`, `idempotent`, `open_world` for the hints;
+  a handler that returns `changed(REQ, "<one sentence>", ...)`, or
+  `unconfirmed(REQ, ...)` for a guarded tool called without `confirm`.
+  `tool_call()` does the cap and the record; the handler does neither. A
+  handler that needs a worker uses `edit_job()` and a new `what` in
+  `work_edit()`. Everything a tool writes before it fails is rolled
+  back, also what a job's `finish` wrote (`mcp_call_tool()`).
+- A deleted project is a row of `projects` with `deleted_utc` set.
+  `key_project()` and `project_access()` do not see it, so nothing else
+  needs to know; any new query that lists projects must add `deleted_utc
+  IS NULL` (the tree, `list_projects`, the session's default project do).
+  Its public key stays taken until it is erased.
+- Bugs found on the way, fixed with tests. A real browser sent the
+  approval form with `Origin: null`, because the page said `Referrer-
+  Policy: no-referrer`, and `check_origin()` refused it. A `client_id`
+  with `..` in its path was not refused (the parser resolves it away).
+  The new privacy text had an apostrophe that ended a string.
+- **Verified with a real MCP client** (2026-11-14, Windows): Claude Code
+  2.1.325 against a server installed in a scratch library with `auth =
+  "oidc"` and a stand-in sign-in provider on localhost.
+  - Claude Code got the 401, read both metadata documents, and built an
+    authorization request under its own client id
+    (`https://claude.ai/oauth/claude-code-client-metadata`, which atima
+    fetched from claude.ai) with PKCE, `resource`, a redirect to
+    `http://localhost:<port>/callback` and `scope=read write`.
+  - In a real browser: sign-in through the stand-in provider, the
+    approval page, "Connect", and the return to that address with
+    `code`, `state` and `iss`.
+  - With tokens from that flow given to Claude Code as a header, and
+    driven with `claude -p`: connected for reading, it listed six tools
+    and said it had none that change data; connected for changes, it
+    listed nineteen, uploaded a file by running the curl command, read
+    `upload_status`, renamed the project and set its depth, and called
+    `delete_project` without `confirm`, quoting the "would be deleted"
+    answer. With `MCP_PROTOCOL_NEGOTIATION=legacy` it opened with
+    `initialize` and called a tool.
+  - With curl: 403 `insufficient_scope` for a read-only token on
+    `delete_project`; a confirmed delete; then, in the browser, the
+    project under "Deleted", "Restore", and the Connected apps page with
+    both connections and the three changes, at 853 and 400 px.
+  - No token, code or ticket in the server's log.
+- **Not verified with a real client:** Claude Code's own exchange of the
+  code for tokens, its refresh after an hour, and its reaction to the
+  403 (its sign-in needs a terminal, which this session could not give
+  it; the exchange was made by a script with Claude Code's client id);
+  disconnecting while an app is in use; any hosted app (claude.ai,
+  Claude Desktop's connectors, ChatGPT), which needs a public HTTPS
+  address; any app that only registers dynamically; the sharing tools
+  through a client (tests only: the test server had one account).
+
 ## Step 13: Usage monitoring
 
 The page and navigation link this step adds follow what step 11 settled
@@ -3120,6 +3275,29 @@ To build:
   site's privacy notice; how to supply the lookup file; and where the
   numbers this page cannot give come from (citations, CRAN or r-universe
   downloads, GitHub stars). Local installs are invisible by design.
+
+- From step 12: for this step.
+  - The next migration is `inst/sql/008_<name>.sql` (step 12 took 007).
+  - Every change an AI app makes is already a row of `app_changes`
+    (user, connection, app name, tool, project id and title, one
+    sentence, time), written in one place (`record_change()`, called by
+    `tool_call()` and the upload route). Count those as actions with
+    the `mcp` interface instead of recording them twice; the sentence
+    and the title are users' data and must not go into the usage
+    tables.
+  - The MCP client's name is `REQ$CALLER$app`: on a shared server the
+    name in the app's own metadata document ("Claude", "Claude Code",
+    "ChatGPT"), on a local install what the app calls itself. A tool
+    call is logged as `rpc = "tools/call <tool>"`; reading tools are
+    not recorded anywhere else yet.
+  - New routes that are not a person using the app: `/oauth/token`,
+    `/oauth/revoke`, the three `/.well-known/` documents, `/api/upload`.
+    `/oauth/authorize` and `/oauth/approve` are a person, once per
+    connection. Connections are countable from `app_grants` (who has an
+    app connected, for reading or for changes), but a row goes when the
+    connection ends.
+  - The Connected apps page (`js/pages/apps.js`) is the pattern for a
+    page of tables that scroll inside their own box.
 
 - From step 10: for this step.
   - The visitor's address: Caddy sets `X-Real-IP` (and
@@ -3353,6 +3531,68 @@ To do:
   repository. Anything in it that every administrator needs goes into
   the server article.
 
+- From step 12: connecting AI apps to the public address. What a hosted
+  app needs, from Claude's connector documentation as read on
+  2026-11-14 (read it again then):
+  - It connects from Anthropic's servers, not from the person's
+    computer, over IPv4, to port 443 only, and fetches
+    `/.well-known/oauth-protected-resource/mcp`,
+    `/.well-known/oauth-authorization-server` and `/oauth/token` from
+    there too. Ask Baylor IT whether their proxy lets those addresses
+    through (Anthropic publishes its outbound ranges) and passes the
+    `Authorization` and `WWW-Authenticate` headers untouched. A redirect
+    to another host on the way drops the token.
+  - The address a person types into the app must be exactly
+    `ATIMA_PUBLIC_URL` followed by `/mcp`: atima states it as the
+    token's `resource`, and the app compares.
+  - atima itself must be able to make outgoing HTTPS requests, to fetch
+    each app's description (for claude.ai,
+    `https://claude.ai/oauth/mcp-oauth-client-metadata`), and to resolve
+    names. If the server only reaches the internet through a proxy, set
+    `https_proxy` for the `atima` service.
+  - The rate limits for `/oauth/token` and `/.well-known/`
+    (`ATIMA_LIMIT_OAUTH_APPS`, 600 a minute by address) count everyone
+    who uses one hosted app as one address. Behind IT's proxy the
+    address Caddy sees must be the visitor's, or every limit counts all
+    visitors together.
+  - Steps to try, in order, each with the server's log open
+    (`docker compose logs -f atima`):
+    1. `curl -i -X POST https://atima.research.bcm.edu/mcp`: expect 401
+       and a `WWW-Authenticate` header that names
+       `https://atima.research.bcm.edu/.well-known/oauth-protected-resource/mcp`;
+       fetch that and `/.well-known/oauth-authorization-server`, and
+       check that `issuer` and every address in them start with the
+       public address.
+    2. Claude Code, from a terminal on a laptop: `claude mcp add
+       --transport http atima https://atima.research.bcm.edu/mcp`, then
+       `claude mcp login atima`. Sign in, leave "See your projects and
+       run analyses" chosen, "Connect". `claude mcp list` should say
+       connected; ask it to list its atima tools (six). This is the step
+       step 12 could not finish: Claude Code's own exchange of the code.
+    3. In atima, "Connected apps": the connection is listed. "Disconnect"
+       it; Claude Code's next call must fail and offer to sign in again.
+    4. `claude mcp login atima` again, choosing "Also upload, change,
+       ...". Ask it to upload a small BIOM file, rename the project, and
+       delete it; it should ask before deleting. Check "What apps
+       changed", and restore the project from "Deleted" on the Projects
+       page.
+    5. Leave it connected for more than an hour and call a tool: the
+       token is renewed without a prompt (`/oauth/token` in the log).
+    6. claude.ai: Settings, Connectors, "Add custom connector", the
+       `/mcp` address, "Use Claude's published identity". Sign in and
+       approve. Ask for a figure of a public project. If it cannot
+       connect, look in the log for which request was the last to
+       arrive: none means IT's proxy or firewall; `initialize` or
+       `server/discover` answered 401 with no request to
+       `/.well-known/` after it means the header did not get through.
+    7. In claude.ai, ask it to upload a file: it cannot run commands, so
+       it should hand over the curl command for the person to run.
+    8. With a second account: `find_users` and `share_project` through
+       an app, which step 12 only covered by tests.
+  - When these have been done, remove the sentences that say what has
+    not been tried from `ai-apps.Rmd` ("Connecting to a shared server")
+    and `server.Rmd` ("AI apps").
+
 Who does what: commands on the server are run by Daniel, or by a
 session only with his explicit say-so for each change; reading the
 server's state is fine. No secret is ever pasted into a session, a file
@@ -3392,6 +3632,27 @@ tear-down.
   speaks. `jsonvalidate` is a new Suggests (tests only); it needs V8,
   which CRAN's machines have. Check before release that the revision is
   still current, and that the apps named in the README still connect.
+- From step 12: before release.
+  - The privacy text gained a section, "AI apps", and a sentence about
+    deleted projects being kept; both are part of what Daniel has to
+    read. The two retention numbers it states that are not settings: the
+    record of changes is kept a year, a file link a day.
+  - `run()` has four new arguments (`trash_days`, `mcp_writes`,
+    `app_days`, `app_changes_per_hour`); the README table and
+    `deploy/.env.example` have them. NEWS should say that an AI app can
+    change data unless `mcp_writes = FALSE`, on local installs too, that
+    deleting is now undoable for 30 days, and that both the 2026-07-28
+    revision and the 2025 revisions are answered.
+  - `curl` is an Import now. `DESCRIPTION`'s text still says nothing of
+    AI apps.
+  - Check the MCP specification once more: Dynamic Client Registration
+    is not offered, `iss` is sent, the Client ID Metadata Document draft
+    the specification points to was moving from -00 to -03 in its draft
+    revision. `ai-apps.Rmd` and `server.Rmd` say which apps were tried.
+  - `loadtest/loadtest.R`'s AI-app phase still only runs against a
+    server without accounts.
+  - For rbiom, nothing new.
+
 - From step 10: before release.
   - Daniel has to read the privacy and terms text
     (`inst/www/js/pages/privacy.js`); its last two "Terms of use" lines
