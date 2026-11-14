@@ -4,6 +4,10 @@
 //
 // Node ids: C<n> a collection, P<n> a project in the user's own tree,
 // G<n> a project in the public tree. "#" is the top of a tree.
+//
+// Everyone arranges their own tree. The public tree is arranged by
+// administrators, through routes of its own (/api/public/...). Nobody else
+// is shown those controls, and the server refuses them anyway.
 
 import { h, fill, icon, button, serverHtml } from '../dom.js';
 import { call } from '../api.js';
@@ -36,9 +40,13 @@ export function show(container) {
     { id: 'public',  label: 'Public projects', icon: 'earth-americas', panel: h('div.pane', lists.public) },
   ]);
 
-  const nodes  = kind => store.get('tree')[kind];
-  const find   = (kind, id) => nodes(kind).find(n => n.id === id) || null;
-  const setOwn = list => store.set('tree', { public: nodes('public'), private: list });
+  const nodes    = kind => store.get('tree')[kind];
+  const find     = (kind, id) => nodes(kind).find(n => n.id === id) || null;
+  const setNodes = (kind, list) => store.set('tree', { ...store.get('tree'), [kind]: list });
+
+  // May the caller create, rename, move and delete collections in this tree?
+  const arranges = kind => kind === 'private' || !!store.get('conf').is_admin;
+  const api      = kind => (kind === 'private' ? '/api/tree' : '/api/public');
 
   //___________________________________________________________________________
   // Drawing a tree
@@ -53,7 +61,7 @@ export function show(container) {
       const folder = isCollection(node);
       const shut   = closed.has(node.id);
       const row = h('div.tree-row', {
-        role: 'treeitem', tabindex: 0, draggable: kind === 'private',
+        role: 'treeitem', tabindex: 0, draggable: arranges(kind),
         class: [selected && selected.id === node.id ? 'selected' : '', node.id === open ? 'open' : ''].join(' '),
         style: { paddingLeft: `${depth * 18 + 8}px` },
         'aria-expanded': folder ? String(!shut) : null,
@@ -68,9 +76,9 @@ export function show(container) {
         !folder && node.id === open ? h('span.tag', 'open') : null,
         !folder ? h('span.tree-meta', `${node.info.n_samples} samples`) : null);
 
-      if (kind === 'private') {
+      if (arranges(kind)) {
         row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', node.id); e.dataTransfer.effectAllowed = 'move'; });
-        if (folder) dropTarget(row, node.id);
+        if (folder) dropTarget(row, kind, node.id);
       }
       return [row, folder && !shut ? branch(node.id, depth + 1) : null];
     });
@@ -83,17 +91,22 @@ export function show(container) {
 
   function toggle(id) { if (closed.has(id)) closed.delete(id); else closed.add(id); }
 
-  /** Let a row (or the whole list, for the top level) take a dragged node. */
-  function dropTarget(el, parentId) {
-    el.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); el.classList.add('drop'); });
+  /** Let a row (or the whole list, for the top level) take a dragged node of its own tree. */
+  function dropTarget(el, kind, parentId) {
+    el.addEventListener('dragover', e => {
+      if (!arranges(kind)) return;
+      e.preventDefault(); e.stopPropagation(); el.classList.add('drop');
+    });
     el.addEventListener('dragleave', () => el.classList.remove('drop'));
     el.addEventListener('drop', e => {
+      if (!arranges(kind)) return;
       e.preventDefault(); e.stopPropagation();
       el.classList.remove('drop');
-      move(e.dataTransfer.getData('text/plain'), parentId);
+      move(kind, e.dataTransfer.getData('text/plain'), parentId);
     });
   }
-  dropTarget(lists.private, '#');
+  dropTarget(lists.private, 'private', '#');
+  dropTarget(lists.public, 'public', '#');
 
   function drawAll() { drawTree('private'); drawTree('public'); drawDetails(); }
 
@@ -102,61 +115,65 @@ export function show(container) {
   //___________________________________________________________________________
   // What can be done with the selected node
 
-  async function move(id, parentId) {
-    const node = find('private', id);
+  // `kind` says which tree the node is in. A node dragged over from the
+  // other tree is not found in this one, and nothing happens.
+  async function move(kind, id, parentId) {
+    const node = find(kind, id);
     if (!node || node.parent === parentId || id === parentId) return;
-    const done = await busy('Moving...', () => call('/api/tree/move', { node_id: id, parent_node_id: parentId }));
-    if (done) setOwn(nodes('private').map(n => (n.id === id ? { ...n, parent: parentId } : n)));
+    const done = await busy('Moving...', () => call(`${api(kind)}/move`, { node_id: id, parent_node_id: parentId }));
+    if (done) setNodes(kind, nodes(kind).map(n => (n.id === id ? { ...n, parent: parentId } : n)));
   }
 
-  async function moveDialog(node) {
+  async function moveDialog(kind, node) {
     // A collection cannot go inside itself or one of its descendants.
     const inside = new Set([node.id]);
     let grew = true;
     while (grew) {
       grew = false;
-      for (const n of nodes('private')) if (isCollection(n) && inside.has(n.parent) && !inside.has(n.id)) { inside.add(n.id); grew = true; }
+      for (const n of nodes(kind)) if (isCollection(n) && inside.has(n.parent) && !inside.has(n.id)) { inside.add(n.id); grew = true; }
     }
     const target = h('select', h('option', { value: '#' }, 'Top level'),
-      nodes('private').filter(n => isCollection(n) && !inside.has(n.id)).sort(byName)
+      nodes(kind).filter(n => isCollection(n) && !inside.has(n.id)).sort(byName)
         .map(n => h('option', { value: n.id, selected: n.id === node.parent }, n.text)));
     const to = await dialog({
       title: `Move "${node.text}"`, body: [h('label', 'Into'), target],
       buttons: [{ label: 'Cancel', value: null }, { label: 'Move', kind: 'primary', value: () => target.value }] });
-    if (to) move(node.id, to);
+    if (to) move(kind, node.id, to);
   }
 
-  async function newCollection(parentId) {
-    const text = await prompt('New collection', { label: 'Name', value: 'New collection', ok: 'Create', check: nameCheck });
+  async function newCollection(kind, parentId) {
+    const title = kind === 'private' ? 'New collection' : 'New public collection';
+    const text  = await prompt(title, { label: 'Name', value: 'New collection', ok: 'Create', check: nameCheck });
     if (!text) return;
     const done = await busy('Creating...', async () => {
+      if (kind === 'public') return (await call('/api/public/create', { parent_node_id: parentId, text })).node;
       const made = await call('/api/tree/create', { node_id: parentId });
       if (text !== made.node.text) await call('/api/tree/rename', { node_id: made.node.id, text });
-      return made;
+      return { id: made.node.id, parent: made.parent_id };
     });
     if (!done) return;
-    setOwn([...nodes('private'), { id: done.node.id, parent: done.parent_id, text }]);
+    setNodes(kind, [...nodes(kind), { id: done.id, parent: done.parent, text: done.text || text }]);
     closed.delete(parentId);
-    panes.show('private');
-    select('private', done.node.id);
+    panes.show(kind);
+    select(kind, done.id);
   }
 
-  async function rename(node) {
+  async function rename(kind, node) {
     const text = await prompt(`Rename "${node.text}"`, { label: 'Name', value: node.text, ok: 'Rename', check: nameCheck });
     if (!text || text === node.text) return;
-    const done = await busy('Renaming...', () => call('/api/tree/rename', { node_id: node.id, text }));
+    const done = await busy('Renaming...', () => call(`${api(kind)}/rename`, { node_id: node.id, text }));
     if (!done) return;
-    setOwn(nodes('private').map(n => (n.id === node.id ? { ...n, text } : n)));
+    setNodes(kind, nodes(kind).map(n => (n.id === node.id ? { ...n, text } : n)));
     if (done.title) store.set('biom', { ...store.get('biom'), title: done.title });
   }
 
-  async function remove(node, route, title, lines, ok) {
+  async function remove(kind, node, route, title, lines, ok) {
     if (!await confirm(title, lines, { ok, danger: true })) return;
     const done = await busy('Removing...', () => call(route, { node_id: node.id }));
     if (!done) return;
     const wasOpen = node.id === store.get('biom').node_id;
     selected = null;
-    setOwn(nodes('private').filter(n => n.id !== node.id));
+    setNodes(kind, nodes(kind).filter(n => n.id !== node.id));
     // The open project is no longer the user's: open whatever the server offers.
     if (wasOpen) { await reopenDefault(); notify('That project was open, so another one has been opened.', 'info'); }
   }
@@ -170,18 +187,21 @@ export function show(container) {
       return;
     }
 
-    const own = selected.kind === 'private';
+    const kind = selected.kind;
+    const own  = kind === 'private';
 
     if (isCollection(node)) {
-      const empty = !nodes(selected.kind).some(n => n.parent === node.id);
+      const empty = !nodes(kind).some(n => n.parent === node.id);
       fill(details,
         h('h2', icon('folder-open'), ' ', node.text),
-        h('p.hint', own ? 'A collection of your projects. Drag projects and collections onto it to move them in.' : 'A collection of public projects.'),
-        own ? h('div.card-actions',
-          button('Rename', () => rename(node), { icon: 'pen' }),
-          button('New collection inside', () => newCollection(node.id), { icon: 'folder-plus' }),
-          button('Move', () => moveDialog(node), { icon: 'arrow-right-to-bracket' }),
-          button('Delete', () => remove(node, '/api/tree/delete', `Delete the collection "${node.text}"?`, 'Only an empty collection can be deleted.', 'Delete'),
+        h('p.hint', own ? 'A collection of your projects. Drag projects and collections onto it to move them in.'
+          : arranges(kind) ? 'A collection of public projects, which everyone sees. As an administrator you arrange the public list: drag public projects and collections onto it to move them in.'
+          : 'A collection of public projects.'),
+        arranges(kind) ? h('div.card-actions',
+          button('Rename', () => rename(kind, node), { icon: 'pen' }),
+          button('New collection inside', () => newCollection(kind, node.id), { icon: 'folder-plus' }),
+          button('Move', () => moveDialog(kind, node), { icon: 'arrow-right-to-bracket' }),
+          button('Delete', () => remove(kind, node, `${api(kind)}/delete`, `Delete the collection "${node.text}"?`, 'Only an empty collection can be deleted.', 'Delete'),
             { icon: 'trash', kind: 'danger', disabled: !empty, title: empty ? '' : 'Move its contents out first' })) : null);
       return;
     }
@@ -205,13 +225,14 @@ export function show(container) {
       h('dl.facts', facts.map(([k, v]) => [h('dt', k), h('dd', v)])),
       h('div.card-actions',
         button(isOpen ? 'Go to this project' : 'Open', () => openProject(node.id), { icon: 'arrow-right', kind: 'primary' }),
-        own && node.editor ? button('Rename', () => rename(node), { icon: 'pen' }) : null,
-        own ? button('Move', () => moveDialog(node), { icon: 'arrow-right-to-bracket' }) : null,
-        own ? button('Remove from my projects', () => remove(node, '/api/tree/leave',
+        own && node.editor ? button('Rename', () => rename(kind, node), { icon: 'pen' }) : null,
+        // Where a project is listed in the public tree is the administrators' to say.
+        arranges(kind) ? button('Move', () => moveDialog(kind, node), { icon: 'arrow-right-to-bracket' }) : null,
+        own ? button('Remove from my projects', () => remove(kind, node, '/api/tree/leave',
           `Remove "${node.text}" from your projects?`,
           ['You give up your own access to it. Others who have the project keep it.',
            'If nobody else has it, the project is deleted.'], 'Remove'), { icon: 'right-from-bracket' }) : null,
-        own && node.editor ? button('Delete', () => remove(node, '/api/tree/delete',
+        own && node.editor ? button('Delete', () => remove(kind, node, '/api/tree/delete',
           `Delete "${node.text}"?`,
           ['The project is taken away from everyone it is shared with, and then deleted. This cannot be undone.'], 'Delete for everyone'),
           { icon: 'trash', kind: 'danger' }) : null));
@@ -224,7 +245,8 @@ export function show(container) {
       h('h1', 'Projects'),
       h('div.card-actions',
         button('Upload a BIOM file', uploadProject, { icon: 'upload', kind: 'primary' }),
-        button('New collection', () => newCollection('#'), { icon: 'folder-plus' }))),
+        button('New collection', () => newCollection('private', '#'), { icon: 'folder-plus' }),
+        arranges('public') ? button('New public collection', () => newCollection('public', '#'), { icon: 'folder-plus' }) : null)),
     h('div.projects', panes, details)));
 
   // Start on the tab that holds the open project.

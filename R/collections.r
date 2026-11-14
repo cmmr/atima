@@ -10,6 +10,11 @@
 #
 # The router checks the format of node ids and, through the `tree` and
 # `tree_edit` rules in `R/access.R`, that the nodes belong to the caller.
+#
+# The public tree is arranged by administrators through routes of its own
+# (`/api/public/*`, the `api_public_*()` handlers below). For those the
+# router checks that the caller is an administrator and, through the
+# `public_tree` rule, that the nodes are public ones.
 #______________________________________________________________________________
 
 
@@ -284,18 +289,132 @@ api_tree_move <- function (REQ, node_id, parent_node_id) {
 
     collection_id <- node_number(node_id)
 
-    # A collection cannot go inside itself or one of its own descendants.
-    ancestor <- parent_collection_id
-    while (!is.null(ancestor)) {
-      if (identical(ancestor, collection_id))
-        stop_user("A collection cannot be moved inside itself.")
-      sql      <- "SELECT parent_collection_id FROM collections WHERE collection_id = ?"
-      ancestor <- if.na(db_query(DB, sql, "AJMove2", list(ancestor)), NULL)
-    }
+    check_collection_parent(DB, collection_id, parent_collection_id)
 
     db_update(DB, "collections", collection_id, "AJMove3", parent_collection_id = parent_collection_id)
   }
 
+
+  return (list())
+}
+
+
+
+#______________________________________________________________________________
+#' Stop if a collection is to be moved inside itself or one of its own
+#' descendants.
+#' @param parent_collection_id  Where it is to go; `NULL` for the top level.
+#' @noRd
+check_collection_parent <- function (DB, collection_id, parent_collection_id) {
+
+  ancestor <- parent_collection_id
+
+  while (!is.null(ancestor)) {
+    if (identical(ancestor, collection_id))
+      stop_user("A collection cannot be moved inside itself.")
+    sql      <- "SELECT parent_collection_id FROM collections WHERE collection_id = ?"
+    ancestor <- if.na(db_query(DB, sql, "AJMove2", list(ancestor)), NULL)
+  }
+
+  invisible(TRUE)
+}
+
+
+
+#______________________________________________________________________________
+# The public tree. These four are for administrators. The router has checked
+# that, and that every node named is a public collection or a public project.
+#______________________________________________________________________________
+
+
+#' The collection a parent node stands for: `NULL` for `"#"`, the top level.
+#' @noRd
+parent_collection <- function (parent_node_id) {
+  if (identical(parent_node_id, "#")) NULL else node_number(parent_node_id)
+}
+
+
+#______________________________________________________________________________
+#' Add a collection to the public tree.
+#' @param parent_node_id  The public collection to put it in, or "#" for the
+#'        top of the public tree.
+#' @param text  Its name.
+#' @return list(node = list(id, parent, text))
+#' @noRd
+api_public_create <- function (REQ, parent_node_id, text) {
+
+  collection_id <- create_collection(
+    DB                   = REQ[['DB']],
+    user_id              = NULL,
+    parent_collection_id = parent_collection(parent_node_id),
+    jstree_text          = text )
+
+  list(node = list(
+    id     = unbox(paste0("C", collection_id)),
+    parent = unbox(parent_node_id),
+    text   = unbox(text) ))
+}
+
+
+#______________________________________________________________________________
+#' Rename a public collection.
+#' @return list()
+#' @noRd
+api_public_rename <- function (REQ, node_id, text) {
+  db_update(REQ[['DB']], "collections", node_number(node_id), "APRena1", jstree_text = text)
+  return (list())
+}
+
+
+#______________________________________________________________________________
+#' Delete an empty public collection.
+#'
+#' As with a user's own collections, one that still holds something is
+#' refused: the administrator moves its projects and collections elsewhere
+#' first. So deleting a collection never changes where a public project is
+#' listed, and never unpublishes one.
+#' @return list()
+#' @noRd
+api_public_delete <- function (REQ, node_id) {
+
+  DB            <- REQ[['DB']]
+  collection_id <- node_number(node_id)
+
+  sql <- "SELECT COUNT(*) FROM collections WHERE parent_collection_id = ?"
+  if (db_query(DB, sql, "APDel1", list(collection_id)) > 0)
+    stop_user("Unable to delete non-empty collections.")
+
+  sql <- "SELECT COUNT(*) FROM projects WHERE public_collection_id = ? AND public_key IS NOT NULL"
+  if (db_query(DB, sql, "APDel2", list(collection_id)) > 0)
+    stop_user("Unable to delete non-empty collections.")
+
+  sql <- "DELETE FROM collections WHERE collection_id = ?"
+  db_query(DB, sql, "APDel3", list(collection_id))
+
+  return (list())
+}
+
+
+#______________________________________________________________________________
+#' Move a public collection, or a public project, within the public tree.
+#' @param parent_node_id  The public collection to move into, or "#" for the
+#'        top of the public tree.
+#' @return list()
+#' @noRd
+api_public_move <- function (REQ, node_id, parent_node_id) {
+
+  DB                   <- REQ[['DB']]
+  parent_collection_id <- parent_collection(parent_node_id)
+
+  if (startsWith(node_id, 'G')) {
+    db_update(DB, "projects", node_number(node_id), "APMove1", public_collection_id = parent_collection_id)
+  }
+
+  if (startsWith(node_id, 'C')) {
+    collection_id <- node_number(node_id)
+    check_collection_parent(DB, collection_id, parent_collection_id)
+    db_update(DB, "collections", collection_id, "APMove2", parent_collection_id = parent_collection_id)
+  }
 
   return (list())
 }

@@ -92,6 +92,8 @@ code, pre { font-family: var(--mono); font-size: 12.5px; }
 #topbar select { width: auto; background: var(--navy-2); color: #fff; border-color: rgb(255 255 255 / 25%); }
 .account { display: flex; align-items: center; gap: 8px; }
 .account-name { font-size: 13px; color: rgb(255 255 255 / 80%); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-link { font-size: 12px; color: rgb(255 255 255 / 75%); white-space: nowrap; }
+.topbar-link:hover { color: #fff; }
 
 /* ---- Main ---------------------------------------------------------------- */
 
@@ -100,6 +102,9 @@ code, pre { font-family: var(--mono); font-size: 12.5px; }
 
 .page { max-width: 1180px; margin: 0 auto; padding: 22px 26px 60px; }
 .page.narrow { max-width: 760px; }
+.terms h1 { margin-bottom: 12px; }
+.terms ul { margin: 0 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.terms .card > :last-child { margin-bottom: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }

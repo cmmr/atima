@@ -274,15 +274,41 @@ get_session_data <- function (REQ) {
     body <- list(
       tree        = tree_data(REQ),
       BIOM        = BIOM,
-      CONF        = list(
-        auth      = unbox(REQ[['CONFIG']][['auth']]),
-        user_id   = unbox(REQ[['SESSION']][['user_id']]),
-        full_name = unbox(REQ[['SESSION']][['full_name']]),
-        is_guest  = unbox(REQ[['SESSION']][['is_guest']]),
-        is_admin  = unbox(REQ[['SESSION']][['is_admin']]),
-        # Is there an older installation to import projects from?
-        legacy    = unbox(length(REQ[['CONFIG']][['legacy']]) > 0) ))
+      CONF        = c(
+        list(
+          auth      = unbox(REQ[['CONFIG']][['auth']]),
+          user_id   = unbox(REQ[['SESSION']][['user_id']]),
+          full_name = unbox(REQ[['SESSION']][['full_name']]),
+          is_guest  = unbox(REQ[['SESSION']][['is_guest']]),
+          is_admin  = unbox(REQ[['SESSION']][['is_admin']]),
+          # Is there an older installation to import projects from?
+          legacy    = unbox(length(REQ[['CONFIG']][['legacy']]) > 0) ),
+        shared_server_conf(REQ[['CONFIG']]) ))
 
     response(body, cookie_hdr, sess_header)
   })
+}
+
+
+#______________________________________________________________________________
+#' What the browser is told about a shared server, for the app's "Privacy
+#' and terms" page: how long things are kept, and who runs the server.
+#'
+#' @param CONFIG  The server configuration.
+#' @return `list(session_hours, guest_days)`, with `operator` and `contact`
+#'         when those are set; `NULL` for a server without accounts, which
+#'         has no such page.
+#' @noRd
+shared_server_conf <- function (CONFIG) {
+
+  if (!identical(CONFIG[['auth']], "oidc")) return (NULL)
+
+  conf <- list(
+    session_hours = unbox(CONFIG[['session_ttl']] / 3600),
+    guest_days    = unbox(CONFIG[['guest_ttl']]   / 86400) )
+
+  for (key in c("operator", "contact"))
+    if (!is.null(CONFIG[[key]])) conf[[key]] <- unbox(CONFIG[[key]])
+
+  conf
 }

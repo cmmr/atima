@@ -390,6 +390,50 @@ test_that("key_project and open_by_key tell private keys from public ones", {
 })
 
 
+test_that("a shared server tells the page who runs it and how long things are kept", {
+
+  # For the "Privacy and terms" page, which a server without accounts
+  # does not have.
+  local_fake_biom()
+  conf <- function (REQ)
+    response_json(handle_request(fake_request("POST", "/api/session/init", list()), test_app(REQ)))$CONF
+
+  who <- c("auth", "user_id", "full_name", "is_guest", "is_admin", "legacy")
+
+  REQ <- local_test_req()
+  add_test_project(REQ$DB, is_public = TRUE)
+
+  # The retention periods are the server's own settings.
+  expect_named(conf(REQ), c(who, "session_hours", "guest_days"))
+  expect_equal(conf(REQ)$session_hours, 24)
+  expect_equal(conf(REQ)$guest_days, 30)
+
+  REQ$CONFIG$session_ttl <- 2 * 3600
+  REQ$CONFIG$guest_ttl   <- 7 * 86400
+  REQ$CONFIG$operator    <- "the Example Lab at Example University"
+  REQ$CONFIG$contact     <- "help@example.org"
+
+  expect_named(conf(REQ), c(who, "session_hours", "guest_days", "operator", "contact"))
+  expect_equal(conf(REQ)$session_hours, 2)
+  expect_equal(conf(REQ)$guest_days, 7)
+  expect_identical(conf(REQ)$operator, "the Example Lab at Example University")
+  expect_identical(conf(REQ)$contact, "help@example.org")
+
+  # One of the two may be set without the other.
+  REQ$CONFIG$operator <- NULL
+  expect_named(conf(REQ), c(who, "session_hours", "guest_days", "contact"))
+
+  # A local install says none of it, whatever its settings.
+  local <- local_test_req(auth = "none")
+  add_test_project(local$DB, is_public = TRUE)
+  local$CONFIG$operator <- "the Example Lab at Example University"
+  local$CONFIG$contact  <- "help@example.org"
+  expect_named(conf(local), who)
+
+  expect_null(shared_server_conf(list(auth = "none", session_ttl = 3600, guest_ttl = 86400, operator = "x")))
+})
+
+
 test_that("new private keys are random, long enough and unique", {
 
   REQ  <- local_test_req()

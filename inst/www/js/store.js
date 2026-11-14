@@ -1,7 +1,9 @@
 // The application's state, in one place. Nothing else keeps a copy of what
 // the server said: pages read from here and subscribe to the keys they show.
 //
-//   conf        who the browser is: {auth, user_id, full_name, is_guest, is_admin}
+//   conf        who the browser is: {auth, user_id, full_name, is_guest, is_admin,
+//               legacy}; on a shared server also {session_hours, guest_days}
+//               and, when set, {operator, contact}
 //   biom        the open project: title, keys, permissions, and the summary
 //               of its data (fields, ranks, taxa, tree, depth, depth_options)
 //   tree        the project tree: {public: [nodes], private: [nodes]}

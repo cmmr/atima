@@ -22,8 +22,9 @@
 #     Viewers can pass on view access and take back what they passed on.
 #   * A guest is a visitor who has not signed in. Guests can upload and save,
 #     but cannot be granted anything by name, grant anything, or publish.
-#   * Administrators can change public projects. They have no access to
-#     other people's private projects.
+#   * Administrators can change public projects, and arrange the public
+#     tree: its collections, and which collection a public project is
+#     listed under. They have no access to other people's private projects.
 #
 # A route asks for a level (`public`, `session`, `viewer`, `editor`,
 # `admin`), may add `account = TRUE` (the caller must be signed in), and may
@@ -175,6 +176,11 @@ access_rules <- list(
   # The same, and a project node needs editing rights.
   tree_edit = function (REQ, args) check_nodes(REQ, args, editor = TRUE),
 
+  # The public tree, which administrators arrange: the nodes named are
+  # public collections and public projects. (That the caller is an
+  # administrator is the route's level, `admin`.)
+  public_tree = function (REQ, args) check_public_nodes(REQ, args),
+
   # Changing somebody's grant on the open project.
   grant = function (REQ, args) {
     check_grant(
@@ -242,6 +248,46 @@ check_nodes <- function (REQ, args, editor = FALSE) {
       sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND public_key IS NOT NULL"
       if (db_query(DB, sql, "CNode3", list(number)) == 0)
         stop_forbidden("You do not have access to that project.")
+    }
+  }
+
+  invisible(TRUE)
+}
+
+
+#______________________________________________________________________________
+#' Check that every tree node among a request's arguments is part of the
+#' public tree: a collection that belongs to nobody, or a public project.
+#' The top of the tree (`"#"`) always is.
+#' @noRd
+check_public_nodes <- function (REQ, args) {
+
+  DB    <- REQ[['DB']]
+  specs <- REQ[['ROUTE']][['args']]
+
+  for (key in names(args)) {
+
+    if (!identical(specs[[key]][['type']], "node")) next
+
+    node_id <- args[[key]]
+    kind    <- substr(node_id, 1, 1)
+    number  <- node_number(node_id)
+
+    if (kind == "C") {
+
+      sql <- "SELECT COUNT(*) FROM collections WHERE collection_id = ? AND user_id IS NULL"
+      if (db_query(DB, sql, "PNode1", list(number)) == 0)
+        stop_forbidden("That is not a public collection. Please reload the page.")
+
+    } else if (kind == "G") {
+
+      sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND public_key IS NOT NULL"
+      if (db_query(DB, sql, "PNode2", list(number)) == 0)
+        stop_forbidden("That is not a public project. Please reload the page.")
+
+    } else if (kind != "#") {
+
+      stop_forbidden("That is not part of the public project tree.")
     }
   }
 

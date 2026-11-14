@@ -17,6 +17,10 @@ valid_args <- list(
   "POST /api/tree/leave"               = list(node_id = "P1"),
   "POST /api/tree/delete"              = list(node_id = "C1"),
   "POST /api/tree/move"                = list(node_id = "P1", parent_node_id = "C1"),
+  "POST /api/public/create"            = list(parent_node_id = "#", text = "Gut studies"),
+  "POST /api/public/rename"            = list(node_id = "C1", text = "New name"),
+  "POST /api/public/delete"            = list(node_id = "C1"),
+  "POST /api/public/move"              = list(node_id = "G1", parent_node_id = "C1"),
   "POST /api/sharing/user_search"      = list(query = "ada"),
   "POST /api/sharing/update"           = list(user_id = 5, permissions = "view"),
   "POST /api/legacy/list"              = list(source = "abc123", email = "ada@example.org", password = "old password"),
@@ -75,7 +79,11 @@ test_that("every route is well formed and has a handler that takes its arguments
     # A route that acts on a tree node, or changes a grant, or is opened
     # with a key, has a rule that checks it.
     types <- vapply(r$args, function (spec) spec$type, character(1))
-    if ("node" %in% types)              expect_true(r$rule %in% c("tree", "tree_edit"), info = r$endpoint)
+    if ("node" %in% types)              expect_true(r$rule %in% c("tree", "tree_edit", "public_tree"), info = r$endpoint)
+
+    # The public tree is the administrators' to arrange, and only theirs.
+    expect_identical(startsWith(r$path, "/api/public/"), identical(r$rule, "public_tree"), info = r$endpoint)
+    if (identical(r$rule, "public_tree")) expect_identical(r$permission, "admin", info = r$endpoint)
     if (startsWith(r$path, "/unsaved")) expect_identical(r$rule, "draft_key")
     if (r$path == "/:access_key/:file") expect_identical(r$rule, "project_key")
     if (r$handler == "api_update_permissions") expect_identical(r$rule, "grant")
@@ -114,12 +122,39 @@ test_that("every api_ function is reachable through exactly one route", {
   expect_setequal(api_routes, api_funs)
   expect_identical(anyDuplicated(api_routes), 0L)
 
-  # API routes are POSTs under /api/; nothing else is.
+  # API routes are POSTs under /api/; nothing else is. The one GET is the
+  # health check, which is asked by programs that only send GETs.
   for (r in route_table()) {
     is_api <- startsWith(r$handler, "api_")
     expect_identical(startsWith(r$path, "/api/"), is_api, info = r$endpoint)
-    if (is_api) expect_identical(r$method, "POST", info = r$endpoint)
+    if (is_api) expect_identical(r$method, if (r$handler == "api_health") "GET" else "POST", info = r$endpoint)
   }
+})
+
+
+test_that("the health check is found before the routes that take any word", {
+
+  # "GET /api/health" has the shape of a download, "/<project key>/<file>".
+  # It is listed first, so it is never taken for one.
+  m <- match_route("GET", "/api/health")
+  expect_identical(m$route$handler, "api_health")
+  expect_identical(m$route$permission, "public")
+  expect_identical(m$route$lane, "fast")
+  expect_length(m$params, 0)
+  expect_setequal(m$route$modes, c("none", "oidc"))
+
+  for (mode in c("none", "oidc"))
+    expect_identical(match_route("GET", "/api/health", mode = mode)$route$handler, "api_health", info = mode)
+
+  # Its neighbours are still what they were.
+  expect_identical(match_route("GET", "/api/plot")$route$handler, "download_project_biom")
+  expect_identical(expect_error(match_route("POST", "/api/health"), class = "atima_http_error")$status, 405L)
+
+  # No project can be called "api", so "health" itself needs no protection:
+  # "/health" is a page address like any other, for a project of that name.
+  expect_true("api" %in% reserved_keys)
+  expect_false("health" %in% reserved_keys)
+  expect_identical(match_route("GET", "/health")$route$handler, "serve_index")
 })
 
 
@@ -698,6 +733,99 @@ test_that("the index page is served for the app's own URLs", {
     expect_identical(resp$status, 200L, info = path)
     expect_match(resp$headers[['Content-Type']], "text/html", info = path)
   }
+})
+
+
+# The health check --------------------------------------------------------------
+
+test_that("the health check answers without making a session, a guest or a cookie", {
+
+  for (auth in c("oidc", "none")) {
+
+    REQ <- local_test_req(auth = auth)
+    DB  <- REQ$DB
+
+    rows <- function () vapply(
+      c("users", "sessions", "auth_tokens", "drafts"),
+      function (table) db_query(DB, paste("SELECT COUNT(*) FROM", table), "T1"), integer(1) )
+    before <- rows()
+
+    resp <- handle_request(fake_request("GET", "/api/health"), test_app(REQ))
+
+    expect_identical(resp$status, 200L, info = auth)
+    expect_identical(response_json(resp), list(status = "ok"), info = auth)
+    expect_match(resp$headers[['Content-Type']], "application/json", info = auth)
+    expect_identical(resp$headers[['Cache-Control']], "no-store", info = auth)
+    expect_null(resp$headers[['Set-Cookie']], info = auth)
+    expect_null(resp$headers[['x-session-key']], info = auth)
+    expect_identical(rows(), before, info = auth)
+
+    # A browser's cookie makes no difference, and nothing is added to it.
+    user    <- add_test_user(DB, "Ada Lovelace")
+    session <- add_test_session(DB, user, add_test_project(DB, user)$project_id)
+    before  <- rows()
+    resp    <- handle_request(fake_request("GET", "/api/health", session = session), test_app(REQ))
+    expect_identical(resp$status, 200L, info = auth)
+    expect_null(resp$headers[['Set-Cookie']], info = auth)
+    expect_identical(rows(), before, info = auth)
+  }
+})
+
+
+test_that("the health check is only answered on localhost when there are no accounts", {
+
+  # A container's own health check asks localhost, which is what a server
+  # without accounts answers to (DNS rebinding, see check_host()).
+  REQ     <- local_test_req(auth = "none")
+  request <- fake_request("GET", "/api/health")
+
+  for (host in c("127.0.0.1:8080", "localhost:8080", "[::1]:8080")) {
+    request$HTTP_HOST <- host
+    expect_identical(handle_request(request, test_app(REQ))$status, 200L, info = host)
+  }
+
+  request$HTTP_HOST <- "atima.example.org"
+  expect_identical(handle_request(request, test_app(REQ))$status, 403L)
+
+  # A shared server is reached by its own name.
+  shared <- local_test_req(auth = "oidc")
+  expect_identical(handle_request(request, test_app(shared))$status, 200L)
+})
+
+
+test_that("the health check answers 503 when the workers or the database are gone", {
+
+  REQ      <- local_test_req()
+  read_log <- local_log()
+  health   <- function (pool = NULL) handle_request(fake_request("GET", "/api/health"), test_app(REQ, pool))
+
+  # All the handler reads of a pool is whether it was stopped.
+  expect_identical(health(as.environment(list(stopped = FALSE)))$status, 200L)
+
+  resp <- health(as.environment(list(stopped = TRUE)))
+  expect_identical(resp$status, 503L)
+  expect_identical(response_json(resp), list(status = "unavailable"))
+
+  unhealthy <- Filter(function (e) e$event == "unhealthy", read_log())
+  expect_length(unhealthy, 1)
+  expect_true(unhealthy[[1]]$database)
+  expect_false(unhealthy[[1]]$workers)
+
+  # A database that does not answer.
+  local({
+    local_mocked_bindings(db_query = function (...) stop("disk I/O error"))
+    resp <- health()
+    expect_identical(resp$status, 503L)
+    expect_identical(response_json(resp), list(status = "unavailable"))
+  })
+  expect_identical(health()$status, 200L)
+
+  # A connection that is closed fails before any handler runs, as it does
+  # for every route. That is not a 200 either.
+  app    <- test_app(REQ)
+  app$db <- db_open(REQ$CONFIG$data_dir)
+  db_close(app$db)
+  expect_gte(handle_request(fake_request("GET", "/api/health"), app)$status, 500L)
 })
 
 

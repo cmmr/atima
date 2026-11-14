@@ -19,6 +19,7 @@ import * as sharing   from './pages/sharing.js';
 import * as plot      from './pages/plot.js';
 import * as clusters  from './pages/clusters.js';
 import * as legacy    from './pages/legacy.js';
+import * as privacy   from './pages/privacy.js';
 
 const pages = {
   home:     { show: home.show },
@@ -30,6 +31,7 @@ const pages = {
   plot:     { show: plot.show },
   clusters: { show: clusters.show },
   legacy:   { show: legacy.show },
+  privacy:  { show: privacy.show },
 };
 
 const main    = document.getElementById('main');
@@ -71,7 +73,9 @@ function buildNav() {
     groups,
     // Only when the administrator registered an older installation, and
     // only for someone the imported projects can belong to.
-    store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import from an older atima', 'file-import') : null);
+    store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import from an older atima', 'file-import') : null,
+    // A shared server says what it keeps and on what terms it is used.
+    store.hasAccounts() ? navLink('#/privacy', 'Privacy and terms', 'shield-halved') : null);
 }
 
 function markNav() {
@@ -104,8 +108,10 @@ function buildTopbar() {
   let account = null;
   if (conf.auth === 'oidc') {
     // The name comes from the identity provider: text, never HTML.
+    // Beside "Sign in": what signing in, and using the server at all, means.
     account = conf.is_guest
-      ? button('Sign in', signIn, { icon: 'right-to-bracket', kind: 'on-dark' })
+      ? h('div.account', h('a.topbar-link', { href: '#/privacy' }, 'Privacy and terms'),
+          button('Sign in', signIn, { icon: 'right-to-bracket', kind: 'on-dark' }))
       : h('div.account', h('span.account-name', { title: 'Signed in' }, icon('user'), ' ', conf.full_name),
           button('Sign out', signOut, { kind: 'on-dark' }));
   }

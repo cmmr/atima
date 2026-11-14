@@ -6,7 +6,8 @@
 #' multipart form when a file is uploaded. `viewer` and `editor` refer to the
 #' project that is open in the caller's session. `account = TRUE` means the
 #' caller must be signed in, and `rule` names a check on the arguments; the
-#' permission model as a whole is described in `R/access.R`.
+#' permission model as a whole is described in `R/access.R`. An `admin` route
+#' is for administrators, whatever project they have open.
 #'
 #' The lane is `compute` for anything that may read a BIOM file or call
 #' rbiom, and `fast` for work that only touches the database. A `compute`
@@ -38,6 +39,15 @@ route_table <- function () {
     route("POST /api/session/heartbeat", "api_heartbeat", "session", "fast"),
 
     route("POST /api/session/abort", "api_abort", "session", "fast"),
+
+
+    #__________________________________________________________________________
+    # Is the server able to work? For whatever watches over it: a container's
+    # health check, a load balancer, a monitor. Those send a GET, so this is
+    # the one API route that is not a POST. It starts no session and sets no
+    # cookie (`R/health.R`).
+
+    route("GET /api/health", "api_health", "public", "fast"),
 
 
     #__________________________________________________________________________
@@ -119,6 +129,30 @@ route_table <- function () {
 
     route("POST /api/tree/move", "api_tree_move", "session", "fast", rule = "tree", args = list(
       node_id        = arg_node("CP"),
+      parent_node_id = arg_node("C", root = TRUE) )),
+
+
+    #__________________________________________________________________________
+    # The public tree: the collections (folders) that public projects are
+    # listed under, which belong to nobody. Administrators arrange it. The
+    # `public_tree` rule checks that each node named is a public collection
+    # or a public project, so nothing of a user's own tree can be reached
+    # through these routes; and the routes above never reach a public
+    # collection, because it is nobody's.
+
+    route("POST /api/public/create", "api_public_create", "admin", "fast", rule = "public_tree", args = list(
+      parent_node_id = arg_node("C", root = TRUE),
+      text           = arg_string(min = 3L, max = 100L) )),
+
+    route("POST /api/public/rename", "api_public_rename", "admin", "fast", rule = "public_tree", args = list(
+      node_id = arg_node("C"),
+      text    = arg_string(min = 3L, max = 100L) )),
+
+    route("POST /api/public/delete", "api_public_delete", "admin", "fast", rule = "public_tree", args = list(
+      node_id = arg_node("C") )),
+
+    route("POST /api/public/move", "api_public_move", "admin", "fast", rule = "public_tree", args = list(
+      node_id        = arg_node("CG"),
       parent_node_id = arg_node("C", root = TRUE) )),
 
 

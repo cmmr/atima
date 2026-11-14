@@ -53,6 +53,14 @@
 #'                    when `public_url` starts with `https://`.
 #' @param signin_days  How long a sign-in lasts before the browser has to
 #'                    sign in again.
+#' @param operator    With `auth = "oidc"`: who runs this server, as the
+#'                    words to finish the sentence "This server is run by
+#'                    ...", such as `"the Example Lab at Example University"`.
+#'                    Shown on the app's "Privacy and terms" page. The
+#'                    default, `NULL`, leaves that sentence out.
+#' @param contact     With `auth = "oidc"`: how the people who use the server
+#'                    can reach whoever runs it: an email address, or the
+#'                    `https://` address of a page. Shown on the same page.
 #' @param data_dir    Directory for the database and stored BIOM files. It
 #'                    is created, and filled with two example projects, the
 #'                    first time the server starts.
@@ -112,6 +120,17 @@
 #' whenever the site is served over HTTPS (see `public_url` and
 #' `forwarded_proto_header`). Serve a public server over HTTPS, through a
 #' reverse proxy.
+#'
+#' @section Privacy and terms:
+#' With `auth = "oidc"` the app has a page, "Privacy and terms", linked from
+#' the menu and from beside the sign-in button. Its text ships with the
+#' package and describes what the software does: what it stores and for how
+#' long (using this server's `guest_days` and `session_hours`), who can see
+#' a project, that public projects are not reviewed, and that the service
+#' comes without warranty. Set `operator` and `contact` so that it also says
+#' who runs the server and how to reach them. It is a description of the
+#' software, not legal advice: if your institution needs its own terms, link
+#' to them from `contact`.
 #'
 #' @section Importing from an older atima:
 #' atima 2 kept every project encrypted with keys that only its users'
@@ -195,7 +214,9 @@ run <- function(
     admins        = NULL,
     forwarded_proto_header = NULL,
     signin_days   = 30,
-    data_dir      = tools::R_user_dir('atima', 'data'),
+    operator      = NULL,
+    contact       = NULL,
+    data_dir     = tools::R_user_dir('atima', 'data'),
     temp_dir      = tempfile(pattern = 'atima_'),
     workers       = max(1, min(4, parallelly::availableCores() %/% 2)),
     max_cpus      = NULL,
@@ -217,7 +238,7 @@ run <- function(
 
   optional <- c(
     'max_cpus', 'public_url', 'oidc_client_id', 'oidc_client_secret',
-    'admins', 'forwarded_proto_header' )
+    'admins', 'forwarded_proto_header', 'operator', 'contact' )
 
   find_arg <- function(param, cls) {
 
@@ -258,6 +279,8 @@ run <- function(
   guest_days    <- find_arg('guest_days',    'int')
   open          <- find_arg('open',          'bool')
   signin_days   <- find_arg('signin_days',   'int')
+  operator      <- text_setting(find_arg('operator', 'chr'), 'operator')
+  contact       <- text_setting(find_arg('contact',  'chr'), 'contact')
 
   # A list of files, so not one value as the other settings are.
   legacy <- if (hasName(explicits, 'legacy')) { explicits[['legacy']]
@@ -313,6 +336,10 @@ run <- function(
     guest_ttl   = guest_days * 86400,
     signin_ttl  = signin_days * 86400,
     legacy      = legacy,
+    # Who runs the server and how to reach them, for the app's "Privacy and
+    # terms" page.
+    operator    = operator,
+    contact     = contact,
     auth        = auth_cfg[['auth']],
     public_url  = auth_cfg[['public_url']],
     # The address to put in front of links that leave the browser, such as
@@ -511,6 +538,35 @@ auth_settings <- function (
       client_secret = client_secret,
       redirect_uri  = paste0(public_url, "/auth/callback"),
       admins        = admins ))
+}
+
+
+#______________________________________________________________________________
+#' Internal: check a setting that is a short line of text shown in the app
+#' (`operator`, `contact`).
+#'
+#' @param value  The setting, or `NULL`.
+#' @param name   Its name, for the error message.
+#' @return The text without surrounding spaces, or `NULL` if there is none.
+#'         Stops if it has more than one line or is too long.
+#' @noRd
+text_setting <- function (value, name, max = 200L) {
+
+  if (is.null(value)) return (NULL)
+
+  if (!is_scalar_character(value) || is.na(value))
+    stop(name, ' must be a single string.', call. = FALSE)
+
+  value <- trimws(value)
+  if (!nzchar(value)) return (NULL)
+
+  if (grepl("[[:cntrl:]]", value))
+    stop(name, ' must be one line of text.', call. = FALSE)
+
+  if (nchar(value) > max)
+    stop(name, ' must be at most ', max, ' characters.', call. = FALSE)
+
+  value
 }
 
 

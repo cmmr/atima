@@ -15,6 +15,8 @@ run(
   admins = NULL,
   forwarded_proto_header = NULL,
   signin_days = 30,
+  operator = NULL,
+  contact = NULL,
   data_dir = tools::R_user_dir("atima", "data"),
   temp_dir = tempfile(pattern = "atima_"),
   workers = max(1, min(4, parallelly::availableCores()\%/\%2)),
@@ -73,6 +75,16 @@ when \code{public_url} starts with \verb{https://}.}
 
 \item{signin_days}{How long a sign-in lasts before the browser has to
 sign in again.}
+
+\item{operator}{With \code{auth = "oidc"}: who runs this server, as the
+words to finish the sentence "This server is run by
+...", such as \code{"the Example Lab at Example University"}.
+Shown on the app's "Privacy and terms" page. The
+default, \code{NULL}, leaves that sentence out.}
+
+\item{contact}{With \code{auth = "oidc"}: how the people who use the server
+can reach whoever runs it: an email address, or the
+\verb{https://} address of a page. Shown on the same page.}
 
 \item{data_dir}{Directory for the database and stored BIOM files. It
 is created, and filled with two example projects, the
@@ -169,6 +181,19 @@ is not sent with requests made by other sites, and is marked \code{Secure}
 whenever the site is served over HTTPS (see \code{public_url} and
 \code{forwarded_proto_header}). Serve a public server over HTTPS, through a
 reverse proxy.
+}
+
+\section{Privacy and terms}{
+
+With \code{auth = "oidc"} the app has a page, "Privacy and terms", linked from
+the menu and from beside the sign-in button. Its text ships with the
+package and describes what the software does: what it stores and for how
+long (using this server's \code{guest_days} and \code{session_hours}), who can see
+a project, that public projects are not reviewed, and that the service
+comes without warranty. Set \code{operator} and \code{contact} so that it also says
+who runs the server and how to reach them. It is a description of the
+software, not legal advice: if your institution needs its own terms, link
+to them from \code{contact}.
 }
 
 \section{Importing from an older atima}{
