@@ -37,6 +37,12 @@ RUN apt-get update \
       zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
+# An image for an older R takes its packages from a CRAN snapshot of that
+# R's time, which can be too old for rbiom 4. CRAN_REPO names another
+# repository, e.g. https://p3m.dev/cran/__linux__/noble/latest
+ARG CRAN_REPO=""
+RUN if [ -n "$CRAN_REPO" ]; then       echo "options(repos = c(CRAN = '$CRAN_REPO'))" >> "$(R RHOME)/etc/Rprofile.site";     fi
+
 # Packages that rbiom and atima only suggest, but that decide what a server
 # offers. Without one of these atima quietly leaves out what needs it, so
 # this list is the place to get right:
@@ -68,7 +74,7 @@ COPY DESCRIPTION /src/atima/
 RUN --mount=type=secret,id=github_pat,required=false \
     GITHUB_PAT="$(cat /run/secrets/github_pat 2>/dev/null || true)" \
     Rscript -e 'remotes::install_deps("/src/atima", dependencies = c("Depends", "Imports", "LinkingTo"), upgrade = "never")' \
- && rm -rf /tmp/*
+ && Rscript -e 'library(rbiom)'  && rm -rf /tmp/*
 
 # atima itself.
 COPY NAMESPACE LICENSE /src/atima/

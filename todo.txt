@@ -1,1 +1,0 @@
-navigator.sendBeacon('/logout', sessionStorage.getItem('session_token'));

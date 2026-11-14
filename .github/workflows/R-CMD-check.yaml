@@ -18,6 +18,10 @@ jobs:
   R-CMD-check:
     runs-on: ${{ matrix.config.os }}
 
+    # A run takes about a quarter of an hour. The limit is for a run that
+    # hangs, which would otherwise hold a runner for six hours.
+    timeout-minutes: 45
+
     name: ${{ matrix.config.os }} (${{ matrix.config.r }})
 
     strategy:

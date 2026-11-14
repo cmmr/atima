@@ -4,10 +4,8 @@
 ^atima\.Rproj$
 ^docker$
 ^LICENSE\.md$
-^logo\.pptx$
 ^RENOVATION\.md$
 ^scripts$
-^todo.txt$
 ^vignettes$
 ^deploy$
 ^loadtest$
