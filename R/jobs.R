@@ -246,6 +246,7 @@ pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_lim
   j$user_id    <- user_id
   j$time_limit <- time_limit
   j$state      <- "queued"
+  j$queued_at  <- Sys.time()
   j$marker     <- file.path(pool$marker_dir, j$id)
 
   promise <- promises::promise(function (resolve, reject) {
@@ -324,6 +325,7 @@ pool_dispatch <- function (pool) {
     pool$queue <- pool$queue[-1]
     pool$busy  <- pool$busy + 1L
     j$state    <- "running"
+    j$started_at <- Sys.time()
 
     j$mirai <- mirai::mirai(
       .expr    = worker_job_expr,
@@ -357,6 +359,11 @@ job_done <- function (pool, j) {
 
   if (code == 0L && !mirai::is_error_value(data)) {
     pool$tempdirs <- union(pool$tempdirs, data[['tempdir']])
+    # How long the job waited for a worker and how long it ran, in
+    # milliseconds, for whoever answers the request to pass on.
+    data[['timing']] <- c(
+      queue = as.numeric(difftime(j$started_at, j$queued_at, units = "secs")) * 1000,
+      job   = as.numeric(difftime(Sys.time(), j$started_at, units = "secs")) * 1000 )
     job_settle(pool, j, value = data)
     worker_released(pool)
 

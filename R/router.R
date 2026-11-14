@@ -606,12 +606,19 @@ handle_request <- function (request, app) {
   session <- REQ[['SESSION']]
 
   finish <- function (outcome) {
-    request_done(REQ, started, request_stage(REQ, {
+
+    timing <- NULL
+
+    resp <- request_done(REQ, started, request_stage(REQ, {
 
       # A job that says what to answer when it fails gets to say it; any
       # other failure is this request's error.
       result <- tryCatch(
-        expr  = list(value = job_value(outcome())),
+        expr  = {
+          done   <- outcome()
+          timing <- done[['timing']]
+          list(value = job_value(done))
+        },
         error = function (e) {
           if (is.null(out[['failed']])) stop(e)
           list(failed = out[['failed']](e))
@@ -641,6 +648,8 @@ handle_request <- function (request, app) {
         })
       }
     }))
+
+    server_timing(resp, timing)
   }
 
   pool <- REQ[['POOL']]
@@ -656,6 +665,22 @@ handle_request <- function (request, app) {
     promise     = pool_submit(pool, out[['fn']], out[['args']], session[['session_id']], key, user_id = session[['user_id']]),
     onFulfilled = function (value) finish(function () value),
     onRejected  = function (error) finish(function () stop(error)) )
+}
+
+
+#______________________________________________________________________________
+#' Say in a response how long its job waited for a worker and how long it
+#' ran, as a `Server-Timing` header (`queue;dur=<ms>, job;dur=<ms>`).
+#' Browsers show it in their developer tools, and the load test reads it.
+#' It says nothing about the request's content.
+#' @noRd
+server_timing <- function (resp, timing) {
+
+  if (is.numeric(timing) && all(c("queue", "job") %in% names(timing)))
+    resp[['headers']][['Server-Timing']] <- sprintf(
+      "queue;dur=%.1f, job;dur=%.1f", timing[['queue']], timing[['job']])
+
+  resp
 }
 
 

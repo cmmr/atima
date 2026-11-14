@@ -372,3 +372,29 @@ test_that("a user with too many jobs at once is told to wait, and others are ser
   expect_identical(response_of(export(s$session))$status, 200L)
   expect_true(pool_idle())
 })
+
+
+test_that("a response says how long its job waited and ran", {
+
+  s <- local_async_app()
+
+  local_handlers(list(
+    "/api/project/export" = function (REQ, args) eval_job(quote({ Sys.sleep(0.5); "exported" }), function (result) list(result = unbox(result))) ))
+
+  export <- function () handle_request(fake_request("POST", "/api/project/export", list(what = "metadata"), s$session), s$app)
+
+  # Three jobs for two workers: the third waits for one of the others.
+  resps  <- lapply(list(export(), export(), export()), response_of)
+  timing <- lapply(resps, function (resp) {
+    expect_match(resp$headers[['Server-Timing']], "^queue;dur=[0-9.]+, job;dur=[0-9.]+$")
+    as.numeric(regmatches(resp$headers[['Server-Timing']], gregexpr("[0-9.]+", resp$headers[['Server-Timing']]))[[1]])
+  })
+
+  expect_lt(timing[[1]][[1]], 300)
+  expect_gte(timing[[3]][[1]], 300)
+  for (t in timing) expect_gte(t[[2]], 450)
+
+  # A request that needed no worker, or whose job failed, has no such header.
+  expect_null(handle_request(fake_request("POST", "/api/session/heartbeat", list(), s$session), s$app)$headers[['Server-Timing']])
+  expect_true(pool_idle())
+})
