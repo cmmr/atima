@@ -361,7 +361,7 @@ test_that("a control with no effect says why", {
 
   # Colors, shapes and patterns sit under the parameter whose values they are given to.
   expect_identical(js$get("parentOf(P('adiv_boxplot', 'colors'), F.adiv_boxplot)"), "stat.by")
-  expect_identical(js$get("parentOf(P('taxa_stacked', 'patterns'), F.taxa_stacked)"), "taxa")
+  expect_identical(js$get("parentOf(P('taxa_stacked', 'colors'), F.taxa_stacked)"), "taxa")
   expect_true(js$get("parentOf(P('taxa_forest', 'colors'), F.taxa_forest) === null"))
   expect_true(js$get("parentOf(P('adiv_boxplot', 'test'), F.adiv_boxplot) === null"))
 })
