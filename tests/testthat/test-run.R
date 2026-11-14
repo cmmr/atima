@@ -74,3 +74,50 @@ test_that("browsers are told to check the app's files before reusing them", {
   expect_true(file.exists(file.path(paths[["/www"]]$path, "index.html")))
   expect_identical(normalizePath(paths[["/tmp"]]$path), normalizePath(tempdir()))
 })
+
+
+test_that("an interrupt inside a callback of the event loop stops the server", {
+
+  # The interrupt ends the callback only; interruptible() notes the request.
+  shutdown$requested <- FALSE
+  withr::defer(shutdown$requested <- FALSE)
+
+  expect_identical(interruptible("done", "cut off"), "done")
+  expect_false(shutdown$requested)
+
+  expect_identical(interruptible(rlang::interrupt(), "cut off"), "cut off")
+  expect_true(shutdown$requested)
+
+  expect_identical(stopping_response()$status, 503L)
+  expect_match(stopping_response()$body, "shutting down")
+
+  # serve() answers requests until a callback is interrupted, then returns.
+  skip_on_cran()
+  shutdown$requested <- FALSE
+  port  <- httpuv::randomPort()
+  calls <- 0L
+  app   <- list(call = function (req) interruptible({
+    calls <<- calls + 1L
+    if (calls == 2L) rlang::interrupt()
+    list(status = 200L, headers = list('Content-Type' = "text/plain"), body = "ok")
+  }, list(status = 503L, headers = list('Content-Type' = "text/plain"), body = "stopping")))
+
+  answers <- character(0)
+  get     <- function () curl::curl_fetch_multi(
+    sprintf("http://127.0.0.1:%d/", port),
+    done = function (res) answers <<- c(answers, rawToChar(res$content)),
+    fail = function (msg) answers <<- c(answers, "failed") )
+
+  later::later(get, 0.2)
+  later::later(get, 0.6)
+  poll <- function () { curl::multi_run(timeout = 0, poll = TRUE); if (length(answers) < 2) later::later(poll, 0.05) }
+  later::later(poll, 0.25)
+
+  started <- Sys.time()
+  serve("127.0.0.1", port, app)
+
+  expect_lt(as.numeric(difftime(Sys.time(), started, units = "secs")), 10)
+  expect_true(shutdown$requested)
+  expect_identical(calls, 2L)
+  expect_identical(answers[[1]], "ok")
+})

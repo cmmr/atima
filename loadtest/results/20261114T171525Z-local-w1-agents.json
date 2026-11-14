@@ -1,0 +1,43 @@
+{
+  "label": "local-w1-agents",
+  "started_utc": "2026-11-14T17:15:25Z",
+  "seconds": 68,
+  "options": {
+    "base": "http://127.0.0.1:8080",
+    "mode": "local",
+    "users": 0,
+    "minutes": 0,
+    "think": 5,
+    "flood": 40,
+    "agents": 2,
+    "calls": 6,
+    "rounds": 5,
+    "signins": 10,
+    "issuer": "",
+    "label": "local-w1-agents",
+    "out": "/loadtest/results",
+    "note": "Intel i5-9600K (6 cores), Docker Desktop on WSL2 with 6 CPUs and 31 GB, R 4.6.2, atima at commit 31955c4; workers=1 max_cpus=1",
+    "seed": 1
+  },
+  "static_files": 26,
+  "requests": 60,
+  "summary": [
+    {
+      "phase": "agents",
+      "request": "mcp make_plot",
+      "n": 60,
+      "ok": 60,
+      "other": "",
+      "p50_s": 8.841,
+      "p90_s": 11.853,
+      "p95_s": 12.287,
+      "p99_s": 13.221,
+      "max_s": 13.836,
+      "wait_p50_s": 7.615,
+      "wait_p95_s": 10.799,
+      "wait_max_s": 11.105,
+      "run_p50_s": 1.087,
+      "run_p95_s": 1.203
+    }
+  ]
+}

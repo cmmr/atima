@@ -358,8 +358,8 @@ pool_dispatch <- function (pool) {
       j <- j
       promises::then(
         promise     = j$mirai,
-        onFulfilled = function (value) job_done(pool, j),
-        onRejected  = function (error) job_done(pool, j) )
+        onFulfilled = function (value) interruptible(job_done(pool, j)),
+        onRejected  = function (error) interruptible(job_done(pool, j)) )
     })
   }
 
@@ -477,7 +477,7 @@ worker_await <- function (pool, j) {
       release()
 
     } else if (Sys.time() < deadline) {
-      later::later(check, 0.1)
+      later::later(function () interruptible(check()), 0.1)
 
     } else if (file.exists(j$marker)) {
       pid <- suppressWarnings(as.integer(readLines(j$marker, n = 1L, warn = FALSE)))

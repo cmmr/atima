@@ -231,6 +231,9 @@ run <- function(
 
   message("Initializing Atima Server...")
 
+  # Nobody has asked this server to stop yet (`R/shutdown.R`).
+  shutdown$requested <- FALSE
+
   #______________________________________________
   # 1. Argument Resolution & Validation
   #
@@ -445,7 +448,7 @@ run <- function(
     # The answer is a response, or a promise of one while a worker is busy
     # with the request. Either way this returns at once.
     'call' = function(req) {
-      handle_request(req, app_state)
+      interruptible(handle_request(req, app_state), stopping_response())
     },
 
     'staticPaths' = static_paths(temp_dir),
@@ -465,7 +468,7 @@ run <- function(
 
   on.exit(message("Stopping the Atima server..."), add = TRUE, after = FALSE)
 
-  httpuv::runServer(host, port, app)
+  serve(host, port, app)
 }
 
 

@@ -605,7 +605,9 @@ handle_request <- function (request, app) {
   #________________________________________________________
   session <- REQ[['SESSION']]
 
-  finish <- function (outcome) {
+  finish <- function (outcome) interruptible(finish_now(outcome), stopping_response())
+
+  finish_now <- function (outcome) {
 
     timing <- NULL
 

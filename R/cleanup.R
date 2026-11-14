@@ -77,7 +77,9 @@ cleanup_start <- function (app, interval = cleanup_interval) {
     if (stopped) return (invisible(NULL))
     tryCatch(
       expr  = cleanup_run(app[['db']], app[['config']]),
-      error = function (e) log_event("error", "cleanup_failed", message = log_truncate(conditionMessage(e), 2000L)) )
+      error     = function (e) log_event("error", "cleanup_failed", message = log_truncate(conditionMessage(e), 2000L)),
+      # The server was told to stop while this ran (`R/shutdown.R`).
+      interrupt = function (e) shutdown$requested <- TRUE )
     cancel <<- later::later(tick, interval)
   }
 
