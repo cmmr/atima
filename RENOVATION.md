@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 14).
+at release (step 15).
 
 ## How each step runs
 
@@ -39,7 +39,8 @@ it to that step's list instead of fixing it now.
 | 11 | Interface refinement: compact controls, navigation | not started |
 | 12 | MCP server, shared (sign-in), and tools that change data | not started |
 | 13 | Usage monitoring | not started |
-| 14 | Release | not started |
+| 14 | The lab's public server | not started |
+| 15 | Release | not started |
 
 ## Decision log
 
@@ -70,7 +71,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 14 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 15 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -527,13 +528,18 @@ it to that step's list instead of fixing it now.
   wide range of screen sizes. Two navigation links are much longer than
   the rest and are to be renamed. First added as step 13; later the
   same day Daniel moved it to step 11, before the remaining steps that
-  add pages, and release is step 14.
+  add pages, and release is step 15.
 - **Names of the versions (2026-11-14).** To avoid confusion Daniel
   settled: **atima v5** is the old version, the code in
   `cmmr/atima-old` (package version 5.0.x; elsewhere in this file
   "pre-renovation 5.x" or "5.0.x"). **atima v6** is the version this
   plan is building. Use those two names from here on. `DESCRIPTION`
   still says 5.0.1; the release step sets 6.0.0.
+- **The lab's public server (2026-11-14).** Daniel settled: atima v6
+  replaces all earlier versions, which are torn down; it takes over
+  `https://atima.research.bcm.edu` and has the lab's server (32 cores,
+  251 GB) to itself. Installing it there is step 14, and release is
+  step 15.
 
 - **Hosting (step 10).** Daniel has not decided where the public server
   runs, so nothing in the repository names a host. The deployment files
@@ -2747,7 +2753,7 @@ and other apps to the lab's server and work with their own projects.
     to get one.
 
 Decisions for Daniel: whether this ships in the first release (if not, it
-moves after step 14 and the status table says so); atima as its own
+moves after step 15 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
 browser also disconnects apps. For the tools that change data: whether
@@ -2915,7 +2921,125 @@ small vendored library, or figures drawn in R); whether a public
 hidden; and whether Baylor has rules on recording use of a public
 research server that this must follow.
 
-## Step 14: Release
+## Step 14: The lab's public server
+
+Installing atima v6 on the lab's own server and moving the public
+address to it. This is Daniel's installation only: nothing here may
+shape how the package is released for others, and the lab's internal
+host names, addresses and credentials stay out of this file and out of
+git (the repository is public). Added by Daniel on 2026-11-14; step 10
+built and tested the stack on a laptop and was told not to touch a real
+server.
+
+What Daniel settled (2026-11-14):
+
+- atima v6 replaces every earlier version. The installations of atima 2
+  and atima v5 are torn down; only v6 is supported from then on.
+- v6 takes over the public address, `https://atima.research.bcm.edu`,
+  which atima 2 serves today from another machine.
+- v6 has the lab's server to itself, and Daniel has root on it, so it
+  can be set up however suits v6 best. There is no need to share ports
+  with v5: the web server and the v5 container running there now go.
+- The server, as Daniel reported it: 32 cores, 251 GB of memory, 3.5 TB
+  of disk nearly all free, Ubuntu 24.04, Docker Engine 29.9 with Compose
+  5.7. Today a host web server holds ports 80 and 443 and the v5
+  container holds 8080.
+
+What is known about the path from the internet to the server, from
+Daniel's notes on the atima 2 installation (confirm each with Baylor IT;
+they describe the old machine):
+
+- The public name is served by a proxy that Baylor IT runs, which
+  forwards to the lab's server. The lab's server is not reachable from
+  the internet directly, so a certificate for the public name cannot be
+  fetched by the HTTP challenge from there.
+- Between IT's proxy and the server, atima 2 used a certificate that IT
+  supplied. v5 used a different name and got its certificate with the
+  DNS challenge.
+- IT's proxy appends the visitor's address to `X-Forwarded-For`: the
+  real client is the last entry. The atima 2 web server limited new
+  sessions per client on that basis and served a `robots.txt` that asks
+  crawlers to stay out.
+- Uploads of up to 200 MB and requests of up to ten minutes were
+  allowed through.
+
+To do:
+
+- Ask Baylor IT, early, since it is the step with a wait in it: to point
+  the public name at the new server; what certificate their proxy
+  expects from it (the one they supply, or any); whether they limit
+  upload size or request time; which headers their proxy sets and
+  whether a client can inject its own `X-Forwarded-For` ahead of theirs.
+- Fit step 10's stack (`deploy/`) to that path, and check each point
+  against the files as they are, not from memory: a way to give Caddy a
+  supplied certificate and key (or the DNS challenge) in place of
+  fetching one itself; the client address taken from the trusted proxy,
+  last entry, for the rate limits and for step 13's country and
+  institution lookup, with the forwarded headers overwritten for anyone
+  else; `ATIMA_PUBLIC_URL` and the forwarded-protocol setting right for
+  a proxy in front of a proxy; upload size and time limits that agree
+  along the whole chain. Changes that any administrator behind a
+  corporate proxy would need belong in `deploy/` and the server
+  article; values that are the lab's own belong on the server only.
+- Size it from step 10's load-test results: `workers` and `max_cpus`
+  for 32 cores (the default is half the cores), the cache size, where
+  `data_dir`, `temp_dir` and backups live on the one disk.
+- Sign-in: Daniel registers the application with the provider (Globus
+  Auth by default; the recipe is under step 10) with the redirect
+  address `https://atima.research.bcm.edu/auth/callback`, and sets the
+  administrators.
+- Backups: step 10's nightly backup (newest 7 kept) is on the same
+  disk. The lab already sends backups of the old versions off the
+  machine every night with a script of Daniel's; do the same for v6.
+- Legacy import: take a final dump of the atima 2 database when atima 2
+  is switched off, convert it with `legacy_convert()`, and mount it
+  read-only. Before that, decide what happens to people's projects on
+  the v5 installation: step 8 settled that only atima 2 is imported, so
+  confirm with Daniel that nothing on v5 needs to be carried over, or
+  upgrade its data directory in place (the 5.0.x upgrade path has only
+  ever been tested on a fixture).
+- Old links: decide what atima 2's bookmarked addresses and share links
+  do on the new server (a page that explains the move and points to the
+  import, or nothing).
+- Usage history: atima 2 kept a row per visit, and Daniel has queries
+  for visits per year, active registered users per year and visits by
+  email domain. Save those numbers before the database is retired, so
+  step 13's page can show the years before v6 beside its own.
+- Repeat on the real server what step 10 could only do on a laptop: the
+  load test at a few worker counts (results for the paper, with this
+  hardware named), stopping the server under load, a backup and a
+  restore, sign-in with the real provider, an import of a real atima 2
+  account, connecting an AI app to the public address (step 12), the
+  usage page (step 13).
+- Cut over in an order that can be undone: v6 up and checked on a
+  temporary name while atima 2 still serves the public one; the final
+  atima 2 dump; IT moves the name; check; only then tear down atima 2
+  and v5 and remove what they left (containers, images, the host web
+  server, old data once backed up). Removing old data and installations
+  needs Daniel's explicit go-ahead at the time.
+- Privacy and terms: the text shipped with the package was written in
+  step 10 and waits for Daniel's review; step 13 adds what use is
+  recorded. One email to Baylor's compliance or privacy office before
+  opening.
+- Write the lab's own runbook (how the server was set up, how to
+  upgrade, restore and rotate secrets) somewhere private, not in this
+  repository. Anything in it that every administrator needs goes into
+  the server article.
+
+Who does what: commands on the server are run by Daniel, or by a
+session only with his explicit say-so for each change; reading the
+server's state is fine. No secret is ever pasted into a session, a file
+in git or a commit.
+
+Decisions for Daniel: whether Caddy stays in front (as step 10 built
+it) or the stack sits behind a host web server as v5 did; the
+temporary name for the trial period; the date of the cut-over and how
+users of atima 2 are told; what, if anything, is carried over from v5;
+what old links do; the provider (Globus or ORCID) for the public
+server; how long the old installations' data is kept after the
+tear-down.
+
+## Step 15: Release
 
 - Version, NEWS, citation, DOI. The release is atima v6: set the
   version to 6.0.0 (`DESCRIPTION` says 5.0.1), and say in NEWS that
