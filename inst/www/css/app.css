@@ -99,7 +99,6 @@ body.nav-closed #nav { display: none; }
 .project-title { color: #fff; text-decoration: none; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .project-title:hover { text-decoration: underline; }
 .topbar-space { flex: 1; }
-#topbar label.depth { font-size: 12px; color: rgb(255 255 255 / 70%); }
 #topbar select { width: auto; background: var(--navy-2); color: #fff; border-color: rgb(255 255 255 / 25%); }
 .account { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .btn.signin { background: #fff; border-color: #fff; color: var(--navy-2); font-weight: 650; }
@@ -324,6 +323,8 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .tabs > button[role="tab"] { white-space: nowrap; }
 .plot-tools { margin-left: auto; display: flex; gap: 6px; padding-bottom: 6px; flex: none; }
 .plot-tools select { width: auto; }
+.plot-tools label.depth { align-self: center; font-size: 12px; font-weight: 500; color: var(--text-soft); }
+.plot-tools #depth { margin-right: 8px; }
 .pane { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
 .figure-pane { display: flex; flex-direction: column; overflow: hidden; }
 .figure-box { position: relative; flex: 1; min-height: 0; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); overflow: auto; display: flex; align-items: center; justify-content: center; }
@@ -480,6 +481,11 @@ body.dropping::after {
   :root { --controls-width: 320px; }
 }
 
+@media (max-width: 1199px) {
+  /* The bar above the figure keeps its controls and drops some words. */
+  .plot-tools .btn > span, .plot-tools label.depth { display: none; }
+}
+
 @media (max-width: 1099px) {
   body, body.nav-closed { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "main"; }
   #nav, body.nav-closed #nav { display: none; }
@@ -495,8 +501,9 @@ body.dropping::after {
 @media (max-width: 899px) {
   /* The top bar keeps its icons and drops their words. */
   #topbar { gap: 8px; padding: 0 10px; }
-  #topbar .btn:has(> i):not(.signin) > span, #topbar label.depth, .account-name { display: none; }
+  #topbar .btn:has(> i):not(.signin) > span, .account-name { display: none; }
   .page { padding: 16px 14px 48px; }
+  .tabs > button[role="tab"][aria-selected="false"] > span { display: none; }
 }
 
 @media (max-width: 759px) {
@@ -506,7 +513,7 @@ body.dropping::after {
   .plot-controls { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
   .tabs { padding: 6px 8px 0; }
   .tabs > button[role="tab"] { padding: 8px 9px; }
-  .plot-tools .btn > span { display: none; }
+  .plot-tools .btn > span, .plot-tools label.depth { display: none; }
   .pane { padding: 8px; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .download-row select, .download-row .picker { width: 100%; }

@@ -7,7 +7,7 @@ import { call, abortJobs } from '../api.js';
 import { tabs, section, spinner, picker, notify, showError } from '../widgets.js';
 import { controlPanel, controlRow } from '../controls.js';
 import { localTable } from '../tables.js';
-import { copyText } from '../actions.js';
+import { copyText, busy } from '../actions.js';
 import * as S from '../schema.js';
 import * as store from '../store.js';
 
@@ -259,7 +259,22 @@ export function show(container, fn) {
 
   const device = h('select', { 'aria-label': 'File format', title: 'File format' },
     schema.save.params.find(p => p.name === 'device').choices.map(c => h('option', { value: c }, c.toUpperCase())));
-  const tools = h('div.plot-tools', device, button('Download', downloadFigure, { icon: 'download', title: 'Download the figure in this format' }));
+  // The rarefaction depth belongs to the project, not to this figure: it
+  // is changed here, where its effect shows, and every page follows.
+  const depth = h('select', {
+    id: 'depth', title: 'Rarefaction depth: reads kept per sample. Samples with fewer reads are left out of rarefied figures. It applies to the whole project.',
+    onchange: async () => {
+      const done = await busy('Rarefying...', () => call('/api/project/rarefy', { depth: Number(depth.value) }));
+      if (!done) depth.value = String(store.get('biom').depth);
+    } });
+  const showDepth = () => {
+    const biom   = store.get('biom');
+    const depths = [...new Set([...(biom.depth_options || []), biom.depth])].sort((a, b) => a - b);
+    fill(depth, depths.map(d => h('option', { value: d, selected: d === biom.depth }, d.toLocaleString())));
+  };
+  showDepth();
+
+  const tools = h('div.plot-tools', h('label.depth', { for: 'depth' }, 'Depth'), depth, device, button('Download', downloadFigure, { icon: 'download', title: 'Download the figure in this format' }));
 
   const panes = tabs([
     { id: 'figure', label: 'Figure',     icon: 'chart-column', panel: h('div.pane.figure-pane', figureBox, caption) },
@@ -461,6 +476,7 @@ export function show(container, fn) {
     // The project changed under the page: another depth, a new field, or
     // another project altogether.
     onBiom(biom, before) {
+      showDepth();
       buildControls();
       filter.redraw();
       badge.textContent = filter.count() || '';

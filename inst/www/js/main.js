@@ -7,7 +7,7 @@
 import { h, fill, icon, button } from './dom.js';
 import { startSession, loadSchema, startHeartbeat, call } from './api.js';
 import { showError, menu } from './widgets.js';
-import { uploadProject, saveProject, signIn, signOut, busy } from './actions.js';
+import { uploadProject, saveProject, signIn, signOut } from './actions.js';
 import * as S from './schema.js';
 import * as store from './store.js';
 
@@ -203,20 +203,12 @@ function accountControl(conf) {
 
 
 //_____________________________________________________________________________
-// The bar across the top: the open project, its depth, and the account.
+// The bar across the top: the open project and the account.
 
 function buildTopbar() {
 
   const biom = store.get('biom');
   const conf = store.get('conf');
-
-  const depths = [...new Set([...(biom.depth_options || []), biom.depth])].sort((a, b) => a - b);
-  const depth  = h('select', {
-    id: 'depth', title: 'Reads kept per sample. Samples with fewer reads are left out of rarefied figures.',
-    onchange: async () => {
-      const done = await busy('Rarefying...', () => call('/api/project/rarefy', { depth: Number(depth.value) }));
-      if (!done) depth.value = String(store.get('biom').depth);
-    } }, depths.map(d => h('option', { value: d, selected: d === biom.depth }, d.toLocaleString())));
 
   const account = accountControl(conf);
 
@@ -227,7 +219,6 @@ function buildTopbar() {
     biom.is_saved ? null : h('button.tag.warn', { type: 'button', title: 'Your working copy has changes that are not saved. Click to save.',
       onclick: () => saveProject({ copy: !biom.is_editor }) }, 'unsaved'),
     h('span.topbar-space'),
-    h('label.depth', { for: 'depth' }, 'Depth'), depth,
     button('Upload', uploadProject, { icon: 'upload', kind: 'on-dark', title: 'Upload a file as a new project' }),
     account);
 }
