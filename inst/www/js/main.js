@@ -78,7 +78,7 @@ function buildNav() {
   fill(nav,
     navLink('#/home', 'Home', 'house'),
     navLink('#/projects', 'Projects', 'folder-open'),
-    h('details.nav-group', { open: true },
+    h('details.nav-group',
       h('summary', icon('database'), h('span', 'Dataset'), icon('chevron-down', 'nav-arrow')),
       navLink('#/summary', 'Summary'),
       navLink('#/metadata', 'Metadata'),
@@ -90,12 +90,19 @@ function buildNav() {
     store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import', 'file-import', 'Import from an older atima') : null,
     // About the software: how to use it, how to cite it, where its code is,
     // and what this copy keeps and on what terms it is used.
-    h('details.nav-group', { open: true },
+    h('details.nav-group',
       h('summary', icon('circle-info'), h('span', 'About'), icon('chevron-down', 'nav-arrow')),
       navOutside(DOCS_URL, 'Docs', 'Documentation and tutorials (opens in a new tab)'),
       navLink('#/cite', 'Cite', null, 'How to cite ATIMA and rbiom'),
       navOutside(SOURCE_URL, 'GitHub', 'Source code and issue tracker (opens in a new tab)'),
       navLink('#/privacy', 'Privacy', null, 'Privacy and terms')));
+
+  // One group is open at a time: opening one closes the others.
+  const all = [...nav.querySelectorAll('details.nav-group')];
+  for (const group of all)
+    group.addEventListener('toggle', () => {
+      if (group.open) for (const other of all) if (other !== group) other.open = false;
+    });
 }
 
 // The button in the top bar folds the navigation away. A narrow window has
