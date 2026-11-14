@@ -105,23 +105,28 @@ export function showError(err) {
  * @param {object} opts
  *   options      [{value, label, group?, note?, swatch?: [colors], image?: url}]
  *   value        the selected value, or an array of them when `multiple`
- *   multiple     choose several; they show as removable chips, in order
+ *   multiple     choose several; the face says how many, and each shows as
+ *                a removable chip, in order, in `.chips` (below the face,
+ *                unless the caller puts that element somewhere else)
+ *   iconOnly     the face shows only the chosen option's picture or swatch
  *   placeholder  shown when nothing is selected
+ *   label        what is being chosen, for screen readers, when no <label> is tied to `id`
  *   onchange     called with the new value (array when `multiple`)
- * @return {HTMLElement} with `.setOptions(options, value)` and `.value`.
+ * @return {HTMLElement} with `.setOptions(options, value)`, `.value` and, when `multiple`, `.chips`.
  */
-export function picker({ options = [], value = null, multiple = false, placeholder = 'Choose...', onchange = () => {}, id = null }) {
+export function picker({ options = [], value = null, multiple = false, iconOnly = false, placeholder = 'Choose...', label = null, onchange = () => {}, id = null }) {
 
   const same  = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const find  = v => options.find(o => same(o.value, v));
   let selected = multiple ? [...(value || [])] : value;
   let open = false, cursor = 0, shown = [];
 
-  const face   = h('button.picker-face', { type: 'button', id, 'aria-haspopup': 'listbox' });
+  const face   = h('button.picker-face', { type: 'button', id, 'aria-haspopup': 'listbox', 'aria-label': label });
+  const chips  = multiple ? h('div.chips', { hidden: true }) : null;
   const search = h('input.picker-search', { type: 'search', placeholder: 'Search...', autocomplete: 'off', 'aria-label': 'Search' });
   const list   = h('ul.picker-list', { role: 'listbox' });
   const popup  = h('div.picker-popup', { hidden: true }, search, list);
-  const root   = h('div.picker', { class: multiple ? 'multiple' : '' }, face, popup);
+  const root   = h('div.picker', { class: [multiple ? 'multiple' : '', iconOnly ? 'icon-only' : ''].join(' ').trim() }, face, popup, chips);
 
   const optionFace = o => [
     o.swatch ? h('span.swatch', o.swatch.map(c => h('i', { style: { background: c } }))) : null,
@@ -132,15 +137,21 @@ export function picker({ options = [], value = null, multiple = false, placehold
   function drawFace() {
     if (multiple) {
       fill(face, selected.length
-        ? selected.map(v => {
-            const o = find(v) || { value: v, label: String(v) };
-            return h('span.chip', optionFace(o), h('span.chip-x', {
-              role: 'button', title: 'Remove', onclick: e => { e.stopPropagation(); choose(v); } }, icon('xmark')));
-          })
+        ? h('span.picker-label', `${selected.length} chosen`)
         : h('span.picker-placeholder', placeholder), icon('caret-down', 'picker-caret'));
+      face.title = selected.map(v => (find(v) || { label: String(v) }).label).join(', ');
+      chips.hidden = selected.length === 0;
+      fill(chips, selected.map(v => {
+        const o = find(v) || { value: v, label: String(v) };
+        return h('span.chip', { title: o.label }, optionFace(o), h('button.chip-x', {
+          type: 'button', title: `Remove ${o.label}`, onclick: () => choose(v) }, icon('xmark')));
+      }));
     } else {
       const o = selected === null || selected === undefined ? null : find(selected);
-      fill(face, o ? optionFace(o) : h('span.picker-placeholder', placeholder), icon('caret-down', 'picker-caret'));
+      const shown = o && iconOnly ? optionFace(o).slice(0, 2) : o ? optionFace(o) : h('span.picker-placeholder', placeholder);
+      fill(face, shown, icon('caret-down', 'picker-caret'));
+      // A long value is cut short on the face; this shows it whole.
+      face.title = o ? o.label : '';
     }
   }
 
@@ -189,6 +200,9 @@ export function picker({ options = [], value = null, multiple = false, placehold
     // Open upwards when there is no room below.
     const box = root.getBoundingClientRect();
     popup.classList.toggle('up', window.innerHeight - box.bottom < 260 && box.top > 260);
+    // And leftwards when it would pass the window's right edge.
+    popup.classList.remove('left');
+    popup.classList.toggle('left', popup.getBoundingClientRect().right > document.documentElement.clientWidth - 4);
     (search.hidden ? face : search).focus();
     document.addEventListener('mousedown', outside, true);
   }
@@ -222,6 +236,7 @@ export function picker({ options = [], value = null, multiple = false, placehold
     if (open) drawList();
   };
   Object.defineProperty(root, 'value', { get: () => (multiple ? [...selected] : selected) });
+  root.chips = chips;
 
   drawFace();
   return root;

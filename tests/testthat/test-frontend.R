@@ -162,3 +162,201 @@ test_that("the licence of every vendored library is recorded", {
   for (entry in setdiff(list.files(www("assets")), "LICENSES.md"))
     expect_match(licences, entry, fixed = TRUE, info = entry)
 })
+
+
+test_that("navigation labels are short, and every control's label fits its line", {
+
+  schema <- fromJSON(browser_schema_json(), simplifyVector = FALSE)
+
+  # A function's link in the navigation: 12 characters at most, with the
+  # full name as tooltip and page heading.
+  for (fn in names(schema$functions)) {
+    def <- schema$functions[[fn]]
+    expect_true(is_scalar_character(def$short) && nzchar(def$short), info = fn)
+    expect_lte(nchar(def$short), 12L)
+    expect_gte(nchar(def$label), nchar(def$short))
+  }
+
+  # Two functions under one heading never share a name.
+  areas <- vapply(schema$functions, function (def) paste(def$area, def$short), character(1))
+  expect_identical(anyDuplicated(areas), 0L)
+
+  # The links written in main.js: navLink('#/page', 'Label', ...).
+  main   <- read_text(www("js", "main.js"))
+  labels <- all_matches(main, "(?<=navLink\\('#/[a-z]{1,20}', ')[^']+(?=')")
+  expect_gte(length(labels), 8)
+  expect_true(all(c("Import", "Privacy") %in% labels))
+  expect_true(all(nchar(labels) <= 12L), info = paste(labels[nchar(labels) > 12L], collapse = ", "))
+
+  # Headings of the groups of links may be a little longer.
+  headings <- all_matches(read_text(www("js", "schema.js")), "(?<=: ')[A-Z][a-z]+ ?[a-z]*(?=')")
+  expect_true(all(c("Alpha diversity", "Taxa abundance") %in% headings))
+  expect_true(all(nchar(headings) <= 15L))
+
+  # A control is one line, label left and value right: 16 characters at most.
+  labels <- unique(c(
+    unlist(lapply(schema$functions, function (def) vapply(def$params, function (p) p$label, character(1)))),
+    vapply(schema$save$params, function (p) p$label, character(1)) ))
+  labels <- labels[labels %in% c(schema_labels, vapply(schema$save$params, function (p) p$label, character(1)))]
+  expect_gt(length(labels), 50)
+  expect_true(all(nchar(labels) <= 16L), info = paste(labels[nchar(labels) > 16L], collapse = ", "))
+})
+
+
+test_that("no page or script writes a style or a script into the page", {
+
+  # The Content-Security-Policy forbids both, so they would silently not apply.
+  for (file in own_files("\\.html$")) {
+    text <- read_text(www(file))
+    expect_no_match(text, "<style|\\sstyle\\s*=", info = file)
+    expect_no_match(text, "\\son[a-z]+\\s*=", perl = TRUE, info = file)
+  }
+
+  # Scripts set styles through `element.style`, which the policy allows,
+  # never by writing a style attribute or a style element.
+  for (file in own_files("\\.js$")) {
+    text <- read_text(www(file))
+    expect_no_match(text, "setAttribute\\(\\s*['\"]style|cssText|createElement\\(\\s*['\"]style|h\\('style", info = file)
+    expect_no_match(text, "style=\\\\?['\"]", info = file)
+  }
+})
+
+
+# `js/schema.js` is pure: no page, no imports. So it can be run here, in
+# V8, with the real schema and a real project summary.
+local_schema_js <- function (env = parent.frame()) {
+
+  testthat::skip_if_not_installed("V8")
+
+  js <- V8::v8()
+  src <- read_text(www("js", "schema.js"))
+  expect_no_match(src, "(^|\n)import ")
+  js$eval(gsub("(^|\n)export ", "\\1", src))
+
+  summary <- biom_summary(rbiom::hmp50, rbiom::rarefy(rbiom::hmp50))
+  js$eval(paste0("const schema = ", browser_schema_json(), ";"))
+  js$eval(paste0("const biom = ", toJSON(summary, null = "null", digits = NA), ";"))
+  js$eval("const F = schema.functions; const P = (fn, name) => param(F[fn], name);")
+  js
+}
+
+
+test_that("a control's value is shared between plots of the same kind of parameter", {
+
+  js <- local_schema_js()
+
+  # The same key wherever the parameter is the same kind.
+  expect_true(js$get("shareKey(P('adiv_boxplot', 'stat.by')) === shareKey(P('taxa_boxplot', 'stat.by'))"))
+  expect_true(js$get("shareKey(P('adiv_boxplot', 'stat.by')) === shareKey(P('bdiv_ord_plot', 'stat.by'))"))
+  expect_true(js$get("shareKey(P('adiv_boxplot', 'stat.by')) === shareKey(P('bdiv_boxplot', 'stat.by'))"))
+  expect_true(js$get("shareKey(P('adiv_boxplot', 'p.adj')) === shareKey(P('taxa_corrplot', 'p.adj'))"))
+  expect_true(js$get("shareKey(P('adiv_boxplot', 'layers')) === shareKey(P('taxa_boxplot', 'layers'))"))
+
+  # A different key where the name is the same and the thing is not: a
+  # categorical and a numeric x, the layers and the tests of different plots.
+  expect_false(js$get("shareKey(P('adiv_boxplot', 'x')) === shareKey(P('adiv_corrplot', 'x'))"))
+  expect_false(js$get("shareKey(P('adiv_boxplot', 'layers')) === shareKey(P('bdiv_ord_plot', 'layers'))"))
+  expect_false(js$get("shareKey(P('adiv_boxplot', 'test')) === shareKey(P('adiv_corrplot', 'test'))"))
+  expect_false(js$get("shareKey(P('adiv_boxplot', 'colors')) === shareKey(P('taxa_stacked', 'colors'))"))
+
+  # Within one function no two parameters share a key.
+  expect_true(js$get("Object.values(F).every(def => new Set(def.params.map(shareKey)).size === def.params.length)"))
+
+  # What is set on one plot is there on the next.
+  js$eval("
+    let shared = {};
+    const put = (fn, name, value) => { shared[shareKey(P(fn, name))] = value; };
+    const args = fn => fnArgs(F[fn], shared, biom);
+    put('adiv_boxplot', 'x', 'Body Site');
+    put('adiv_boxplot', 'stat.by', 'Sex');
+    put('adiv_boxplot', 'p.adj', 'bonferroni');
+    put('adiv_boxplot', 'layers', ['bar', 'dot']);
+    put('adiv_boxplot', 'colors', { Female: '#aa3377', Male: '#4477aa' });")
+
+  expect_identical(js$get("args('taxa_boxplot')['stat.by']"), "Sex")
+  expect_identical(js$get("args('bdiv_ord_plot')['stat.by']"), "Sex")
+  expect_identical(js$get("args('taxa_corrplot')['p.adj']"), "bonferroni")
+  expect_identical(js$get("args('taxa_boxplot').layers.join()"), "bar,dot")
+  expect_identical(js$get("args('taxa_boxplot').colors.Male"), "#4477aa")
+  expect_identical(js$get("JSON.stringify(payload(F.taxa_boxplot, args('taxa_boxplot')).x)"), '"Body Site"')
+
+  # It applies only where it is valid: a categorical field is no x for a
+  # correlation, box plot layers are not an ordination's, and a function
+  # without the parameter is not touched.
+  expect_false(js$get("'x' in args('adiv_corrplot')"))
+  expect_false(js$get("'layers' in args('bdiv_ord_plot')"))
+  expect_identical(js$get("JSON.stringify(args('rare_stacked'))"), "{}")
+  expect_identical(js$get("JSON.stringify(args('taxa_heatmap'))"), "{}")
+
+  # Colors named for the groups of a field go with that field. In the beta
+  # diversity plots the groups are pairs that only rbiom works out.
+  expect_false(js$get("'colors' in args('bdiv_boxplot')"))
+  expect_identical(js$get("args('bdiv_boxplot')['stat.by']"), "Sex")
+  js$eval("put('adiv_boxplot', 'stat.by', 'Body Site');")
+  expect_false(js$get("'colors' in args('adiv_boxplot')"))
+  js$eval("put('adiv_boxplot', 'stat.by', 'Sex');")
+  expect_true(js$get("'colors' in args('adiv_boxplot')"))          # and comes back
+
+  # Comparing within groups is the beta diversity plots' alone.
+  js$eval("put('bdiv_boxplot', 'stat.by', '==Sex');")
+  expect_identical(js$get("args('bdiv_boxplot')['stat.by']"), "==Sex")
+  expect_false(js$get("'stat.by' in args('adiv_boxplot')"))
+  js$eval("put('adiv_boxplot', 'stat.by', 'Sex');")
+
+  # Nothing set, nothing sent, for every function.
+  expect_true(js$get("Object.values(F).every(def => Object.keys(fnArgs(def, {}, biom)).length === 0)"))
+})
+
+
+test_that("shared values follow the open project", {
+
+  js <- local_schema_js()
+
+  js$eval("
+    const key = (fn, name) => shareKey(P(fn, name));
+    const shared = {
+      [key('adiv_boxplot', 'stat.by')]: 'Sex',
+      [key('adiv_boxplot', 'facet.by')]: ['Body Site'],
+      [key('adiv_boxplot', 'colors')]: { Female: '#aa3377', Male: '#4477aa' },
+      [key('adiv_boxplot', 'p.adj')]: 'bonferroni',
+      [key('taxa_boxplot', 'rank')]: 'Genus',
+      [key('adiv_boxplot', 'adiv')]: ['faith'],
+      [key('adiv_corrplot', 'x')]: 'Age' };")
+
+  # The same project: nothing to drop, and the same object comes back.
+  expect_true(js$get("pruneShared(schema, shared, biom) === shared"))
+
+  # A project without the field Sex, without a tree, and with other ranks.
+  js$eval("
+    const other = { ...biom, tree: false, ranks: ['.otu', 'Phylum'],
+      fields: biom.fields.filter(f => f.name !== 'Sex') };
+    const left = pruneShared(schema, shared, other);")
+
+  expect_false(js$get("key('adiv_boxplot', 'stat.by') in left"))
+  expect_false(js$get("key('adiv_boxplot', 'colors') in left"))
+  expect_false(js$get("key('taxa_boxplot', 'rank') in left"))
+  expect_false(js$get("key('adiv_boxplot', 'adiv') in left"))       # Faith's needs a tree
+  expect_true(js$get("key('adiv_boxplot', 'facet.by') in left"))
+  expect_true(js$get("key('adiv_boxplot', 'p.adj') in left"))
+  expect_true(js$get("key('adiv_corrplot', 'x') in left"))
+})
+
+
+test_that("a control with no effect says why", {
+
+  js <- local_schema_js()
+
+  # Shapes need a layer of points; the default box plot has none.
+  js$eval("const eff = effective(F.adiv_boxplot, {});")
+  expect_false(js$get("active(P('adiv_boxplot', 'shapes'), F.adiv_boxplot, eff)"))
+  expect_identical(
+    js$get("inactiveReason(P('adiv_boxplot', 'shapes'), F.adiv_boxplot, eff)"),
+    'Has no effect unless "Layers" includes dot, strip or pointrange.' )
+  expect_identical(js$get("inactiveReason(P('adiv_boxplot', 'colors'), F.adiv_boxplot, eff)"), "")
+
+  # Colors, shapes and patterns sit under the parameter whose values they are given to.
+  expect_identical(js$get("parentOf(P('adiv_boxplot', 'colors'), F.adiv_boxplot)"), "stat.by")
+  expect_identical(js$get("parentOf(P('taxa_stacked', 'patterns'), F.taxa_stacked)"), "taxa")
+  expect_true(js$get("parentOf(P('taxa_forest', 'colors'), F.taxa_forest) === null"))
+  expect_true(js$get("parentOf(P('adiv_boxplot', 'test'), F.adiv_boxplot) === null"))
+})

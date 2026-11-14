@@ -43,8 +43,10 @@ let   current = null;     // what the page on screen returned: {onBiom, destroy}
 //_____________________________________________________________________________
 // Navigation
 
-function navLink(hash, label, ico) {
-  return h('a.nav-link', { href: hash, dataset: { hash } }, ico ? icon(ico) : null, h('span', label));
+// A link's label is short (NAV_LABEL_MAX characters at most, which a test
+// checks); the page's full name is its tooltip and the page's own heading.
+function navLink(hash, label, ico, title = null) {
+  return h('a.nav-link', { href: hash, title, dataset: { hash } }, ico ? icon(ico) : null, h('span', label));
 }
 
 function buildNav() {
@@ -58,7 +60,7 @@ function buildNav() {
     groups.push(h('details.nav-group', { dataset: { area } },
       h('summary', icon({ alpha: 'seedling', beta: 'diagram-project', taxa: 'chart-column', rarefaction: 'chart-line' }[area] || 'chart-simple'),
         h('span', label), icon('chevron-down', 'nav-arrow')),
-      fns.map(f => navLink(`#/${f.use === 'plot' ? 'plot' : 'clusters'}/${f.fn}`, S.shortLabel(f)))));
+      fns.map(f => navLink(`#/${f.use === 'plot' ? 'plot' : 'clusters'}/${f.fn}`, S.shortLabel(f), null, f.label))));
   }
 
   fill(nav,
@@ -73,9 +75,37 @@ function buildNav() {
     groups,
     // Only when the administrator registered an older installation, and
     // only for someone the imported projects can belong to.
-    store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import from an older atima', 'file-import') : null,
+    store.get('conf').legacy && store.hasAccount() ? navLink('#/legacy', 'Import', 'file-import', 'Import from an older atima') : null,
     // A shared server says what it keeps and on what terms it is used.
-    store.hasAccounts() ? navLink('#/privacy', 'Privacy and terms', 'shield-halved') : null);
+    store.hasAccounts() ? navLink('#/privacy', 'Privacy', 'shield-halved', 'Privacy and terms') : null);
+}
+
+// The button in the top bar folds the navigation away. A narrow window has
+// no room to keep it open: there it starts folded, opens over the page, and
+// closes again once a link is followed.
+const narrow = window.matchMedia('(max-width: 1099px)');
+
+function navIsOpen() {
+  return narrow.matches ? document.body.classList.contains('nav-open') : !document.body.classList.contains('nav-closed');
+}
+
+function setNav(open) {
+  document.body.classList.toggle(narrow.matches ? 'nav-open' : 'nav-closed', narrow.matches ? open : !open);
+  if (!narrow.matches) { try { window.localStorage.setItem('atima.nav', open ? 'open' : 'closed'); } catch { /* no storage: not remembered */ } }
+  const toggle = topbar.querySelector('.nav-toggle');
+  if (toggle) toggle.setAttribute('aria-expanded', String(navIsOpen()));
+  // Opened over the page, it is where the keyboard goes next; closed, back to the button.
+  if (narrow.matches) (open ? nav.querySelector('a.active, a') : toggle)?.focus();
+}
+
+function startNav() {
+  let stored = null;
+  try { stored = window.localStorage.getItem('atima.nav'); } catch { /* no storage */ }
+  document.body.classList.toggle('nav-closed', stored === 'closed');
+  document.getElementById('nav-backdrop').addEventListener('click', () => setNav(false));
+  nav.addEventListener('click', e => { if (narrow.matches && e.target.closest('a')) setNav(false); });
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && narrow.matches && navIsOpen()) setNav(false); });
+  narrow.addEventListener('change', () => { document.body.classList.remove('nav-open'); setNav(navIsOpen()); });
 }
 
 function markNav() {
@@ -110,19 +140,21 @@ function buildTopbar() {
     // The name comes from the identity provider: text, never HTML.
     // Beside "Sign in": what signing in, and using the server at all, means.
     account = conf.is_guest
-      ? h('div.account', h('a.topbar-link', { href: '#/privacy' }, 'Privacy and terms'),
-          button('Sign in', signIn, { icon: 'right-to-bracket', kind: 'on-dark' }))
+      ? h('div.account', h('a.topbar-link', { href: '#/privacy', title: 'Privacy and terms' }, 'Privacy'),
+          button('Sign in', signIn, { icon: 'right-to-bracket', kind: 'on-dark', title: 'Sign in' }))
       : h('div.account', h('span.account-name', { title: 'Signed in' }, icon('user'), ' ', conf.full_name),
           button('Sign out', signOut, { kind: 'on-dark' }));
   }
 
   fill(topbar,
-    h('a.project-title', { href: '#/summary', title: 'The open project' }, biom.title),
+    h('button.nav-toggle', { type: 'button', title: 'Show or hide the navigation', 'aria-label': 'Navigation',
+      'aria-controls': 'nav', 'aria-expanded': String(navIsOpen()), onclick: () => setNav(!navIsOpen()) }, icon('bars')),
+    h('a.project-title', { href: '#/summary', title: `The open project: ${biom.title}` }, biom.title),
     biom.is_saved ? null : h('button.tag.warn', { type: 'button', title: 'Your working copy has changes that are not saved. Click to save.',
       onclick: () => saveProject({ copy: !biom.is_editor }) }, 'unsaved'),
     h('span.topbar-space'),
     h('label.depth', { for: 'depth' }, 'Depth'), depth,
-    button('Upload', uploadProject, { icon: 'upload', kind: 'on-dark' }),
+    button('Upload', uploadProject, { icon: 'upload', kind: 'on-dark', title: 'Upload a file as a new project' }),
     account);
 }
 
@@ -162,14 +194,8 @@ function projectChanged(biom, before) {
   // Settings that name a field, rank or taxon the project does not have go.
   const schema = store.get('schema');
   if (schema) {
-    const args = { ...store.get('args') };
-    let changed = false;
-    for (const [fn, fnArgs] of Object.entries(args)) {
-      const def = schema.functions[fn];
-      const pruned = def ? S.prune(def, fnArgs, biom) : {};
-      if (pruned !== fnArgs) { args[fn] = pruned; changed = true; }
-    }
-    if (changed) store.set('args', args);
+    const shared = S.pruneShared(schema, store.get('shared'), biom);
+    if (shared !== store.get('shared')) store.set('shared', shared);
     store.set('subset', S.pruneSubset(store.get('subset'), biom));
   }
 
@@ -197,6 +223,7 @@ async function start() {
   store.on('conf', () => { buildNav(); buildTopbar(); markNav(); });
 
   buildNav();
+  startNav();
   current = {};
   projectChanged(store.get('biom'), null);
   showPage();

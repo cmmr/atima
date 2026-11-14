@@ -5,7 +5,7 @@
 import { h, fill, button } from '../dom.js';
 import { call } from '../api.js';
 import { section, notify } from '../widgets.js';
-import { controlPanel } from '../controls.js';
+import { controlPanel, controlRow } from '../controls.js';
 import { busy, go } from '../actions.js';
 import * as S from '../schema.js';
 import * as store from '../store.js';
@@ -20,16 +20,18 @@ export function show(container, fn) {
     return {};
   }
 
-  const args     = () => store.fnArgs(fn);
+  const args     = () => store.fnArgs(def);
   const basic    = h('div');
   const advanced = h('div');
   const name     = h('input', { type: 'text', maxLength: 50, value: 'Cluster', id: 'cluster-name' });
   const problem  = h('p.dialog-problem', { hidden: true, role: 'alert' });
   const existing = h('div');
+  const nameRow  = controlRow({ id: 'cluster-name', label: 'Name of the new field' });
+  nameRow.body.append(name);
 
   function build() {
     const biom  = store.get('biom');
-    const panel = controlPanel(def, { biom, schema, args, set: (param, value) => store.setArg(fn, param, value) });
+    const panel = controlPanel(def, { biom, schema, args, set: (param, value) => store.setArg(def, param, value) });
     fill(basic, panel.groups.basic);
     fill(advanced, panel.groups.advanced.children.length ? section('Advanced', panel.groups.advanced) : null);
     const fields = (biom.fields || []).filter(f => f.class === 'categorical' && f.name !== '.sample');
@@ -59,7 +61,7 @@ export function show(container, fn) {
       'Any plot can then color, facet or compare by it. Samples that rarefying left out get no group.'),
     h('div.card',
       basic, advanced,
-      h('div.control', h('div.control-head', h('label', { for: 'cluster-name' }, 'Name of the new field')), h('div.control-body', name)),
+      h('div.controls', nameRow.el),
       problem,
       h('div.card-actions',
         button('Add clusters to the metadata', run, { icon: 'object-group', kind: 'primary' }),

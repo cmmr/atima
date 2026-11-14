@@ -9,15 +9,19 @@
 //   tree        the project tree: {public: [nodes], private: [nodes]}
 //   schema      the answer of /api/schema, fetched once per page load
 //   sessionKey  this tab's session key
-//   args        what the user changed, per rbiom function: {fn: {param: value}}
+//   shared      what the user changed in the controls, kept once for all rbiom
+//               functions: {key: value}, the key naming a parameter and its
+//               kind (see "Values shared between functions" in schema.js)
 //   subset      which samples to keep: {cat: {field: [values]}, num: {field: [lo, hi]}}
 //   save        image settings the user changed: {width, height, units, dpi, scale}
 //   fit         size the figure to the window?
 //   route       the page on screen: {page, arg}
 
+import * as S from './schema.js';
+
 const state = {
   conf: null, biom: null, tree: { public: [], private: [] }, schema: null, sessionKey: null,
-  args: {}, subset: { cat: {}, num: {} }, save: {}, fit: true, route: { page: 'home', arg: null },
+  shared: {}, subset: { cat: {}, num: {} }, save: {}, fit: true, route: { page: 'home', arg: null },
 };
 
 const listeners = new Map();   // key -> Set of functions
@@ -46,18 +50,26 @@ export function on(keys, fn) {
   return () => keys.forEach(key => listeners.get(key).delete(fn));
 }
 
-/** What the user changed for one rbiom function. */
-export function fnArgs(fn) { return state.args[fn] || {}; }
+/** What the user changed, as it applies to one rbiom function (a schema entry). */
+export function fnArgs(def) { return S.fnArgs(def, state.shared, state.biom); }
 
-/** Set (or with `undefined`, forget) one argument of one function. */
-export function setArg(fn, param, value) {
-  const args = { ...fnArgs(fn) };
-  if (value === undefined) delete args[param]; else args[param] = value;
-  set('args', { ...state.args, [fn]: args });
+/**
+ * Set (or with `undefined`, forget) one argument. The value is kept under
+ * the parameter's shared key, so every function with that parameter has it.
+ */
+export function setArg(def, name, value) {
+  const shared = { ...state.shared };
+  const key    = S.shareKey(S.param(def, name));
+  if (value === undefined) delete shared[key]; else shared[key] = value;
+  set('shared', shared);
 }
 
-/** Forget everything the user changed for a function. */
-export function resetArgs(fn) { set('args', { ...state.args, [fn]: {} }); }
+/** Forget what the user changed for every parameter of a function, wherever it is shared. */
+export function resetArgs(def) {
+  const shared = { ...state.shared };
+  for (const p of def.params) delete shared[S.shareKey(p)];
+  set('shared', shared);
+}
 
 /** May the caller do things only people with an account can? */
 export function hasAccount() { return !!state.conf && !state.conf.is_guest; }

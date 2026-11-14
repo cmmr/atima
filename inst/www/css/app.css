@@ -18,7 +18,8 @@
   --warn-soft:   #fff1d6;
   --ok:          #1a6b38;
   --radius:      6px;
-  --nav-width:   232px;
+  --nav-width:      200px;
+  --controls-width: 292px;
   --bar-height:  52px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
@@ -33,8 +34,8 @@ body {
   color: var(--text);
   background: var(--bg);
   display: grid;
-  grid-template-columns: var(--nav-width) 1fr;
-  grid-template-rows: var(--bar-height) 1fr;
+  grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  grid-template-rows: var(--bar-height) minmax(0, 1fr);
   grid-template-areas: "nav bar" "nav main";
   overflow: hidden;
 }
@@ -67,6 +68,7 @@ code, pre { font-family: var(--mono); font-size: 12.5px; }
   padding: 7px 10px; border-radius: var(--radius);
   color: rgb(255 255 255 / 78%); text-decoration: none; cursor: pointer; font-size: 13.5px;
 }
+.nav-link > span, .nav-group > summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-link:hover, .nav-group > summary:hover { background: rgb(255 255 255 / 10%); color: #fff; }
 .nav-link.active { background: var(--navy-3); color: #fff; font-weight: 600; }
 .nav-link i, .nav-group > summary > i:first-child { width: 16px; text-align: center; font-size: 13px; }
@@ -78,19 +80,28 @@ code, pre { font-family: var(--mono); font-size: 12.5px; }
 .nav-group > .nav-link { margin-left: 17px; padding-left: 16px; border-left: 2px solid rgb(255 255 255 / 12%); border-radius: 0 var(--radius) var(--radius) 0; font-size: 13px; }
 .nav-group > .nav-link.active { border-left-color: var(--accent-soft); }
 
+/* The button in the top bar folds the navigation away. In a narrow window it
+   starts folded and opens over the page. */
+body.nav-closed { grid-template-columns: 0 minmax(0, 1fr); }
+body.nav-closed #nav { display: none; }
+#nav-backdrop { display: none; }
+.nav-toggle { flex: none; border: 0; background: none; color: #fff; font-size: 16px; width: 32px; height: 32px; border-radius: var(--radius); cursor: pointer; margin-left: -8px; }
+.nav-toggle:hover { background: rgb(255 255 255 / 12%); }
+
 /* ---- Top bar ------------------------------------------------------------- */
 
 #topbar {
   grid-area: bar; background: var(--navy); color: #fff;
   display: flex; align-items: center; gap: 10px; padding: 0 16px;
-  border-left: 1px solid rgb(255 255 255 / 12%);
+  border-left: 1px solid rgb(255 255 255 / 12%); min-width: 0;
 }
 .project-title { color: #fff; text-decoration: none; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .project-title:hover { text-decoration: underline; }
 .topbar-space { flex: 1; }
 #topbar label.depth { font-size: 12px; color: rgb(255 255 255 / 70%); }
 #topbar select { width: auto; background: var(--navy-2); color: #fff; border-color: rgb(255 255 255 / 25%); }
-.account { display: flex; align-items: center; gap: 8px; }
+.account { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#topbar .btn, #topbar select, #topbar .tag { flex: none; }
 .account-name { font-size: 13px; color: rgb(255 255 255 / 80%); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-link { font-size: 12px; color: rgb(255 255 255 / 75%); white-space: nowrap; }
 .topbar-link:hover { color: #fff; }
@@ -161,16 +172,17 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 /* ---- Picker -------------------------------------------------------------- */
 
 .picker { position: relative; min-width: 0; }
-.picker-face { display: flex; align-items: center; gap: 6px; text-align: left; cursor: pointer; flex-wrap: wrap; }
+.picker-face { display: flex; align-items: center; gap: 6px; text-align: left; cursor: pointer; }
 .picker-face > .picker-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-caret { margin-left: auto; font-size: 10px; color: var(--text-soft); }
-.picker-placeholder { color: var(--text-soft); flex: 1; }
+.picker-placeholder { color: var(--text-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-popup {
   position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 2px); min-width: 200px;
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
 }
 .picker-popup.up { top: auto; bottom: calc(100% + 2px); }
+.picker-popup.left { left: auto; right: 0; }
 .picker-search { border: 0 !important; border-bottom: 1px solid var(--line) !important; border-radius: var(--radius) var(--radius) 0 0 !important; }
 .picker-list { list-style: none; margin: 0; padding: 4px; max-height: 240px; overflow-y: auto; }
 .picker-list li { display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 4px; cursor: pointer; font-size: 13px; }
@@ -183,62 +195,110 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .picker-image { width: 18px; height: 18px; object-fit: contain; }
 .swatch { display: inline-flex; height: 12px; width: 72px; flex: none; border-radius: 2px; overflow: hidden; border: 1px solid rgb(0 0 0 / 15%); }
 .swatch i { flex: 1; }
-.chip { display: inline-flex; align-items: center; gap: 5px; background: var(--accent-soft); border-radius: 4px; padding: 1px 4px 1px 7px; font-size: 12px; max-width: 100%; }
-.chip .picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip-x { cursor: pointer; opacity: .6; font-size: 10px; padding: 2px; }
+.picker-face .swatch { width: 44px; }
+.picker.icon-only .picker-face { padding: 1px 4px; gap: 3px; }
+.picker.icon-only .picker-caret { font-size: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
+.picker > .chips { margin-top: 3px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); border-radius: 4px; padding: 0 2px 0 6px; font-size: 12px; line-height: 20px; max-width: 100%; min-width: 0; }
+.chip .picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip .swatch { width: 36px; }
+.chip-x { flex: none; border: 0; background: none; color: inherit; cursor: pointer; opacity: .6; font-size: 10px; padding: 2px 3px; border-radius: 3px; }
 .chip-x:hover { opacity: 1; }
 
 /* ---- Controls ------------------------------------------------------------ */
 
-.controls { display: flex; flex-direction: column; gap: 10px; }
-.control-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
-.control-head label { flex: 0 1 auto; }
-.control.changed .control-head label::after { content: " \2022"; color: var(--accent); }
-.control-help { color: #9aa3ad; font-size: 12px; cursor: help; }
-.control-reset { margin-left: auto; border: 0; background: none; color: var(--text-soft); cursor: pointer; font-size: 11px; padding: 2px 4px; border-radius: 4px; }
+/* One control is one line: label left, value right, a slot for reset at the
+   edge. Lines of its own (.control-more) only for what holds several values;
+   .control-kids holds the controls that belong to this one. The 16px on the
+   left of every line is a gutter for the "changed" bar and the mark of a
+   control that picks a metadata field; .controls sits that far into its
+   container's padding, so labels line up with the text around them. */
+
+.controls { display: flex; flex-direction: column; margin-left: -16px; }
+.control { min-width: 0; }
+.control-row { position: relative; display: grid; grid-template-columns: minmax(0, 45%) minmax(0, 1fr) 18px; align-items: center; column-gap: 6px; min-height: 28px; padding-left: 16px; }
+.control-name { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.control-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: 12.5px; }
+.control-kind { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--navy-3); opacity: .7; }
+.control-help { flex: none; color: #8f98a3; font-size: 11px; cursor: help; opacity: .4; border-radius: 50%; }
+.control-row:hover .control-help, .control-help:focus-visible, .control.inactive > .control-row .control-help { opacity: 1; }
+.control-body { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.control-body > * { flex: 1 1 auto; min-width: 0; }
+.control-body > input[type="checkbox"], .control-body > .unit { flex: none; }
+.control-reset { justify-self: end; border: 0; background: none; color: var(--text-soft); cursor: pointer; font-size: 10px; width: 18px; height: 20px; padding: 0; border-radius: 4px; }
 .control-reset:hover { background: var(--line-soft); color: var(--text); }
-.control-extra:not(:empty) { margin-top: 5px; display: flex; flex-direction: column; gap: 4px; }
-.control-pair { display: flex; align-items: center; gap: 6px; }
+
+.control input[type="text"], .control input[type="number"], .control select, .control .picker-face { min-height: 24px; padding: 1px 6px; font-size: 12.5px; }
+.control select { text-overflow: ellipsis; padding-right: 2px; }
+
+/* Changed from the default: a bar in the gutter and a stronger label. */
+.control.changed > .control-row::before { content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
+.control.changed > .control-row .control-label { font-weight: 700; color: var(--navy-2); }
+
+/* No effect at the moment (a `when` rule): greyed out; the help icon says why. */
+.control.inactive > .control-row .control-label { color: #9aa3ad; }
+.control.inactive > .control-row .control-body, .control.inactive > .control-more { opacity: .45; }
+.control.inactive > .control-row .control-help { color: var(--warn); }
+
+.control-more > * { margin: 1px 18px 5px 16px; }
+.control-more > .control-extra:empty { display: none; }
+.control-extra { display: flex; flex-direction: column; }
+.control-row.sub { padding-left: 0; min-height: 26px; grid-template-columns: minmax(0, 45%) minmax(0, 1fr); }
+.control-row.sub .control-label { color: var(--text-soft); }
+.control-problem { color: var(--danger); font-size: 12px; }
+.control-missing { color: var(--warn); font-size: 12.5px; }
+.control-pair { display: flex; align-items: center; gap: 5px; }
 .control-pair > * { flex: 1; min-width: 0; }
 .control-pair > .unit, .unit { flex: none; color: var(--text-soft); font-size: 12px; white-space: nowrap; }
-.control-missing { color: var(--warn); font-size: 12.5px; margin: 0; }
-.control[data-type="logical"]:has(.control-body > input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
-.control[data-type="logical"]:has(.control-body > input[type="checkbox"]) .control-head { order: 2; flex: 1; margin: 0; }
-.control[data-type="logical"]:has(.control-body > input[type="checkbox"]) .control-head label { font-weight: 400; font-size: 13px; }
-.control[data-type="logical"]:has(.control-body > input[type="checkbox"]) .control-body { display: flex; }
 
-.toggles { display: flex; flex-wrap: wrap; gap: 4px; }
-.toggles button { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: #fff; cursor: pointer; color: var(--text-soft); }
+.control-kids { margin-left: 22px; border-left: 2px solid var(--line-soft); }
+.control-kids:empty { display: none; }
+.control-kids .control-row { padding-left: 8px; }
+.control-kids .control.changed > .control-row::before { left: -2px; border-radius: 2px; }
+.control-kids .control-more > * { margin-left: 8px; }
+
+.toggles { display: flex; flex-wrap: wrap; gap: 3px; }
+.toggles button { font: inherit; font-size: 11.5px; line-height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); background: #fff; cursor: pointer; color: var(--text-soft); }
 .toggles button.on { background: var(--navy-2); border-color: var(--navy-2); color: #fff; }
 
-.aes-row { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 12.5px; }
-.aes-row .picker { width: 130px; flex: none; }
-.aes-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The look of each value: its color, shape and pattern side by side. */
+.look { margin: 1px 18px 5px 8px; display: flex; flex-direction: column; gap: 2px; }
+.look-row { display: flex; align-items: center; gap: 4px; min-height: 24px; min-width: 0; }
+.look-row input[type="color"] { width: 26px; height: 22px; flex: none; cursor: pointer; }
+.look-row .picker, .look-gap { width: 40px; flex: none; }
+.look-row .picker-face { min-height: 22px; }
+.look-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 
 .section { border-top: 1px solid var(--line-soft); }
-.section > summary { display: flex; align-items: center; gap: 8px; padding: 9px 0; cursor: pointer; font-weight: 650; list-style: none; }
+.section > summary { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; font-weight: 650; font-size: 13px; list-style: none; }
 .section > summary::-webkit-details-marker { display: none; }
 .section-arrow { font-size: 10px; transition: transform .15s; color: var(--text-soft); }
 .section[open] > summary .section-arrow { transform: rotate(90deg); }
 .section-title { flex: 1; }
-.section-body { padding: 0 0 12px; }
+.section-body { padding: 0 0 8px; }
 
-.problems { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius); padding: 8px 10px; font-size: 13px; }
+.problems { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius); padding: 6px 8px; font-size: 12.5px; }
 .problems p { margin: 0; }
 
 /* ---- Plot page ----------------------------------------------------------- */
 
-.plot-page { display: grid; grid-template-columns: minmax(0, 1fr) 320px; height: 100%; }
+.plot-page { display: grid; grid-template-columns: minmax(0, 1fr) var(--controls-width); height: 100%; }
 .plot-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.plot-controls { background: var(--card); border-left: 1px solid var(--line); padding: 12px 14px 40px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.plot-controls-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.plot-controls-head h2 { margin: 0; font-size: 15px; }
+.plot-controls { background: var(--card); border-left: 1px solid var(--line); padding: 8px 6px 40px 16px; overflow-y: auto; overflow-x: hidden; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.plot-controls-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 4px; }
+.plot-controls-head h2 { margin: 0; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plot-controls-head .btn { padding: 4px 7px; font-size: 11px; flex: none; }
+.plot-controls .hint { margin: 0 4px 4px 0; font-size: 12px; }
+.subset > .picker { margin: 4px 18px 0 0; }
+.subset > .picker .picker-face { min-height: 24px; padding: 1px 6px; font-size: 12.5px; }
 
 .tabbed { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.tabs { display: flex; align-items: center; gap: 2px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); background: var(--card); }
+.tabs { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 8px 14px 0; border-bottom: 1px solid var(--line); background: var(--card); }
 .tabs > button[role="tab"] { font: inherit; font-size: 13px; font-weight: 600; display: inline-flex; gap: 7px; align-items: center; padding: 8px 14px; border: 0; background: none; cursor: pointer; color: var(--text-soft); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tabs > button[aria-selected="true"] { color: var(--navy-2); border-bottom-color: var(--navy-2); }
-.plot-tools { margin-left: auto; display: flex; gap: 6px; padding-bottom: 6px; }
+.tabs > button[role="tab"] { white-space: nowrap; }
+.plot-tools { margin-left: auto; display: flex; gap: 6px; padding-bottom: 6px; flex: none; }
 .plot-tools select { width: auto; }
 .pane { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
 .figure-pane { display: flex; flex-direction: column; overflow: hidden; }
@@ -383,12 +443,52 @@ body.dropping::after {
   background: rgb(213 227 255 / 85%); border: 3px dashed var(--navy-3); border-radius: 14px;
 }
 
-/* ---- Narrow windows ------------------------------------------------------ */
+/* ---- Window sizes --------------------------------------------------------
+   Supported: 850px to 2560px wide (850 is a 1280px laptop at 150% zoom),
+   with no sideways scrolling of the page. The controls keep a fixed narrow
+   column and the figure takes the rest. Below 1100px the navigation is
+   folded away and opens over the page; below 760px the controls go under
+   the figure. Narrower still (tablets upright, phones) gets that stacked
+   layout and works, but is not tuned. */
+
+@media (min-width: 1700px) {
+  :root { --controls-width: 320px; }
+}
+
+@media (max-width: 1099px) {
+  body, body.nav-closed { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "main"; }
+  #nav, body.nav-closed #nav { display: none; }
+  body.nav-open #nav { display: flex; position: fixed; inset: 0 auto 0 0; width: min(232px, 86vw); z-index: 60; box-shadow: 0 0 40px rgb(0 0 0 / 45%); }
+  body.nav-open #nav-backdrop { display: block; position: fixed; inset: 0; z-index: 59; background: rgb(0 20 45 / 45%); }
+  #topbar { border-left: 0; }
+}
 
 @media (max-width: 1000px) {
-  .plot-page { grid-template-columns: minmax(0, 1fr) 270px; }
-  .summary-grid, .projects, .two-col { grid-template-columns: 1fr; }
+  .summary-grid, .projects, .two-col { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 760px) {
-  :root { --nav-width: 190px; }
+
+@media (max-width: 899px) {
+  /* The top bar keeps its icons and drops their words. */
+  #topbar { gap: 8px; padding: 0 10px; }
+  #topbar .btn:has(> i) > span, #topbar label.depth, .account-name { display: none; }
+  .page { padding: 16px 14px 48px; }
+}
+
+@media (max-width: 759px) {
+  #main[data-page="plot"] { overflow: auto; }
+  .plot-page { display: block; height: auto; }
+  .plot-main { height: min(72vh, 560px); min-height: 320px; }
+  .plot-controls { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .tabs { padding: 6px 8px 0; }
+  .tabs > button[role="tab"] { padding: 8px 9px; }
+  .plot-tools .btn > span { display: none; }
+  .pane { padding: 8px; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .download-row select, .download-row .picker { width: 100%; }
+  .hero { padding: 28px 16px; }
+}
+
+@media (max-width: 520px) {
+  .tabs > button[role="tab"] > span { display: none; }
+  .topbar-link { display: none; }
 }

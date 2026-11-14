@@ -2,10 +2,10 @@
 // and on the right the controls the schema describes for the chosen rbiom
 // function, the sample filter and the image settings.
 
-import { h, fill, icon, button, debounce, download, serverHtml } from '../dom.js';
+import { h, fill, icon, button, debounce, download, serverHtml, newId } from '../dom.js';
 import { call, abortJobs } from '../api.js';
 import { tabs, section, spinner, picker, notify, showError } from '../widgets.js';
-import { controlPanel } from '../controls.js';
+import { controlPanel, controlRow } from '../controls.js';
 import { localTable } from '../tables.js';
 import { copyText } from '../actions.js';
 import * as S from '../schema.js';
@@ -92,18 +92,24 @@ function subsetEditor(onchange) {
       const f = S.field(biom, name);
       if (!f) continue;
       const kind = f.class === 'categorical' ? 'cat' : 'num';
-      let editor;
+      const id   = newId('keep');
+      const row  = controlRow({
+        id, label: name === '.sample' ? 'Sample name' : name, kind: 'field',
+        reset: { title: 'Remove this filter', icon: 'xmark', onclick: () => { update(kind, name, undefined); draw(); } } });
 
       if (kind === 'cat') {
-        editor = picker({
-          multiple: true, placeholder: 'Choose the values to keep',
+        const editor = picker({
+          id, multiple: true, placeholder: 'None',
           options: f.levels.map(v => ({ value: v, label: v })), value: subset.cat[name],
           // With nothing chosen no sample would be left, so the filter waits.
           onchange: values => { if (values.length) update('cat', name, values); } });
+        row.body.append(editor);
+        row.more.append(editor.chips);
       } else {
         const [lo, hi] = subset.num[name];
         const box = (value, i) => h('input', {
-          type: 'number', step: 'any', value, 'aria-label': i === 0 ? 'Lowest value' : 'Highest value',
+          id: i === 0 ? id : null, type: 'number', step: 'any', value,
+          'aria-label': i === 0 ? 'Lowest value' : 'Highest value', title: i === 0 ? 'Lowest value' : 'Highest value',
           oninput: e => {
             const range = [...store.get('subset').num[name]];
             const n = Number(e.target.value);
@@ -111,20 +117,15 @@ function subsetEditor(onchange) {
             range[i] = n;
             if (range[0] <= range[1]) update('num', name, range);
           } });
-        editor = h('div.control-pair', box(lo, 0), h('span.unit', 'to'), box(hi, 1));
+        row.body.append(h('div.control-pair', box(lo, 0), h('span.unit', 'to'), box(hi, 1)));
       }
 
-      rows.push(h('div.control',
-        h('div.control-head',
-          h('label', name === '.sample' ? 'Sample name' : name),
-          h('button.control-reset', { type: 'button', title: 'Remove this filter',
-            onclick: () => { update(kind, name, undefined); draw(); } }, icon('xmark'))),
-        h('div.control-body', editor)));
+      rows.push(row.el);
     }
 
     const free = (biom.fields || []).filter(f => !used.includes(f.name));
     const add  = picker({
-      placeholder: 'Keep samples by...',
+      placeholder: 'Keep samples by...', label: 'Add a sample filter',
       options: free.map(f => ({ value: f.name, label: f.name === '.sample' ? 'Sample name' : f.name, note: f.class })),
       onchange: name => {
         const f = S.field(biom, name);
@@ -135,7 +136,7 @@ function subsetEditor(onchange) {
 
     fill(root,
       h('p.hint', 'Figures and statistics use only the samples that match every filter here.'),
-      rows, free.length ? add : null);
+      h('div.controls', rows), free.length ? add : null);
   }
 
   draw();
@@ -163,23 +164,42 @@ function imageEditor(onchange) {
       onchange();
     };
 
-    const rows = [h('label.inline', h('input', { type: 'checkbox', checked: fit,
-      onchange: e => { store.set('fit', e.target.checked); draw(); onchange(); } }), 'Fit the figure to the window')];
+    const fitId  = newId('img');
+    const fitRow = controlRow({ id: fitId, label: 'Fit to window', help: 'Size the figure to the room the window has for it.' });
+    fitRow.body.append(h('input', { id: fitId, type: 'checkbox', checked: fit,
+      onchange: e => { store.set('fit', e.target.checked); draw(); onchange(); } }));
+    const rows = [fitRow.el];
 
     for (const p of params) {
       if (fit && ['width', 'height', 'units'].includes(p.name)) continue;
+      const id  = newId('img');
+      const row = controlRow({
+        id, label: p.label, help: S.plain(p.desc),
+        reset: { title: 'Back to the default', icon: 'rotate-left', onclick: () => { setSave(p.name, undefined); draw(); } } });
+      const mark = () => {
+        const on = p.name in store.get('save');
+        row.reset.hidden = !on;
+        row.el.classList.toggle('changed', on);
+      };
+      mark();
+      const problem = h('p.control-problem', { hidden: true, role: 'alert' });
       const editor = p.type === 'choice'
-        ? h('select', { onchange: e => setSave(p.name, e.target.value === p.default ? undefined : e.target.value) },
+        ? h('select', { id, onchange: e => { setSave(p.name, e.target.value === p.default ? undefined : e.target.value); mark(); } },
             p.choices.map(c => h('option', { selected: (save[p.name] ?? p.default) === c }, c)))
-        : h('input', { type: 'number', step: 'any', min: p.min, max: p.max, placeholder: p.default,
+        : h('input', { id, type: 'number', step: 'any', min: p.min, max: p.max, placeholder: p.default,
             value: save[p.name] ?? '',
             oninput: e => {
               const n = Number(e.target.value);
               const bad = e.target.value.trim() !== '' && (!Number.isFinite(n) || n <= 0 || (p.min !== undefined && n < p.min) || (p.max !== undefined && n > p.max));
               e.target.classList.toggle('invalid', bad);
-              if (!bad) setSave(p.name, e.target.value.trim() === '' ? undefined : n);
+              e.target.setAttribute('aria-invalid', String(bad));
+              problem.hidden = !bad;
+              problem.textContent = bad ? `Enter a number${p.min !== undefined ? ` from ${p.min}` : ' above 0'}${p.max !== undefined ? ` up to ${p.max}` : ''}.` : '';
+              if (!bad) { setSave(p.name, e.target.value.trim() === '' ? undefined : n); mark(); }
             } });
-      rows.push(h('div.control', h('div.control-head', h('label', { title: S.plain(p.desc) }, p.label)), h('div.control-body', editor)));
+      row.body.append(editor);
+      row.more.append(problem);
+      rows.push(row.el);
     }
     fill(root, rows);
   }
@@ -233,7 +253,7 @@ export function show(container, fn) {
   // Right: controls
 
   const problems = h('div.problems', { hidden: true, role: 'alert' });
-  const args     = () => store.fnArgs(fn);
+  const args     = () => store.fnArgs(def);
 
   const filter      = subsetEditor(() => { badge.textContent = filter.count() || ''; schedule(); });
   const badge       = h('span.badge', filter.count() || '');
@@ -246,22 +266,19 @@ export function show(container, fn) {
     const biom = store.get('biom');
     panel = controlPanel(def, {
       biom, schema, args,
-      set: (name, value) => {
-        store.setArg(fn, name, value);
-        // A change can leave another setting pointing at nothing, such as
-        // colors chosen for the groups of a field that is no longer used.
-        const pruned = S.prune(def, args(), biom);
-        if (pruned !== args()) { store.set('args', { ...store.get('args'), [fn]: pruned }); panel.rebuild(); }
-        schedule();
-      } });
+      // A change can leave another setting pointing at nothing, such as
+      // colors chosen for the groups of a field that is no longer used:
+      // `args()` then no longer has it, and the panel shows its default.
+      set: (name, value) => { store.setArg(def, name, value); schedule(); } });
     fill(basicBox, panel.groups.basic);
     fill(advancedBox, panel.groups.advanced);
   }
 
   const aside = h('aside.plot-controls',
     h('div.plot-controls-head',
-      h('h2', def.label),
-      button('', () => { store.resetArgs(fn); buildControls(); schedule(); }, { icon: 'rotate-left', title: 'Put every control back to its default' })),
+      h('h2', { title: def.label }, def.label),
+      button('', () => { store.resetArgs(def); buildControls(); schedule(); }, { icon: 'rotate-left',
+        title: 'Put every control of this plot back to its default. Other plots that share a setting follow.' })),
     problems, basicBox,
     section('Advanced', advancedBox),
     section('Samples', filter, { badge }),
