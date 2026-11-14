@@ -2709,11 +2709,16 @@ controls and navigation.
   - In the beta diversity plots the groups are pairs ("Female vs
     Male"), which only rbiom works out, so the interface offers values
     by position there, not by name.
-  - For rbiom, not worked around: (1) names for a value that is absent
-    from the data are refused, so colors chosen for every group fail as
-    soon as a sample filter or the rarefaction depth leaves a group
-    empty; the browser cannot know which groups a filter on another
-    field removes. (2) `taxa_forest()` with a two-level `stat.by` says
+  - For rbiom: (1) names for a value that is absent from the data are
+    refused, so colors chosen for every group failed as soon as a
+    sample filter or the rarefaction depth left a group empty. Daniel
+    hit this and reported it, so atima now handles it: the worker
+    drops the names of groups that are not in the data it is about to
+    plot (`present_looks()` in `R/worker-plot.R`, the one place that
+    knows; the browser keeps the choices for when the filter goes).
+    The R code shown beside the figure then has the shorter vector.
+    rbiom could instead ignore names it has no use for. (2) Not worked
+    around: `taxa_forest()` with a two-level `stat.by` says
     which group a positive fold change favors only through its legend
     ("Higher in Male"), and only when a taxon is significant; the
     caption line 'Comparisons are "A - B"' is added only for three or

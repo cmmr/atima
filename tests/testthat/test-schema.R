@@ -756,3 +756,49 @@ test_that("the JSON Schema says what else a parameter takes and when it matters"
   expect_identical(condition_text(list(param = "x", not_null = TRUE)), "`x` is given")
   expect_identical(condition_text(list(param = "x", is_not = list("a"))), '`x` is not "a"')
 })
+
+
+
+test_that("colors named for groups the sample filter removed are dropped, not refused", {
+
+  # Found in the browser (step 11): with a color or shape chosen for each
+  # body site, a sample filter that keeps three of the five sites made
+  # rbiom refuse the plot ("Invalid `shapes` option(s): Anterior nares").
+  biom  <- rbiom::rarefy(rbiom::hmp50)
+  sites <- levels(biom$metadata[["Body Site"]])
+  # (An rbiom object is changed in place, so each subset starts from its own.)
+  some  <- subset_biom(rbiom::rarefy(rbiom::hmp50), list(cat = list("Body Site" = sites[3:5])))
+
+  colors <- stats::setNames(c("#4477aa", "#ee6677", "#228833", "#ccbb44", "#66ccee"), sites)
+  shapes <- stats::setNames(as.list(15:19), sites)
+
+  args <- list(x = "Body Site", layers = c("bar", "dot"), colors = colors, shapes = shapes, flip = TRUE)
+
+  # With every group present nothing changes.
+  expect_identical(present_looks("adiv_boxplot", args, biom), args)
+
+  # With two groups gone, their names go; what is not a look stays.
+  kept <- present_looks("adiv_boxplot", args, some)
+  expect_identical(names(kept$colors), sites[3:5])
+  expect_identical(names(kept$shapes), sites[3:5])
+  expect_identical(kept[c("x", "layers", "flip")], args[c("x", "layers", "flip")])
+  expect_no_error(do.call(rbiom::adiv_boxplot, c(list(biom = some), kept)))
+  expect_error(do.call(rbiom::adiv_boxplot, c(list(biom = some), args)), "Invalid")
+
+  # The field may be `stat.by` itself, or another field's filter may empty a group.
+  by_sex <- list(x = "Body Site", stat.by = "Sex", colors = c(Female = "#aa3377", Male = "#4477aa"))
+  women  <- subset_biom(rbiom::rarefy(rbiom::hmp50), list(cat = list("Body Site" = "Mid vagina")))
+  expect_identical(present_looks("adiv_boxplot", by_sex, women)$colors, c(Female = "#aa3377"))
+
+  # Nothing left: the argument goes, and rbiom chooses.
+  none <- present_looks("adiv_boxplot", list(x = "Body Site", colors = colors[1:2]), some)
+  expect_identical(none, list(x = "Body Site"))
+
+  # Left alone: values by position, a palette, a switch, and the beta
+  # diversity plots, whose groups are pairs.
+  for (value in list(c("#4477aa", "#ee6677"), "okabe", TRUE, FALSE))
+    expect_identical(present_looks("adiv_boxplot", list(x = "Body Site", colors = value), some)$colors, value)
+  pairs <- list(x = "Body Site", colors = colors)
+  expect_identical(present_looks("bdiv_boxplot", pairs, some), pairs)
+  expect_identical(present_looks("taxa_stacked", list(colors = c(a = "#4477aa")), some), list(colors = c(a = "#4477aa")))
+})

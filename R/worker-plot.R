@@ -67,6 +67,7 @@ work_plot <- function (
   biom <- read_biom(ctx, if (plot_sample_set(plot_fn) == "full") full else rare)
   biom <- subset_biom(biom, subset_args)
 
+  plot_args           <- present_looks(plot_fn, plot_args, biom)
   plot_args[['biom']] <- biom
 
 
@@ -212,4 +213,59 @@ subset_biom <- function (biom, subset_args) {
 keep_samples <- function (biom, metadata) {
   suppressWarnings(biom$metadata <- metadata)
   biom
+}
+
+
+
+#______________________________________________________________________________
+#' Keep colors, shapes and patterns only for the groups that are in the data.
+#'
+#' A color, shape or pattern can be given for each value of a field by name
+#' (`colors = c(Saliva = "#4477aa", Stool = "#ee6677")`). rbiom refuses a
+#' name that is not among the field's values in the data it is handed, and
+#' a value can be missing there for reasons the person who chose the colors
+#' cannot see: the sample filter, on this field or any other, or the
+#' rarefaction depth, left that group with no samples. So the names of
+#' groups that are not in the data are dropped, and the figure is drawn
+#' with the rest.
+#'
+#' Only arguments that rbiom's description says are given to the values of a
+#' field (`by`) are touched, and only where they are named. Where the field's
+#' values are compared in pairs (the beta diversity plots) the groups are
+#' pairs that only rbiom works out, and nothing is changed.
+#'
+#' @param plot_fn    The name of an exposed rbiom plot function.
+#' @param plot_args  Its arguments, checked.
+#' @param biom       The data the plot is made from, after the sample filter.
+#' @return `plot_args`, with those names dropped. An argument left with no
+#'         name at all is removed, so rbiom chooses for itself.
+#' @noRd
+present_looks <- function (plot_fn, plot_args, biom) {
+
+  params <- schema_params(plot_fn)
+
+  for (name in intersect(names(plot_args), names(params))) {
+
+    p     <- params[[name]]
+    value <- plot_args[[name]]
+
+    if (!identical(p[['type']], "aesthetic") || is.null(p[['by']])) next
+    if (is.null(names(value)) || !all(nzchar(names(value))))         next
+
+    # The field the values belong to: what the request says, else the
+    # parameter it follows by default (`stat.by` is the same as `x`).
+    by <- params[[p[['by']]]]
+    if (is.null(by) || !identical(by[['type']], "field") || !is.null(by[['ops']])) next
+
+    field <- if (by[['name']] %in% names(plot_args)) plot_args[[by[['name']]]]
+             else if (!is.null(by[['default_expr']])) plot_args[[by[['default_expr']]]]
+    if (!is_scalar_character(field) || !(field %in% colnames(biom$metadata))) next
+
+    present <- unique(as.character(biom$metadata[[field]]))
+    value   <- value[names(value) %in% present]
+
+    plot_args[name] <- if (length(value) > 0) list(value) else NULL
+  }
+
+  plot_args
 }
