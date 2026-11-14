@@ -2756,6 +2756,57 @@ usage) are refined with the rest.
   server still runs it, to see it as he designed it. What not to
   resemble: atima 2's Shiny controls, a label on its own line above
   each full-width input, which is what step 7's controls look like now.
+- The old controls are a guide, not a template (Daniel, 2026-11-14).
+  They need not be copied exactly. The aim is controls that are compact,
+  easy to use, and in which the control one is looking for is easy to
+  find. For example, the old interface colored label text lime green
+  for controls that pick metadata and gold for plot attributes; that
+  color-coding may be kept, redone another way (grouping, icons,
+  headings) or dropped, whichever serves finding a control best.
+- Controls share their state between plot types, as the old interface
+  did. If the user sets `stat.by = "Sex"` for `adiv_boxplot` and then
+  goes to `taxa_boxplot`, it starts with `stat.by = "Sex"`. Today the
+  store keeps arguments per function (`state.args[fn]`, `fnArgs()`,
+  `setArg()`, `resetArgs()` in `inst/www/js/store.js`), so nothing
+  carries over; read `js/page_plot.js` and `modules/controls.js` in
+  commit `ca1fd41` for how the old interface did it. To settle in the
+  design:
+  - A value carries to another function only where it is valid there:
+    the parameter exists in that function's schema, the value is among
+    its choices (a metric that one plot offers and another does not, a
+    layer name), and its `when` rule holds. What does not fit falls
+    back to that function's default without an error, and comes back
+    if the user returns to a plot where it fits.
+  - Parameters of the same name do not always mean the same thing in
+    every function; decide which are shared by name and which stay with
+    their function, and keep that list in one place.
+  - "Changed from the default", reset for one control and reset for the
+    whole plot have to make sense with shared values: say what each
+    resets. Only what the user changed is sent, as now.
+  - Shared values still have to follow the project: `schema.js` already
+    drops arguments that name a field or rank the open project lacks.
+- Metadata fields and the look of their values (`color.by`, `stat.by`,
+  `shape.by`, `pattern.by` and the like). Check first, against the
+  installed rbiom 4 and its schema (`fn_schema()`, `/api/schema`, and
+  rbiom's help), not from memory: for each plot function, which of
+  these arguments exist, whether each may name a different field or one
+  field drives them all, how the value-to-color, value-to-shape and
+  value-to-pattern assignments are given (`colors`, `shapes`,
+  `patterns`, or a list form of the `.by` argument), and whether one
+  field's values can have a color, a shape and a pattern at the same
+  time. Then see how the old interface presented it (`modules/aes.js`,
+  `md.js`, `layers.js` in commit `ca1fd41`). Present what rbiom really
+  allows:
+  - If one field can control several of them, show that field once,
+    with one row per value of the field and, in that row, the color,
+    shape and pattern for that value, so the user sees the whole look
+    of each group in one place.
+  - If rbiom lets them differ, offer separate fields, but make the
+    common case (one field for everything) the easy one, and never let
+    the interface offer a combination rbiom refuses or ignores.
+  - Record in this file what rbiom allows, per function, so that the
+    answer is not worked out again. If rbiom's behaviour looks like a
+    mistake, describe it for Daniel; rbiom is not changed from here.
 - Compact plot controls:
   - A dropdown that is not open, with its label, takes one line: label
     on the left, current value on the right. The same for numbers,
@@ -2805,7 +2856,10 @@ usage) are refined with the rest.
   finishing, and again after his comments.
 
 Decisions for Daniel: screenshots of the pre-renovation 5.0 plot page if
-he has them, and which of its details to keep; the screen sizes to support, and whether
+he has them, and which of its details to keep; how controls are told
+apart now that the lime and gold labels are optional; which parameters
+share their value between plot types; how a field and the look of its
+values are presented, once rbiom has been checked; the screen sizes to support, and whether
 phones and tablets are among them; what the page does when it is too
 narrow for three columns; the new navigation labels; whether the
 tables, dialogs and other pages get the same pass now or only the plot
