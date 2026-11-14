@@ -32,6 +32,13 @@ const PATTERNS = [
   'vertical3', 'verticalbricks', 'verticalleftshingle', 'verticalrightshingle', 'verticalsaw' ];
 const FALLBACK_COLORS = ['#4477aa', '#ee6677', '#228833', '#ccbb44', '#66ccee', '#aa3377', '#bbbbbb'];
 
+// The one word for "rbiom decides": a default that is not a plain value.
+const AUTO = 'auto';
+
+// What leaving a parameter empty means, short enough for the value box
+// (the whole sentence is the option's tooltip).
+const nullWord = p => { const text = noDot(p.null); return text && text.length <= 18 ? text : 'None'; };
+
 // At most this many values get a color, shape or pattern each by hand.
 const MAX_LEVELS = 40;
 
@@ -88,18 +95,20 @@ function subRow(label, input, { unit = null } = {}) {
 
 /** A native drop-down over options of any JSON value (including UNSET). */
 function dropdown(options, value, onchange, id) {
-  const el = h('select', { id, onchange: () => { el.title = options[el.selectedIndex].label; onchange(options[el.selectedIndex].value); } });
+  const say = o => o.title || o.label;
+  const el  = h('select', { id, onchange: () => { el.title = say(options[el.selectedIndex]); onchange(options[el.selectedIndex].value); } });
   let group = null, parent = el;
   for (const o of options) {
     if ((o.group || null) !== group) {
       group  = o.group || null;
       parent = group ? el.appendChild(h('optgroup', { label: group })) : el;
     }
-    parent.append(h('option', o.label));
+    parent.append(h('option', { title: o.title }, o.label));
   }
   el.selectedIndex = Math.max(0, options.findIndex(o => same(o.value, value)));
-  // A long value is cut short in the box; this shows it whole.
-  el.title = options.length ? options[el.selectedIndex].label : '';
+  // A long value is cut short in the box, and a short word may stand for a
+  // sentence; this shows it whole.
+  el.title = options.length ? say(options[el.selectedIndex]) : '';
   return el;
 }
 
@@ -128,12 +137,14 @@ function singleOptions(p, choices, env) {
   // explanation beyond "None"; the rule itself is shown above the controls.
   const inRule = (env.def.rules || []).some(rule => (rule.one_of || rule.any_of || []).includes(p.name));
 
-  if (p.default_expr)             options.push({ value: UNSET, label: noDot(p.default_note) || 'Default' });
+  if (p.default_expr)             options.push({ value: UNSET, label: noDot(p.default_note) || AUTO });
   else if (!inChoices && !p.required)
-    options.push({ value: UNSET, label: def === null ? (p.null && !inRule ? noDot(p.null) : 'None') : `Default (${S.describe(p, def, env.biom)})` });
+    options.push(def === null
+      ? { value: UNSET, label: inRule ? 'None' : nullWord(p), title: inRule ? null : noDot(p.null) }
+      : { value: UNSET, label: S.describe(p, def, env.biom) });
 
   if (p.null !== undefined && (p.default_expr || def !== null))
-    options.push({ value: null, label: noDot(p.null) || 'None' });
+    options.push({ value: null, label: nullWord(p), title: noDot(p.null) });
 
   return options.concat(choices);
 }
@@ -168,21 +179,55 @@ function multiEditor(p, choices, env, value, emit, id) {
   const el  = picker({
     id, options: choices, multiple: true,
     value: value === UNSET || value === null ? [] : [].concat(value),
-    placeholder: def === null ? (p.null ? noDot(p.null) : 'None') : S.describe(p, def, env.biom),
+    placeholder: def === null ? nullWord(p) : S.describe(p, def, env.biom),
     onchange: values => emit(values.length ? values : UNSET) });
   return { inline: el, below: el.chips };
+}
+
+/**
+ * Make a number box's arrows useful: one click changes the value by `step`,
+ * and in an empty box the first click starts from `start` (the default the
+ * box shows as its placeholder), not from zero.
+ * @return {function} Call it first thing in the box's `input` handler, with the event.
+ */
+export function stepping(el, start, step) {
+
+  // The browser steps by this from whatever the box holds. (It also means
+  // a typed 0.955 is "between steps" to the browser; nothing here minds.)
+  el.step = step;
+  const limit = n => Math.max(el.min === '' ? -Infinity : Number(el.min), Math.min(el.max === '' ? Infinity : Number(el.max), n));
+  const round = n => Number(n.toPrecision(12));
+  let was = el.value, dir = 0;
+
+  // Which way the next change goes: an arrow key, or which half of the
+  // box's spin button the pointer pressed.
+  el.addEventListener('keydown', e => { dir = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0; });
+  el.addEventListener('pointerdown', e => {
+    const box = el.getBoundingClientRect();
+    dir = e.clientY < box.top + box.height / 2 ? 1 : -1;
+  });
+
+  return e => {
+    // From an empty box the browser starts at zero or the lowest value
+    // allowed. Typing and pasting say what they are; the arrows do not.
+    const typed = e && typeof e.inputType === 'string' && e.inputType !== '';
+    if (was === '' && el.value !== '' && !typed && dir !== 0 && typeof start === 'number' && Number.isFinite(start))
+      el.value = String(limit(round(start + dir * step)));
+    was = el.value;
+  };
 }
 
 /**
  * A number box. Reports UNSET when empty; refuses what the schema does not
  * allow, and says why through `problem` (a function taking a sentence or null).
  */
-function numberBox(p, value, emit, { id, integer = p.type === 'integer', placeholder, min = p.min, max = p.max, problem = () => {} } = {}) {
+function numberBox(p, value, emit, { id, integer = p.type === 'integer', placeholder, hint = null, min = p.min, max = p.max, start = p.default, step = S.numberStep(p), problem = () => {} } = {}) {
   const el = h('input', {
-    id, type: 'number', step: integer ? 1 : 'any', min, max,
+    id, type: 'number', min, max,
     value: typeof value === 'number' ? value : '',
-    placeholder: placeholder ?? '', title: placeholder ? `Default: ${placeholder}` : null,
-    oninput: () => {
+    placeholder: placeholder ?? '', title: hint || (placeholder ? `Default: ${placeholder}` : null),
+    oninput: e => {
+      arrows(e);
       const text = el.value.trim();
       const n    = Number(text);
       const bad  = text !== '' && (!Number.isFinite(n) || (integer && !Number.isInteger(n)) ||
@@ -192,6 +237,7 @@ function numberBox(p, value, emit, { id, integer = p.type === 'integer', placeho
       problem(bad ? `Enter a${integer ? ' whole' : ''} number${min !== undefined ? ` from ${min}` : ''}${max !== undefined ? ` up to ${max}` : ''}.` : null);
       if (!bad) emit(text === '' ? UNSET : n);
     } });
+  const arrows = stepping(el, start, step);
   return el;
 }
 
@@ -227,10 +273,13 @@ const editors = {
         onchange: e => emit(e.target.checked === def ? UNSET : e.target.checked) });
     }
 
-    const options = [{ value: UNSET, label: `Default (${S.describe(p, def, env.biom)})` }];
+    // The default is one of the answers below, or else it is something
+    // rbiom works out ("Same as flip"), which is "auto".
+    const plain   = typeof def === 'boolean';
+    const options = plain ? [] : [{ value: UNSET, label: AUTO, title: noDot(p.default_note || p.null) || null }];
     if (forms.includes('logical') || forms.includes('true')) options.push({ value: true, label: 'Yes' });
     if (forms.includes('logical')) options.push({ value: false, label: 'No' });
-    if (p.null !== undefined && def !== null) options.push({ value: null, label: noDot(p.null) });
+    if (p.null !== undefined && def !== null) options.push({ value: null, label: nullWord(p), title: noDot(p.null) });
     if (forms.includes('choice')) for (const c of p.choices) options.push({ value: c, label: c });
 
     const custom = forms.includes('string') ? 'string' : forms.includes('integer') ? 'integer' : null;
@@ -249,9 +298,9 @@ const editors = {
         : subRow('Number', numberBox({ type: 'integer', min: 1 }, start, emit, { problem: env.problem })));
     };
 
-    const select = dropdown(options, isCustom ? CUSTOM : value, v => {
+    const select = dropdown(options, isCustom ? CUSTOM : value === UNSET && plain ? def : value, v => {
       drawExtra(v === CUSTOM);
-      if (v !== CUSTOM) emit(v);
+      if (v !== CUSTOM) emit(plain && v === def ? UNSET : v);
     }, id);
 
     drawExtra(isCustom, value);
@@ -267,11 +316,24 @@ const editors = {
 
   number(p, env, value, emit, id) {
     const def  = p.default === undefined ? null : p.default;
-    const hint = def === null ? (p.null ? noDot(p.null) : '') : S.describe(p, def, env.biom);
+    const hint = def === null ? (p.null ? AUTO : '') : S.describe(p, def, env.biom);
+    const tip  = def === null && p.null ? `Default: ${noDot(p.null)}` : null;
+    const one  = () => numberBox(p, typeof value === 'number' ? value : UNSET, emit, { id, placeholder: hint, hint: tip, problem: env.problem });
 
-    if (p.max_n === 1 || p.per_side) return numberBox(p, value, emit, { id, placeholder: hint, problem: env.problem });
+    if (p.max_n === 1 || p.per_side) return one();
+
+    // One number, with arrows, until the user asks to enter several.
+    if (!Array.isArray(value)) {
+      const box  = h('div.control-pair');
+      const more = h('button.control-several', { type: 'button', title: 'Enter several values, separated by commas',
+        'aria-label': 'Enter several values', onclick: () => { fill(box, several()); box.firstChild.focus(); } }, icon('ellipsis'));
+      fill(box, one(), more);
+      return box;
+    }
+    return several();
 
     // Several numbers, separated by commas.
+    function several() {
     const el = h('input', {
       id, type: 'text', inputmode: 'decimal', placeholder: hint, title: 'One number, or several separated by commas',
       value: value === UNSET || value === null ? '' : [].concat(value).join(', '),
@@ -284,6 +346,7 @@ const editors = {
         if (!bad) emit(parts.length === 0 ? UNSET : parts.length === 1 ? parts[0] : parts);
       } });
     return el;
+    }
   },
 
   integer(p, env, value, emit, id) { return editors.number(p, env, value, emit, id); },
@@ -377,10 +440,11 @@ const editors = {
     const modeOf = v => (v === UNSET ? 'default' : v === null ? 'null'
       : typeof v === 'number' ? (v < 1 ? 'fraction' : 'count') : 'names');
 
-    const options = [{ value: 'default', label: `Default (${S.describe(p, def, env.biom)})` }];
-    if (p.null !== undefined && def !== null) options.push({ value: 'null', label: noDot(p.null) });
-    if (forms.includes('count'))    options.push({ value: 'count',    label: 'The most abundant...' });
-    if (forms.includes('fraction')) options.push({ value: 'fraction', label: 'By mean abundance...' });
+    const options = [{ value: 'default', label: S.describe(p, def, env.biom),
+      title: typeof def === 'number' && def >= 1 ? `The ${def} most abundant taxa` : null }];
+    if (p.null !== undefined && def !== null) options.push({ value: 'null', label: nullWord(p), title: noDot(p.null) });
+    if (forms.includes('count'))    options.push({ value: 'count',    label: 'Top n...', title: 'The most abundant taxa: say how many' });
+    if (forms.includes('fraction')) options.push({ value: 'fraction', label: 'By abundance...', title: 'Taxa with at least a given mean abundance' });
     if (forms.includes('names'))    options.push({ value: 'names',    label: 'Choose taxa...' });
 
     const extra = h('div.control-extra');
@@ -389,10 +453,10 @@ const editors = {
       fill(extra);
       if (mode === 'count')
         extra.append(subRow('How many', numberBox({ type: 'integer', min: 1 }, typeof start === 'number' ? start : UNSET,
-          v => emit(v), { problem: env.problem })));
+          v => emit(v), { start: typeof def === 'number' && def >= 1 ? def : 10, step: 1, problem: env.problem })));
       if (mode === 'fraction')
         extra.append(subRow('At least', numberBox({ type: 'number' }, typeof start === 'number' ? start * 100 : UNSET,
-          v => emit(v === UNSET ? UNSET : v / 100), { min: 0.0001, max: 99.99, problem: env.problem }), { unit: '% mean' }));
+          v => emit(v === UNSET || v === 0 ? UNSET : v / 100), { min: 0, max: 99.5, start: 1, step: 0.5, problem: env.problem }), { unit: '% mean' }));
       if (mode === 'names') {
         const el = picker({
           multiple: true, placeholder: 'Choose taxa...', label: 'Taxa to show',
@@ -426,7 +490,7 @@ const editors = {
     const CUSTOM = { custom: true };
 
     const options = [
-      { value: def === true  ? UNSET : true,  label: 'Automatic' },
+      { value: def === true  ? UNSET : true,  label: AUTO, title: 'Chosen automatically' },
       { value: def === false ? UNSET : false, label: 'None' } ];
     if (forms.includes('palette'))
       options.push(...paletteOptions(env.schema, p.palettes).map(o => ({ ...o, group: `Palette: ${o.group}` })));

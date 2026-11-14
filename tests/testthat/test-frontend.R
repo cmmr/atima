@@ -365,3 +365,34 @@ test_that("a control with no effect says why", {
   expect_true(js$get("parentOf(P('taxa_forest', 'colors'), F.taxa_forest) === null"))
   expect_true(js$get("parentOf(P('adiv_boxplot', 'test'), F.adiv_boxplot) === null"))
 })
+
+
+
+test_that("a number box's arrows move by an amount that suits the number", {
+
+  js <- local_schema_js()
+
+  step <- function (fn, name) js$get(sprintf("numberStep(P('%s', '%s'))", fn, name))
+
+  # A share or a probability: hundredths.
+  expect_equal(step("adiv_boxplot", "level"),   0.01)
+  expect_equal(step("adiv_boxplot", "p.label"), 0.01)
+  expect_equal(step("taxa_forest",  "p.sig"),   0.01)
+
+  # Whole numbers by one; other numbers by a tenth of their default's size.
+  expect_equal(step("bdiv_boxplot", "permutations"), 1)
+  expect_equal(step("bdiv_clusters", "k"),           1)
+  expect_equal(step("taxa_heatmap", "asp"),          0.1)
+  expect_equal(step("taxa_heatmap", "tree_height"),  1)
+
+  # The image settings: 10 for a width of 400, 0.1 for a scale of 1.
+  js$eval("const save = name => schema.save.params.find(p => p.name === name);")
+  expect_equal(js$get("numberStep(save('width'))"),  10)
+  expect_equal(js$get("numberStep(save('height'))"), 10)
+  expect_equal(js$get("numberStep(save('dpi'))"),    10)
+  expect_equal(js$get("numberStep(save('scale'))"),  0.1)
+
+  # No default to go by: one.
+  expect_equal(step("adiv_corrplot", "mu"), 1)
+  expect_equal(step("taxa_boxplot", "p.top"), 1)
+})

@@ -632,6 +632,20 @@ it to that step's list instead of fixing it now.
   edge and a bold label were tried first; Daniel had both removed). The table of colors, shapes and
   patterns lists only the groups the sample filter keeps on that field;
   what was chosen for the others is kept for when the filter goes.
+- **Number boxes and the word "auto" (step 11).** Daniel asked for:
+  the arrows of an empty number box to start from the default it shows
+  as its placeholder, and to move by an amount that suits the number
+  (`numberStep()` in `js/schema.js`: 1 for whole numbers, 0.01 for a
+  share or a probability, else a tenth of the default's size;
+  `stepping()` in `js/controls.js`); dropdown values short enough for
+  the box; and one word for "the software decides". That word is
+  "auto", for a default that is not a plain value ("Same as flip"), for
+  colors and shapes, and as the placeholder of a number rbiom works
+  out; the whole sentence is the tooltip. A default that is a plain
+  value is shown as that value, with no "Default (...)" around it; an
+  empty choice whose wording is longer than 18 characters is "None".
+  A parameter that takes one number or several (the p-value brackets)
+  is a number box with a small button for entering several.
 - **A field and the look of its values (step 11).** rbiom 4 has no
   `color.by`, `shape.by` or `pattern.by`: one field drives all three (see
   the step 11 notes). Daniel chose: Colors, Shapes and Patterns are one

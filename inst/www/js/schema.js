@@ -218,9 +218,23 @@ export function describe(p, value, biom) {
   }
   if (p.type === 'layers') return canonical(p, value).join(', ');
   if (p.type === 'taxa' && typeof value === 'number')
-    return value < 1 ? `At least ${value * 100}% mean abundance` : `The ${value} most abundant`;
+    return value < 1 ? `At least ${value * 100}%` : `Top ${value}`;
   if (typeof value === 'object' && !Array.isArray(value)) return 'Custom';
   return [].concat(value).join(', ');
+}
+
+/**
+ * How much one click of a number box's arrows changes it: 1 for whole
+ * numbers, 0.01 for a share or a probability (limits no more than 1
+ * apart), else a tenth of the default's size (10 for 400, 0.1 for 1).
+ */
+export function numberStep(p) {
+  if (p.type === 'integer') return 1;
+  if (typeof p.min === 'number' && typeof p.max === 'number' && p.max - p.min <= 1) return 0.01;
+  const def = p.default;
+  if (typeof def === 'number' && Number.isFinite(def) && def !== 0)
+    return Number(Math.pow(10, Math.floor(Math.log10(Math.abs(def))) - 1).toPrecision(1));
+  return 1;
 }
 
 /** A description with rbiom's backticks removed, for tooltips. */

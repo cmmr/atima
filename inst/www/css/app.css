@@ -259,6 +259,8 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .control-body > input[type="checkbox"], .control-body > .unit { flex: none; }
 .control-reset { justify-self: end; border: 0; background: none; color: var(--text-soft); cursor: pointer; font-size: 10px; width: 18px; height: 20px; padding: 0; border-radius: 4px; }
 .control-reset:hover { background: var(--line-soft); color: var(--text); }
+.control-pair > .control-several { flex: none; border: 1px solid var(--line); background: #fff; color: var(--text-soft); cursor: pointer; font-size: 10px; width: 22px; height: 24px; padding: 0; border-radius: var(--radius); }
+.control-several:hover { background: var(--line-soft); color: var(--text); }
 
 .control input[type="text"], .control input[type="number"], .control select, .control .picker-face { min-height: 24px; padding: 1px 6px; font-size: 12.5px; }
 .control select { text-overflow: ellipsis; padding-right: 2px; }

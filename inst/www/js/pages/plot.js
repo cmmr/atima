@@ -5,7 +5,7 @@
 import { h, fill, icon, button, debounce, download, serverHtml, newId } from '../dom.js';
 import { call, abortJobs } from '../api.js';
 import { tabs, section, spinner, picker, notify, showError } from '../widgets.js';
-import { controlPanel, controlRow } from '../controls.js';
+import { controlPanel, controlRow, stepping } from '../controls.js';
 import { localTable } from '../tables.js';
 import { copyText, busy } from '../actions.js';
 import * as S from '../schema.js';
@@ -205,9 +205,10 @@ function imageEditor(onchange) {
       const editor = p.type === 'choice'
         ? h('select', { id, onchange: e => { setSave(p.name, e.target.value === p.default ? undefined : e.target.value); mark(); } },
             p.choices.map(c => h('option', { selected: (save[p.name] ?? p.default) === c }, c)))
-        : h('input', { id, type: 'number', step: 'any', min: p.min, max: p.max, placeholder: p.default,
+        : h('input', { id, type: 'number', min: p.min, max: p.max, placeholder: p.default,
             value: save[p.name] ?? '',
             oninput: e => {
+              arrows(e);
               const n = Number(e.target.value);
               const bad = e.target.value.trim() !== '' && (!Number.isFinite(n) || n <= 0 || (p.min !== undefined && n < p.min) || (p.max !== undefined && n > p.max));
               e.target.classList.toggle('invalid', bad);
@@ -216,6 +217,8 @@ function imageEditor(onchange) {
               problem.textContent = bad ? `Enter a number${p.min !== undefined ? ` from ${p.min}` : ' above 0'}${p.max !== undefined ? ` up to ${p.max}` : ''}.` : '';
               if (!bad) { setSave(p.name, e.target.value.trim() === '' ? undefined : n); mark(); }
             } });
+      // The arrows start from the default and move by a sensible amount.
+      const arrows = p.type === 'choice' ? null : stepping(editor, p.default, S.numberStep(p));
       row.body.append(editor);
       row.more.append(problem);
       rows.push(row.el);
