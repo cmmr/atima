@@ -11,7 +11,7 @@
 
 import { h, fill, icon, button, serverHtml } from '../dom.js';
 import { call } from '../api.js';
-import { tabs, confirm, prompt, dialog, notify } from '../widgets.js';
+import { tabs, confirm, prompt, dialog, notify, showError } from '../widgets.js';
 import { uploadProject, openProject, reopenDefault, busy } from '../actions.js';
 import * as store from '../store.js';
 
@@ -33,12 +33,41 @@ export function show(container) {
 
   const lists   = { private: h('div.tree', { role: 'tree' }), public: h('div.tree', { role: 'tree' }) };
   const details = h('div.card.details');
+  const deleted = h('div.deleted');
+  const days    = store.get('conf').trash_days;
 
-  const local = store.get('conf').auth === 'none';
   const panes = tabs([
-    { id: 'private', label: local ? 'My projects' : 'My projects', icon: 'user', panel: h('div.pane', lists.private) },
+    { id: 'private', label: 'My projects', icon: 'user', panel: h('div.pane', lists.private) },
     { id: 'public',  label: 'Public projects', icon: 'earth-americas', panel: h('div.pane', lists.public) },
-  ]);
+    { id: 'deleted', label: 'Deleted', icon: 'trash', panel: h('div.pane', deleted) },
+  ], id => { if (id === 'deleted') loadDeleted(); });
+
+  //___________________________________________________________________________
+  // Deleted projects: kept for a while, and restored by someone who could
+  // edit them. Whether the browser or an AI app deleted one makes no
+  // difference.
+
+  async function loadDeleted() {
+    try {
+      const found = (await call('/api/tree/deleted')).projects;
+      fill(deleted,
+        h('p.hint', `A deleted project is kept for ${days} days and then erased. Until then, the people who could edit it can restore it, and everyone it was shared with has it again.`),
+        found.length === 0 ? h('p.empty', 'No project of yours has been deleted.') :
+          h('div.table-scroll', h('table.data', h('tbody', found.map(p => h('tr',
+            h('td', h('strong', p.title), ' ', h('span.hint', `${p.n_samples} samples`)),
+            h('td', `Deleted ${when(p.deleted_utc)}`),
+            h('td', `Erased ${when(p.erased_utc)}`),
+            h('td', button('Restore', () => restore(p), { icon: 'rotate-left', title: `Restore "${p.title}"` }))))))));
+    } catch (err) { showError(err); fill(deleted, h('p.empty', 'The list could not be loaded.')); }
+  }
+
+  async function restore(project) {
+    const done = await busy('Restoring...', () => call('/api/tree/restore', { node_id: project.node_id }));
+    if (!done) return;
+    store.set('tree', done.tree);
+    notify(`"${project.title}" is back among your projects.`, 'ok');
+    loadDeleted();
+  }
 
   const nodes    = kind => store.get('tree')[kind];
   const find     = (kind, id) => nodes(kind).find(n => n.id === id) || null;
@@ -234,7 +263,8 @@ export function show(container) {
            'If nobody else has it, the project is deleted.'], 'Remove'), { icon: 'right-from-bracket' }) : null,
         own && node.editor ? button('Delete', () => remove(kind, node, '/api/tree/delete',
           `Delete "${node.text}"?`,
-          ['The project is taken away from everyone it is shared with, and then deleted. This cannot be undone.'], 'Delete for everyone'),
+          ['The project is taken away from everyone it is shared with.',
+           `It is kept for ${days} days, during which you can restore it under "Deleted" on this page, and is then erased.`], 'Delete for everyone'),
           { icon: 'trash', kind: 'danger' }) : null));
   }
 

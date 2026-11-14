@@ -21,6 +21,7 @@ import * as clusters  from './pages/clusters.js';
 import * as legacy    from './pages/legacy.js';
 import * as privacy   from './pages/privacy.js';
 import * as cite      from './pages/cite.js';
+import * as apps      from './pages/apps.js';
 
 const pages = {
   home:     { show: home.show },
@@ -34,6 +35,7 @@ const pages = {
   legacy:   { show: legacy.show },
   privacy:  { show: privacy.show },
   cite:     { show: cite.show },
+  apps:     { show: apps.show },
 };
 
 // Where the documentation and the source code are.
@@ -160,6 +162,8 @@ function accountControl(conf) {
   const places = [
     { label: 'My projects', icon: 'folder-open', href: '#/projects' },
     conf.legacy && store.hasAccount() ? { label: 'Import older projects', icon: 'file-import', href: '#/legacy' } : null,
+    // The AI apps that use ATIMA for this person, and what they changed.
+    { label: conf.auth === 'oidc' ? 'Connected apps' : 'AI apps', icon: 'plug', href: '#/apps' },
     { label: 'Privacy and terms', icon: 'shield-halved', href: '#/privacy' } ];
 
   // No accounts: this copy has one user, the person at this computer.

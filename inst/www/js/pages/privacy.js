@@ -14,7 +14,8 @@
 // behaviour changes, change the sentence: R/cleanup.R (what is deleted and
 // when), R/access.R (who can see what), R/permissions.r (what other users
 // are shown), R/auth-oidc.R (what comes from the provider), R/router.R
-// `request_done()` and R/errors.R `error_report()` (what is logged).
+// `request_done()` and R/errors.R `error_report()` (what is logged), and
+// for AI apps the files named above that section.
 
 import { h, fill } from '../dom.js';
 import * as store from '../store.js';
@@ -77,7 +78,8 @@ export function show(container) {
       list(
         `Changes you have not saved are deleted when their browser tab has been closed, or not heard from, for ${sessionTime}. Signing in or out also discards them.`,
         `Figures and exports are temporary files. They are deleted ${sessionTime} after they were made.`,
-        'Saved projects of people who have signed in are kept until they are deleted. A project is deleted once nobody has it among their own projects and it is not public.',
+        'Saved projects of people who have signed in are kept until they are deleted. A project is erased once nobody has it among their own projects and it is not public.',
+        `A project that somebody deletes is kept for ${count(conf.trash_days, 'day')}, during which the people who could edit it can restore it, and is then erased.`,
         'What is deleted here can remain for longer in copies of the database that are made before an upgrade, and in backups made by whoever runs the server.')),
 
     section('Who can see a project',
@@ -105,15 +107,36 @@ export function show(container) {
       h('p', 'The server writes a line to its log for every request: what kind of request it was, whether it succeeded, how long it took, and the number that stands for the user. ',
         'It does not log what requests contain: not your files, your settings or your results. ',
         'When a request fails, technical details of the error are logged too, and these can include values from that request. ',
-        'Signing in and signing out are logged.')
-      // Step 12 (usage monitoring) adds its paragraph HERE: what use of the
+        'Signing in and signing out are logged, and so are connecting and disconnecting an AI app and each change an app makes.')
+      // Step 13 (usage monitoring) adds its paragraph HERE: what use of the
       // server is recorded, in what form, and for how long.
     ),
 
-    // Step 11 (the MCP server on shared servers) adds a section HERE, "AI
-    // apps", once shared servers offer it: that the results of tool calls
-    // are handed to the AI app, and so go to that app's provider. Today the
-    // /mcp route exists only on local installs, so there is nothing to say.
+    // Checked against R/oauth.R (what a connection is and how long it
+    // lasts), R/mcp-tools.R and R/mcp-write.R (what an app can do),
+    // R/apps.R (the record of changes) and R/mcp-upload.R.
+    section('AI apps',
+      h('p', 'You can connect an AI app, such as a chat assistant, to this server, so that it works with your projects when you ask it to. ',
+        'Nothing is connected unless you do it: the app sends you to this server, you sign in, and you approve that app.'),
+      list(
+        ['What an app can do. An app acts as you, with what you may do and no more. When you approve it you choose whether it may only see your projects and run analyses, ',
+         conf.mcp_writes
+           ? 'or may also upload files and change, copy, share, publish and delete your projects.'
+           : 'which is all an app can do on this server: changing data through an app is switched off here.'],
+        ['Where your data goes. What an app reads is handed to the app: titles and descriptions, the names and values of metadata, taxon names, statistics, figures and exported files. ',
+         "Most apps send all of it to the company that provides them, where that company's terms decide what happens to it. ",
+         'Do not connect an app to data that may not leave this server that way.'],
+        ['What is stored. For each app you connect: its name, the address it gave for itself, what you let it do, and when it was connected and last used. ',
+         'The keys the app uses are stored in a form from which they cannot be read back.'],
+        ["The record of changes. Every change an app makes is recorded with the time, the app, the kind of change, the project's title and one sentence saying what changed. ",
+         'You can read it under "Connected apps" in your account menu. A row is kept for a year.'],
+        [`How long. An app stays connected until it has not been used for ${count(conf.app_days, 'day')}, or until you disconnect it under "Connected apps". `,
+         'Signing out of this site in your browser does not disconnect your apps.'],
+        ['Links in what an app is given. Figures, tables and exports are given to an app as links. Whoever has such a link can fetch the file, without signing in, ',
+         `until it is deleted ${sessionTime} after it was made. Treat a conversation that contains such links as you would the files.`],
+        ['Text in a project can be written to mislead an app, for example a description that tells it to share or delete something. ',
+         'ATIMA hands such text to the app as data and tells it to treat it as data, but an app can still be misled. ',
+         'With projects from other people, including public ones, let an app change things only if it asks you first.'])),
 
     conf.legacy ? section('Importing from an older ATIMA',
       h('p', 'If you import your projects from an older ATIMA, the email address and password you type are used to find your old projects and to decrypt them. ',

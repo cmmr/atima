@@ -552,3 +552,16 @@ body.dropping::after {
   .tabs > button[role="tab"] > span { display: none; }
   .topbar-link { display: none; }
 }
+
+/* The approval page for an AI app (served by R/oauth.R as plain HTML), and
+   the Connected apps page. */
+.consent h1 { margin-top: 0; }
+.consent fieldset { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 0; }
+.consent legend { font-weight: 650; padding: 0 6px; }
+.consent-choice { display: flex; gap: 10px; align-items: flex-start; padding: 7px 4px; cursor: pointer; }
+.consent-choice input { margin-top: 3px; flex: none; }
+.consent-choice > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.consent .card-actions { justify-content: flex-end; }
+table.data.apps td, table.data.changes td { vertical-align: top; }
+table.data.changes td:nth-child(2) { white-space: normal; min-width: 220px; width: 100%; }
+.deleted > .hint { margin: 4px 6px 10px; }

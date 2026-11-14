@@ -118,6 +118,27 @@ test_that("every script is a module that main.js reaches, and every import exist
 })
 
 
+test_that("every script is valid JavaScript", {
+
+  # A script with a syntax error stops the whole app from starting, and
+  # nothing else here would notice. V8 checks scripts, not modules, so the
+  # import lines go and `export` is dropped from the declarations.
+  testthat::skip_if_not_installed("V8")
+  js <- V8::v8()
+
+  for (file in own_files("\\.js$")) {
+    lines <- readLines(www(file), warn = FALSE, encoding = "UTF-8")
+    lines <- lines[!grepl("^import\\s.*\\sfrom\\s+'[^']+';\\s*$", lines)]
+    lines <- sub("^export\\s+(default\\s+)?", "", lines)
+    code  <- paste(c("async function module_body () {", lines, "}"), collapse = "\n")
+    expect_true(js$validate(code), info = file)
+  }
+
+  # The check itself can tell a broken script from a sound one.
+  expect_false(js$validate("const a = 'it's broken';"))
+})
+
+
 test_that("no page of the app asks another host for anything", {
 
   # Addresses of other hosts may only appear as links for people to follow.
@@ -125,6 +146,7 @@ test_that("no page of the app asks another host for anything", {
     "https://www.bcm.edu/",
     "https://www.bcm.edu/research/centers/metagenomics-and-microbiome-research",
     "https://cmmr.github.io/atima/",
+    "https://cmmr.github.io/atima/articles/ai-apps.html",
     "https://github.com/cmmr/atima",
     "https://github.com/cmmr/rbiom" )
 
