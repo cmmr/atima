@@ -93,14 +93,15 @@ api_init_session <- function (REQ, access_key = NULL) {
   # Otherwise the last project this user viewed.
   if (is.null(project_id)) {
     sql <- "SELECT project_id FROM permissions
+        JOIN projects USING (project_id)
         LEFT JOIN last_access USING (user_id, project_id)
-        WHERE user_id = ? ORDER BY `viewed_utc` DESC LIMIT 1"
+        WHERE user_id = ? AND deleted_utc IS NULL ORDER BY `viewed_utc` DESC LIMIT 1"
     project_id <- db_query(DB, sql, "AISess6", list(user_id))
   }
 
   # Otherwise the oldest public project.
   if (is.null(project_id)) {
-    sql <- "SELECT project_id FROM projects WHERE public_key IS NOT NULL ORDER BY project_id LIMIT 1"
+    sql <- "SELECT project_id FROM projects WHERE public_key IS NOT NULL AND deleted_utc IS NULL ORDER BY project_id LIMIT 1"
     project_id <- db_query(DB, sql, "AISess9")
   }
 
@@ -282,7 +283,12 @@ get_session_data <- function (REQ) {
           is_guest  = unbox(REQ[['SESSION']][['is_guest']]),
           is_admin  = unbox(REQ[['SESSION']][['is_admin']]),
           # Is there an older installation to import projects from?
-          legacy    = unbox(length(REQ[['CONFIG']][['legacy']]) > 0) ),
+          legacy    = unbox(length(REQ[['CONFIG']][['legacy']]) > 0),
+          # How long a deleted project can still be restored.
+          trash_days = unbox(REQ[['CONFIG']][['trash_ttl']] / 86400),
+          # May AI apps change data, and where do they connect?
+          mcp_writes = unbox(isTRUE(REQ[['CONFIG']][['mcp_writes']])),
+          mcp_url    = unbox(paste0(REQ[['CONFIG']][['base_url']], "/mcp")) ),
         shared_server_conf(REQ[['CONFIG']]) ))
 
     response(body, cookie_hdr, sess_header)
@@ -305,7 +311,8 @@ shared_server_conf <- function (CONFIG) {
 
   conf <- list(
     session_hours = unbox(CONFIG[['session_ttl']] / 3600),
-    guest_days    = unbox(CONFIG[['guest_ttl']]   / 86400) )
+    guest_days    = unbox(CONFIG[['guest_ttl']]   / 86400),
+    app_days      = unbox(CONFIG[['app_ttl']]     / 86400) )
 
   for (key in c("operator", "contact"))
     if (!is.null(CONFIG[[key]])) conf[[key]] <- unbox(CONFIG[[key]])

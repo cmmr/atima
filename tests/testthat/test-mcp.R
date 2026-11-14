@@ -4,16 +4,17 @@
 
 # The protocol -----------------------------------------------------------------
 
-test_that("the MCP route exists only without accounts", {
+test_that("the MCP route exists with and without accounts", {
 
-  expect_identical(match_route("POST", "/mcp", mode = "none")$route$handler, "mcp_post")
-  expect_identical(match_route("GET",  "/mcp", mode = "none")$route$handler, "mcp_get")
+  for (mode in c("none", "oidc")) {
+    expect_identical(match_route("POST", "/mcp", mode = mode)$route$handler, "mcp_post")
+    expect_identical(match_route("GET",  "/mcp", mode = mode)$route$handler, "mcp_get")
+  }
 
-  expect_error(match_route("POST", "/mcp", mode = "oidc"), class = "atima_http_error")
-
+  # With accounts nothing is answered without a token (test-oauth.R).
   REQ  <- local_test_req(auth = "oidc")
   resp <- handle_request(mcp_request("server/discover"), test_app(REQ))
-  expect_identical(resp$status, 404L)
+  expect_identical(resp$status, 401L)
 
   # No project can take the path as its public key.
   expect_error(check_public_key(REQ$DB, "mcp"), class = "atima_http_error")
@@ -101,23 +102,65 @@ test_that("a notification is accepted with 202 and no body", {
 })
 
 
-test_that("the handshake of earlier revisions is refused with the version that works", {
+test_that("an app of the handshake era is answered in its own terms", {
 
-  REQ <- local_test_req(auth = "none")
+  mcp <- local_mcp()
 
-  request <- mcp_http(
-    body    = list(jsonrpc = "2.0", id = 1, method = "initialize", params = list(
-      protocolVersion = "2025-11-25", capabilities = json_empty(), clientInfo = list(name = "old", version = "1") )),
-    headers = character(0) )
+  legacy <- function (method, params = NULL, headers = character(0), id = 1) {
+    body <- c(list(jsonrpc = "2.0", id = id, method = method), if (!is.null(params)) list(params = params))
+    resp <- mcp$send(mcp_http(body, headers))
+    c(list(status = resp$status), response_json(resp))
+  }
 
-  resp <- handle_request(request, test_app(REQ))
-  body <- response_json(resp)
+  # The handshake: the app's revision is taken if this server knows it,
+  # and the newest of that era otherwise.
+  opened <- legacy("initialize", list(
+    protocolVersion = "2025-06-18", capabilities = json_empty(), clientInfo = list(name = "old", version = "1") ))
 
-  expect_identical(resp$status, 400L)
-  expect_identical(body$id, 1L)
-  expect_identical(body$error$code, -32022L)
-  expect_match(body$error$message, "2026-07-28")
-  expect_identical(body$error$data, list(supported = list("2026-07-28"), requested = "2025-11-25"))
+  expect_identical(opened$status, 200L)
+  expect_identical(opened$id, 1L)
+  expect_identical(opened$result$protocolVersion, "2025-06-18")
+  expect_identical(opened$result$serverInfo$name, "atima")
+  expect_false(opened$result$capabilities$tools$listChanged)
+  expect_match(opened$result$instructions, "rbiom")
+  expect_null(opened$result$resultType)
+
+  for (asked in c("2026-07-28", "2024-11-05", "nonsense"))
+    expect_identical(legacy("initialize", list(protocolVersion = asked))$result$protocolVersion, "2025-11-25")
+
+  # After it: a notification, a ping, the tools. With the version header
+  # of the 2025 revisions, or with none, as in the first of them.
+  resp <- mcp$send(mcp_http(list(jsonrpc = "2.0", method = "notifications/initialized")))
+  expect_identical(resp$status, 202L)
+
+  expect_length(legacy("ping")$result, 0)
+
+  for (headers in list(character(0), c("mcp-protocol-version" = "2025-11-25"))) {
+
+    listed <- legacy("tools/list", headers = headers)
+    expect_identical(listed$status, 200L)
+    expect_null(listed$result$resultType)
+    expect_null(listed$result$cacheScope)
+    expect_true("make_plot" %in% vapply(listed$result$tools, function (t) t$name, character(1)))
+
+    called <- legacy("tools/call", list(name = "describe_project", arguments = list(project = "hmp50")), headers)
+    expect_identical(called$status, 200L)
+    expect_false(called$result$isError)
+    expect_null(called$result$resultType)
+    expect_identical(called$result$structuredContent$project, "hmp50")
+  }
+
+  # A tool's own failure is a result, as for any app.
+  refused <- legacy("tools/call", list(name = "describe_project", arguments = list(project = "nosuchproject")))
+  expect_true(refused$result$isError)
+
+  # What only the stateless revision has is unknown to this era, and a
+  # revision nobody speaks is refused with the list of those that work.
+  expect_identical(legacy("server/discover")$error$code, -32601L)
+
+  unknown <- legacy("tools/list", headers = c("mcp-protocol-version" = "1999-01-01"))
+  expect_identical(unknown$error$code, -32022L)
+  expect_identical(unknown$error$data$supported, list("2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"))
 })
 
 
@@ -147,9 +190,13 @@ test_that("malformed messages are protocol errors", {
   expect_identical(failure(mcp_http('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":[1]}'))$code, -32602L)
 
   # A version this server does not speak, in the header or in the body.
-  out <- failure(mcp_request("tools/list", version = "2025-06-18"))
+  out <- failure(mcp_request("tools/list", version = "2027-01-01"))
   expect_identical(out[c("status", "code", "id")], list(status = 400L, code = -32022L, id = 1L))
-  expect_identical(out$data, list(supported = list("2026-07-28"), requested = "2025-06-18"))
+  expect_identical(out$data, list(supported = list("2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"), requested = "2027-01-01"))
+  expect_match(out$message, "2026-07-28")
+
+  # A revision of the handshake era in a request shaped like the stateless one.
+  expect_identical(failure(mcp_request("tools/list", version = "2025-06-18"))$code, -32022L)
 
   # What every request must carry.
   request <- good(); request$HEADERS <- request$HEADERS[names(request$HEADERS) != "mcp-protocol-version"]
@@ -208,15 +255,34 @@ test_that("every tool is well formed and has a handler that takes its arguments"
 
   tools <- mcp_tool_table()
 
-  expect_named(tools, c("list_projects", "describe_project", "describe_function", "run_stats", "make_plot", "export"))
+  reading <- c("list_projects", "describe_project", "describe_function", "run_stats", "make_plot", "export")
+  writing <- c(
+    "upload_project", "upload_component", "upload_status", "edit_project", "add_clusters", "set_field_type",
+    "copy_project", "find_users", "list_access", "share_project", "new_share_link", "publish_project", "delete_project" )
+
+  expect_named(tools, c(reading, writing))
 
   for (tool in tools) {
 
     expect_s3_class(tool, "tool")
     expect_true(tool$permission %in% tool_levels, info = tool$name)
 
-    # Nothing offered yet changes data.
-    expect_true(tool$read_only, info = tool$name)
+    # The first six only read, and need nothing but the right to read. The
+    # rest need the person's leave to change things, even the three among
+    # them that change nothing themselves.
+    expect_identical(tool$scope, if (tool$name %in% reading) "read" else "write", info = tool$name)
+    expect_identical(tool$read_only, tool$name %in% c(reading, "upload_status", "find_users", "list_access"), info = tool$name)
+
+    # What exposes data or cannot be undone waits for `confirm`.
+    guarded <- tool$name %in% c("share_project", "new_share_link", "publish_project", "delete_project")
+    expect_identical("confirm" %in% names(tool$args), guarded, info = tool$name)
+    if (guarded) {
+      expect_true(tool$destructive, info = tool$name)
+      expect_false(tool$args$confirm$default)
+    }
+
+    # Sharing needs other people, so accounts.
+    expect_identical(tool$modes, if (tool$name %in% c("find_users", "list_access", "share_project")) "oidc" else auth_modes, info = tool$name)
 
     expect_true(exists(tool$handler, envir = asNamespace("atima"), mode = "function"), info = tool$name)
     params <- formals(get(tool$handler, envir = asNamespace("atima")))
@@ -242,6 +308,12 @@ test_that("every tool is well formed and has a handler that takes its arguments"
   expect_error(tool("save", "Save", "Saves.", "editor"))
   expect_error(tool("Bad name", "x", "x", "session"))
   expect_error(tool("x", "x", "x", "admin"))
+
+  # A tool that changes data cannot be declared as needing only `read`,
+  # nor one that only reads as destructive, nor with a rule that is not one.
+  expect_error(tool("x", "x", "x", "session", read_only = FALSE, scope = "read"))
+  expect_error(tool("x", "x", "x", "session", destructive = TRUE))
+  expect_error(tool("x", "x", "x", "session", rule = "no_such_rule"))
 })
 
 
@@ -256,8 +328,28 @@ test_that("tools that change data are only offered when the server allows them",
   expect_length(mcp_tools(list(mcp_writes = FALSE)), 0)
   expect_named(mcp_tools(list(mcp_writes = TRUE)), "write_something")
 
+  # And then only to a caller whose app the person let make changes.
+  expect_length(mcp_tools(list(mcp_writes = TRUE), list(scope = "read")), 0)
+  expect_named(mcp_tools(list(mcp_writes = TRUE), list(scope = c("read", "write"))), "write_something")
+  expect_length(mcp_tools(list(mcp_writes = FALSE), list(scope = c("read", "write"))), 0)
+
   definition <- tool_definition(writer)
   expect_false(definition$annotations$readOnlyHint)
+  expect_false(definition$annotations$destructiveHint)
+  expect_false(definition$annotations$idempotentHint)
+})
+
+
+test_that("the real tool list follows the server's setting and its mode", {
+
+  reading <- c("list_projects", "describe_project", "describe_function", "run_stats", "make_plot", "export")
+  shared  <- c("find_users", "list_access", "share_project")
+
+  expect_named(mcp_tools(list(auth = "none", mcp_writes = FALSE)), reading)
+  expect_named(mcp_tools(list(auth = "oidc", mcp_writes = FALSE)), reading)
+  expect_named(mcp_tools(list(auth = "oidc", mcp_writes = TRUE)), names(mcp_tool_table()))
+  expect_named(mcp_tools(list(auth = "none", mcp_writes = TRUE)), setdiff(names(mcp_tool_table()), shared))
+  expect_named(mcp_tools(list(auth = "oidc", mcp_writes = TRUE), list(scope = "read")), reading)
 })
 
 
@@ -275,7 +367,9 @@ test_that("tools/list gives each tool a name, a description and a valid input sc
   expect_null(result$nextCursor)
 
   names <- vapply(result$tools, function (t) t$name, character(1))
-  expect_identical(names, names(mcp_tool_table()))
+  expect_identical(names, names(mcp_tools(REQ$CONFIG)))
+  expect_true("delete_project" %in% names)
+  expect_false("share_project" %in% names)
 
   for (tool in result$tools) {
 
@@ -283,15 +377,26 @@ test_that("tools/list gives each tool a name, a description and a valid input sc
     expect_true(nzchar(tool$title) && nzchar(tool$description), info = tool$name)
     expect_identical(tool$inputSchema$type, "object")
     expect_false(tool$inputSchema$additionalProperties)
-    expect_true(tool$annotations$readOnlyHint)
+
+    # The hints say what the tool table says.
+    declared <- mcp_tool_table()[[tool$name]]
+    expect_identical(tool$annotations$readOnlyHint, declared$read_only, info = tool$name)
+    expect_identical(tool$annotations$destructiveHint, declared$destructive, info = tool$name)
+    expect_identical(tool$annotations$idempotentHint, declared$idempotent, info = tool$name)
 
     # The schema is a schema. (The validator refuses one that is not.)
     validator <- schema_validator(tool$inputSchema)
     expect_false(validator$validate(to_json(list(no_such_argument = 1))), info = tool$name)
   }
 
-  # The list fits comfortably in a model's context.
-  expect_lt(nchar(resp$body), 20000)
+  # The list fits comfortably in a model's context, and the reading tools
+  # alone are as small as they were.
+  expect_lt(nchar(resp$body), 25000)
+
+  REQ$CONFIG$mcp_writes <- FALSE
+  resp <- handle_request(mcp_request("tools/list"), test_app(REQ))
+  expect_length(response_json(resp)$result$tools, 6)
+  expect_lt(nchar(resp$body), 13000)
 })
 
 
@@ -306,7 +411,20 @@ test_that("example calls satisfy the tools' input schemas", {
       project = "hmp50", `function` = "bdiv_ord_plot", args = list(stat.by = "Body Site"), depth = 1000,
       samples = list(cat = list(Sex = list("Female")), num = list(Age = list(20, 40))),
       image   = list(width = 800, height = 600) ),
-    export            = list(project = "hmp50", what = "beta", metric = "jaccard") )
+    export            = list(project = "hmp50", what = "beta", metric = "jaccard"),
+    upload_project    = list(title = "A new dataset", inflate = FALSE),
+    upload_component  = list(project = "abcdefghijkl", component = "metadata"),
+    upload_status     = list(upload = 3),
+    edit_project      = list(project = "abcdefghijkl", title = "A better title", description = "<p>What it is.</p>", depth = 1000),
+    add_clusters      = list(project = "abcdefghijkl", `function` = "bdiv_clusters", args = list(k = 3), name = "Groups"),
+    set_field_type    = list(project = "abcdefghijkl", field = "Age", type = "categorical"),
+    copy_project      = list(project = "hmp50", title = "Stool only", samples = list(cat = list(`Body Site` = list("Stool")))),
+    find_users        = list(query = "Ada Lovelace"),
+    list_access       = list(project = "abcdefghijkl"),
+    share_project     = list(project = "abcdefghijkl", user_id = 12, access = "view", confirm = TRUE),
+    new_share_link    = list(project = "abcdefghijkl"),
+    publish_project   = list(project = "abcdefghijkl", public = TRUE, public_key = "gut-study", confirm = FALSE),
+    delete_project    = list(project = "abcdefghijkl", confirm = TRUE) )
 
   definitions <- lapply(mcp_tool_table(), tool_definition)
   expect_setequal(names(examples), names(definitions))
@@ -517,8 +635,13 @@ test_that("describe_function gives an rbiom function's arguments as JSON Schema"
   expect_false(validator$validate(to_json(list(x = "No such field"))))
   expect_false(validator$validate(to_json(list(adiv = "no such metric"))))
 
+  # The clustering functions are described too, for add_clusters.
+  clusters <- mcp$call("describe_function", list(`function` = "taxa_clusters"))$structuredContent
+  expect_identical(clusters$tool, "add_clusters")
+  expect_true("k" %in% names(clusters$args_schema$properties))
+
   # A function that is not offered is refused before anything runs.
-  result <- mcp$call("describe_function", list(`function` = "taxa_clusters"))
+  result <- mcp$call("describe_function", list(`function` = "biom_merge"))
   expect_true(result$isError)
   expect_match(result$content[[1]]$text, "Argument 'function' is not one of the allowed values")
 })

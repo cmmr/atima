@@ -27,6 +27,10 @@ run(
   max_upload_mb = 50,
   session_hours = 24,
   guest_days = 30,
+  trash_days = 30,
+  mcp_writes = TRUE,
+  app_days = 30,
+  app_changes_per_hour = 60,
   legacy = NULL,
   open = interactive()
 )
@@ -128,6 +132,21 @@ not been heard from for this many hours.}
 after this many days without a visit, along with any
 projects that only they could open.}
 
+\item{trash_days}{A deleted project is kept for this many days, during
+which its editors can restore it, and is then erased.}
+
+\item{mcp_writes}{May AI apps change data: upload, edit, copy, share,
+publish and delete projects? \code{FALSE} offers them only
+the tools that read and compute. See the section on
+AI apps.}
+
+\item{app_days}{With \code{auth = "oidc"}: an AI app that a person has
+connected stays connected until it has not been used
+for this many days.}
+
+\item{app_changes_per_hour}{The most changes one connected AI app may
+make in an hour.}
+
 \item{legacy}{Older atima installations whose users may import
 their projects: a named character vector,
 \verb{c(<label shown to users> = <file>)}, of files made by
@@ -221,15 +240,28 @@ minutes. This needs the 'bcrypt' package.
 
 \section{AI apps}{
 
-With \code{auth = "none"} the server is also a Model Context Protocol (MCP)
-server, at the path \verb{/mcp} (for example \verb{http://127.0.0.1:8080/mcp}). An
-AI app that is given that address can list and describe the local user's
-projects, run 'rbiom' statistics, draw plots and export data, as six
-tools. The tools only read and compute: none of them changes a project.
-What they return is handed to the app, which may send it to its
-provider's servers, so connect an app only if the data may leave this
-computer that way. The endpoint follows revision 2026-07-28 of the MCP
-specification. Shared servers (\code{auth = "oidc"}) do not offer it yet.
+The server is also a Model Context Protocol (MCP) server, at the path
+\verb{/mcp} (for example \verb{http://127.0.0.1:8080/mcp}). An AI app that is given
+that address can list and describe a person's projects, run 'rbiom'
+statistics, draw plots and export data. Unless \code{mcp_writes} is \code{FALSE},
+it can also upload files, change, copy, share, publish and delete
+projects, as that person can in the browser. Every change an app makes
+is recorded and shown on the app's "Connected apps" page, one app may
+make \code{app_changes_per_hour} changes an hour, and a deleted project can
+be restored for \code{trash_days}. What the tools return is handed to the
+app, which may send it to its provider's servers, so connect an app
+only if the data may leave the computer that way.
+
+With \code{auth = "none"} any app that is given the address is let in, as the
+local user. With \code{auth = "oidc"} the app must be approved by the person
+it works for: the server is an OAuth 2.1 authorization server for its
+own \verb{/mcp} endpoint, the person signs in as they do in the browser and
+chooses whether the app may only read or may also change things, and can
+disconnect it again. An app identifies itself with a Client ID Metadata
+Document, an https address that the server fetches; addresses inside
+private networks are refused. The endpoint follows revision 2026-07-28
+of the MCP specification, and also answers apps that only know the
+revisions of 2025.
 }
 
 \section{Database}{
@@ -262,10 +294,12 @@ server can be run to its end on one's own computer.
 
 When the server starts, and every ten minutes after that, it deletes
 closed and expired sessions, working copies that no session has open,
-guests who have not returned, private projects that nobody has in their
-project tree any more, stored files that nothing refers to, and old
-temporary files. See \code{session_hours} and \code{guest_days}. Saved projects
-that belong to a signed-in user are never deleted.
+guests who have not returned, projects that were deleted \code{trash_days}
+ago, private projects that nobody has in their project tree any more,
+connections of AI apps that have run out, stored files that nothing
+refers to, and old temporary files. See \code{session_hours} and \code{guest_days}.
+Saved projects that belong to a signed-in user are never erased unless
+somebody deleted them.
 }
 
 \section{Server log}{

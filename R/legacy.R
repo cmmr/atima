@@ -230,11 +230,14 @@ legacy_refused <- function (REQ, source) {
 
 
 #______________________________________________________________________________
-#' The project an old project was imported as, if it was.
+#' The project an old project was imported as, if it was. A project that
+#' has since been deleted does not count: importing again makes a new one.
 #' @return A project_id or `NULL`.
 #' @noRd
 legacy_imported <- function (DB, source, old_project) {
-  sql <- "SELECT project_id FROM legacy_imports WHERE source = ? AND old_project = ?"
+  sql <- paste0(
+    "SELECT project_id FROM legacy_imports JOIN projects USING (project_id)",
+    " WHERE source = ? AND old_project = ? AND deleted_utc IS NULL" )
   db_query(DB, sql, "LImp1", list(source[['id']], old_project))
 }
 
@@ -630,6 +633,11 @@ legacy_adopt <- function (DB, batch, id, result) {
     created <- result[['created']]
     if (is_scalar_character(created) && grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$", created))
       db_query(DB, "UPDATE projects SET created_utc = ? WHERE project_id = ?", "LAdo4", list(created, project_id))
+
+    # An earlier import of it that was deleted keeps its row until it is
+    # erased; this import takes its place.
+    sql <- "DELETE FROM legacy_imports WHERE source = ? AND old_project = ?"
+    db_query(DB, sql, "LAdo8", list(source[['id']], id))
 
     db_insert(
       DB = DB, table = "legacy_imports", err_code = "LAdo5",

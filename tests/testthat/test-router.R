@@ -16,6 +16,7 @@ valid_args <- list(
   "POST /api/tree/rename"              = list(node_id = "C1", text = "New name"),
   "POST /api/tree/leave"               = list(node_id = "P1"),
   "POST /api/tree/delete"              = list(node_id = "C1"),
+  "POST /api/tree/restore"             = list(node_id = "P1"),
   "POST /api/tree/move"                = list(node_id = "P1", parent_node_id = "C1"),
   "POST /api/public/create"            = list(parent_node_id = "#", text = "Gut studies"),
   "POST /api/public/rename"            = list(node_id = "C1", text = "New name"),
@@ -29,6 +30,8 @@ valid_args <- list(
   "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
   "POST /mcp"                          = list(body = charToRaw('{"jsonrpc":"2.0"}'), headers = c("mcp-method" = "tools/list")),
+  "POST /oauth/approve"                = list(request = strrep("a", 43), csrf = strrep("b", 43), decision = "connect"),
+  "POST /api/upload"                   = list(ticket = paste0("atu_", strrep("a", 40)), file = list(filename = "study.biom", value = as.raw(1:10))),
   "GET /unsaved/:session_key/:file"    = list(session_key = "12abcDEF", file = "rare.json"),
   "GET /:access_key/:file"             = list(access_key = "hmp50", file = "full.tab.gz"),
   "GET /:access_key"                   = list(access_key = "hmp50") )
@@ -79,7 +82,10 @@ test_that("every route is well formed and has a handler that takes its arguments
     # A route that acts on a tree node, or changes a grant, or is opened
     # with a key, has a rule that checks it.
     types <- vapply(r$args, function (spec) spec$type, character(1))
-    if ("node" %in% types)              expect_true(r$rule %in% c("tree", "tree_edit", "public_tree"), info = r$endpoint)
+    if ("node" %in% types)              expect_true(r$rule %in% c("tree", "tree_edit", "tree_restore", "public_tree"), info = r$endpoint)
+    if (r$handler == "api_tree_restore") expect_identical(r$rule, "tree_restore")
+    if (r$handler == "api_apps_disconnect") expect_identical(r$rule, "app_grant")
+    if (r$handler == "api_upload_ticket")   expect_identical(r$rule, "upload_ticket")
 
     # The public tree is the administrators' to arrange, and only theirs.
     expect_identical(startsWith(r$path, "/api/public/"), identical(r$rule, "public_tree"), info = r$endpoint)
@@ -248,10 +254,20 @@ test_that("every route refuses unknown arguments", {
     # Pages that browsers are sent to from elsewhere take what they know and
     # ignore the rest: the one a provider returns them to, and the app's
     # own page, whose links gather parameters such as "utm_source".
+    # So do the OAuth endpoints that AI apps call: an authorization server
+    # must ignore request parameters it does not know (RFC 6749, 3.1, 3.2).
     if (!r$strict) {
-      expect_true(r$endpoint %in% c("GET /auth/callback", "GET /", "GET /:access_key"), info = r$endpoint)
-      expect_true(r$html, info = r$endpoint)
-      known <- if (r$endpoint == "GET /auth/callback") list(code = "abc", state = "xyz") else list(access_key = "hmp50")
+      expect_true(r$endpoint %in% c(
+        "GET /auth/callback", "GET /", "GET /:access_key",
+        "GET /oauth/authorize", "POST /oauth/token", "POST /oauth/revoke" ), info = r$endpoint)
+      expect_identical(r$html, r$method == "GET", info = r$endpoint)
+      known <- switch(
+        EXPR = r$endpoint,
+        "GET /auth/callback"   = list(code = "abc", state = "xyz"),
+        "GET /oauth/authorize" = list(client_id = "https://app.example/client.json"),
+        "POST /oauth/token"    = list(grant_type = "refresh_token"),
+        "POST /oauth/revoke"   = list(token_type_hint = "access_token"),
+        list(access_key = "hmp50") )
       expect_identical(validate_args(r, c(known, list(session_state = "extra"))), known, info = r$endpoint)
       next
     }
@@ -525,10 +541,9 @@ test_that("every route enforces its permission level before calling its handler"
 
   for (r in route_table()) {
 
-    # This server has accounts. The routes that only exist without them
-    # (the MCP endpoint) are tested in test-mcp.R.
-    # (A GET to such a path is then, like any other word after the slash,
-    # a request for the app's page.)
+    # This server has accounts. A route that only exists without them
+    # would not be found. (A GET to such a path is then, like any other
+    # word after the slash, a request for the app's page.)
     if (!("oidc" %in% r$modes)) {
       if (r$method == "POST") {
         resp <- handle_request(route_request(r, list(), setup$sessions$editor), setup$app)

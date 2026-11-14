@@ -22,6 +22,9 @@
 #     Viewers can pass on view access and take back what they passed on.
 #   * A guest is a visitor who has not signed in. Guests can upload and save,
 #     but cannot be granted anything by name, grant anything, or publish.
+#   * A deleted project is kept for a while (`trash_days`) and is treated
+#     as if it did not exist: nobody can open it, by key or by grant. Its
+#     editors can restore it, which gives everyone back what they had.
 #   * Administrators can change public projects, and arrange the public
 #     tree: its collections, and which collection a public project is
 #     listed under. They have no access to other people's private projects.
@@ -36,7 +39,11 @@
 # `caller_project()` applies the same model to that: the caller needs a
 # grant on the project, or the project must be public. Knowing a private
 # key is not enough there, and using one never creates a grant, so that an
-# AI app cannot quietly add projects to someone's tree.
+# AI app cannot quietly add projects to someone's tree. A tool that changes
+# data asks for the level its browser route asks for, and names the same
+# rule where the route has one (`share`, `member_editor`); what an app may
+# do at all is the token's scope, checked where the tools are listed
+# (`mcp_tools()`).
 #______________________________________________________________________________
 
 
@@ -50,7 +57,7 @@ project_access <- function (DB, project_id, user_id = NULL) {
 
   if (is.null(project_id) || is.na(project_id)) return ("none")
 
-  sql <- "SELECT COUNT(*) AS n, COUNT(public_key) AS n_public FROM projects WHERE project_id = ?"
+  sql <- "SELECT COUNT(*) AS n, COUNT(public_key) AS n_public FROM projects WHERE project_id = ? AND deleted_utc IS NULL"
   res <- db_query(DB, sql, "PAcc1", list(project_id))
   if (res[['n']] == 0) return ("none")
 
@@ -86,7 +93,7 @@ key_project <- function (DB, key) {
 
   if (!is_scalar_character(key) || is.na(key) || !nzchar(key)) return (NULL)
 
-  sql <- "SELECT project_id, access_key FROM projects WHERE access_key = ? OR public_key = ?"
+  sql <- "SELECT project_id, access_key FROM projects WHERE (access_key = ? OR public_key = ?) AND deleted_utc IS NULL"
   res <- db_query(DB, sql, "KProj1", list(key, key), simplify = FALSE)
   if (nrow(res) != 1) return (NULL)
 
@@ -176,6 +183,10 @@ access_rules <- list(
   # The same, and a project node needs editing rights.
   tree_edit = function (REQ, args) check_nodes(REQ, args, editor = TRUE),
 
+  # Restoring a deleted project: the node is a deleted project that the
+  # caller was an editor of.
+  tree_restore = function (REQ, args) check_nodes(REQ, args, editor = TRUE, deleted = TRUE),
+
   # The public tree, which administrators arrange: the nodes named are
   # public collections and public projects. (That the caller is an
   # administrator is the route's level, `admin`.)
@@ -189,6 +200,42 @@ access_rules <- list(
       grantor_user_id = REQ[['SESSION']][['user_id']],
       project_id      = REQ[['SESSION']][['project_id']],
       permissions     = args[['permissions']] )
+  },
+
+  # The same change, asked for through a tool an AI app called: the project
+  # is the one the call named, and the level is called `access`.
+  share = function (REQ, args) {
+    check_grant(
+      DB              = REQ[['DB']],
+      user_id         = args[['user_id']],
+      grantor_user_id = REQ[['SESSION']][['user_id']],
+      project_id      = REQ[['SESSION']][['project_id']],
+      permissions     = args[['access']] )
+  },
+
+  # Deleting the project a tool call named: as in the browser, where only
+  # someone who has the project in their own tree as an editor can delete
+  # it. An administrator who may edit a public project by office may not.
+  member_editor = function (REQ, args) {
+    sql <- "SELECT is_editor FROM permissions WHERE user_id = ? AND project_id = ?"
+    own <- db_query(REQ[['DB']], sql, "MEdit1", list(REQ[['SESSION']][['user_id']], REQ[['SESSION']][['project_id']]))
+    if (!isTRUE(own))
+      stop_forbidden("Only someone who has this project among their own, as an editor, can delete it.")
+  },
+
+  # A connected app named in the request is the caller's own.
+  app_grant = function (REQ, args) {
+    if (is.null(args[['grant_id']])) return (invisible(TRUE))
+    sql <- "SELECT COUNT(*) FROM app_grants WHERE grant_id = ? AND user_id = ?"
+    if (db_query(REQ[['DB']], sql, "AGrant1", list(args[['grant_id']], REQ[['SESSION']][['user_id']])) == 0)
+      stop_not_found("That app is not connected. Please reload the page.")
+  },
+
+  # A file sent with an upload ticket: the ticket is the permission. It
+  # must be one that was issued, has not been used and has not run out.
+  upload_ticket = function (REQ, args) {
+    if (is.null(upload_find(REQ[['DB']], args[['ticket']])))
+      stop_forbidden("This upload ticket is unknown, has been used or has expired. Ask the AI app for a new one.")
   },
 
   # A download by project key: the key is the permission.
@@ -210,9 +257,11 @@ access_rules <- list(
 #______________________________________________________________________________
 #' Check every tree node among a request's arguments.
 #'
-#' @param editor  Must the caller be an editor of a project node?
+#' @param editor   Must the caller be an editor of a project node?
+#' @param deleted  Must a project node be a deleted project? Otherwise it
+#'                 must not be one.
 #' @noRd
-check_nodes <- function (REQ, args, editor = FALSE) {
+check_nodes <- function (REQ, args, editor = FALSE, deleted = FALSE) {
 
   DB      <- REQ[['DB']]
   user_id <- REQ[['SESSION']][['user_id']]
@@ -234,18 +283,27 @@ check_nodes <- function (REQ, args, editor = FALSE) {
 
     } else if (kind == "P") {
 
-      sql       <- "SELECT is_editor FROM permissions WHERE permission_id = ? AND user_id = ?"
-      is_editor <- db_query(DB, sql, "CNode2", list(number, user_id))
+      sql <- paste0(
+        "SELECT is_editor, deleted_utc FROM permissions JOIN projects USING (project_id)",
+        " WHERE permission_id = ? AND user_id = ?" )
+      grant <- db_query(DB, sql, "CNode2", list(number, user_id), simplify = FALSE)
 
-      if (is.null(is_editor))
+      if (nrow(grant) == 0)
         stop_forbidden("That project is not in your collections. Please reload the page.")
 
-      if (editor && !isTRUE(is_editor))
+      # A deleted project can only be restored; any other project cannot be.
+      if (!is.na(grant[['deleted_utc']]) && !deleted)
+        stop_not_found("That project has been deleted. Please reload the page.")
+
+      if (is.na(grant[['deleted_utc']]) && deleted)
+        stop_user("That project is not deleted. Please reload the page.")
+
+      if (editor && !isTRUE(grant[['is_editor']]))
         stop_forbidden("You do not have permission to change this project.")
 
     } else if (kind == "G") {
 
-      sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND public_key IS NOT NULL"
+      sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND public_key IS NOT NULL AND deleted_utc IS NULL"
       if (db_query(DB, sql, "CNode3", list(number)) == 0)
         stop_forbidden("You do not have access to that project.")
     }
@@ -281,7 +339,7 @@ check_public_nodes <- function (REQ, args) {
 
     } else if (kind == "G") {
 
-      sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND public_key IS NOT NULL"
+      sql <- "SELECT COUNT(*) FROM projects WHERE project_id = ? AND public_key IS NOT NULL AND deleted_utc IS NULL"
       if (db_query(DB, sql, "PNode2", list(number)) == 0)
         stop_forbidden("That is not a public project. Please reload the page.")
 

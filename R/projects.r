@@ -341,6 +341,26 @@ check_public_key <- function (DB, public_key, project_id = NULL) {
 #' @noRd
 api_publish <- function (REQ, is_public, public_key = NULL, collection_id = NULL) {
 
+  set_public(REQ, is_public, public_key, collection_id)
+
+  resume_session(REQ)
+
+  with_biom_data(REQ, function (BIOM) list(
+    BIOM        = BIOM,
+    tree        = tree_data(REQ) ))
+}
+
+
+#______________________________________________________________________________
+#' Make the project of the request's session public or private: the part of
+#' publishing that the browser's route and the AI apps' tool share.
+#'
+#' @param dry_run  Only check that it could be done?
+#' @return The project's public key from now on, or `NULL` if it has none.
+#'         Stops with a 400 if the key cannot be used.
+#' @noRd
+set_public <- function (REQ, is_public, public_key = NULL, collection_id = NULL, dry_run = FALSE) {
+
   DB         <- REQ[['DB']]
   project_id <- REQ[['SESSION']][['project_id']]
 
@@ -365,17 +385,14 @@ api_publish <- function (REQ, is_public, public_key = NULL, collection_id = NULL
     collection_id <- NULL
   }
 
-  db_update(
-    DB                   = DB,
-    table                = "projects",
-    id                   = project_id,
-    err_code             = "APub2",
-    public_key           = public_key,
-    public_collection_id = collection_id )
+  if (!dry_run)
+    db_update(
+      DB                   = DB,
+      table                = "projects",
+      id                   = project_id,
+      err_code             = "APub2",
+      public_key           = public_key,
+      public_collection_id = collection_id )
 
-  resume_session(REQ)
-
-  with_biom_data(REQ, function (BIOM) list(
-    BIOM        = BIOM,
-    tree        = tree_data(REQ) ))
+  public_key
 }

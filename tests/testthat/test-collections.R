@@ -371,3 +371,124 @@ test_that("a public collection that holds something is not deleted", {
   expect_identical(s$listed_under(pid)$public_key, before$public_key)
   expect_true(is.na(s$listed_under(pid)$public_collection_id))
 })
+
+
+# Deleted projects ---------------------------------------------------------------
+
+test_that("a deleted project is hidden from everyone, kept, and restored by an editor", {
+
+  local_fake_biom()
+  REQ <- local_test_req()
+  DB  <- REQ$DB
+  app <- test_app(REQ)
+
+  ada <- add_test_user(DB, "Ada Lovelace")
+  bob <- add_test_user(DB, "Bob Example")
+
+  study <- add_test_project(DB, ada, "Shared study")
+  update_permissions(DB, bob, study$project_id, "view", grantor_user_id = ada)
+  key   <- db_query(DB, "SELECT access_key FROM projects WHERE project_id = ?", "T1", list(study$project_id))
+  node  <- function (user) paste0("P", db_query(DB, "SELECT permission_id FROM permissions WHERE user_id = ? AND project_id = ?", "T2", list(user, study$project_id)))
+
+  sessions <- list(
+    ada = add_test_session(DB, ada, add_test_project(DB, ada, "Ada's other")$project_id),
+    bob = add_test_session(DB, bob, add_test_project(DB, bob, "Bob's other")$project_id) )
+
+  post  <- function (who, path, args = list()) handle_request(fake_request("POST", path, args, sessions[[who]]), app)
+  texts <- function (who) {
+    vapply(tree_data(as.environment(list(DB = DB, SESSION = list(user_id = if (who == "ada") ada else bob))))$private, function (n) as.vector(n$text), character(1))
+  }
+
+  expect_true("Shared study" %in% texts("ada"))
+  expect_length(response_json(post("ada", "/api/tree/deleted"))$projects, 0)
+
+  # A viewer cannot delete for everyone, and nothing can be restored that
+  # is not deleted.
+  expect_identical(post("bob", "/api/tree/delete", list(node_id = node(bob)))$status, 403L)
+  expect_identical(post("ada", "/api/tree/restore", list(node_id = node(ada)))$status, 400L)
+
+  expect_identical(post("ada", "/api/tree/delete", list(node_id = node(ada)))$status, 200L)
+
+  # Nothing was erased: the row, its files and both grants are there.
+  expect_false(is.na(db_query(DB, "SELECT deleted_utc FROM projects WHERE project_id = ?", "T3", list(study$project_id))))
+  expect_identical(db_query(DB, "SELECT COUNT(*) FROM permissions WHERE project_id = ?", "T4", list(study$project_id)), 2L)
+
+  # But for everyone it is as if it did not exist: by grant, by key, in a
+  # tree, as a download, as the project a new tab opens.
+  expect_identical(project_access(DB, study$project_id, ada), "none")
+  expect_identical(project_access(DB, study$project_id, bob), "none")
+  expect_null(key_project(DB, key))
+  expect_false("Shared study" %in% texts("ada"))
+  expect_false("Shared study" %in% texts("bob"))
+  expect_identical(handle_request(fake_request("GET", paste0("/", key, "/full.json")), app)$status, 404L)
+
+  init <- handle_request(fake_request("POST", "/api/session/init", list(access_key = key)), app)
+  expect_false(identical(response_json(init)$BIOM$title, "Shared study"))
+
+  for (path in c("/api/tree/select", "/api/tree/leave", "/api/tree/delete"))
+    expect_identical(post("ada", path, list(node_id = node(ada)))$status, 404L, info = path)
+  expect_identical(post("ada", "/api/tree/rename", list(node_id = node(ada), text = "Renamed"))$status, 404L)
+
+  # Its editors are shown it as deleted, with the day it will be erased.
+  listed <- response_json(post("ada", "/api/tree/deleted"))$projects
+  expect_length(listed, 1)
+  expect_identical(listed[[1]]$node_id, node(ada))
+  expect_identical(listed[[1]]$title, "Shared study")
+  expect_equal(
+    as.numeric(difftime(as.POSIXct(listed[[1]]$erased_utc, tz = "UTC"), as.POSIXct(listed[[1]]$deleted_utc, tz = "UTC"), units = "days")), 30)
+  expect_length(response_json(post("bob", "/api/tree/deleted"))$projects, 0)
+
+  # Only an editor restores it, and then everyone has what they had.
+  expect_identical(post("bob", "/api/tree/restore", list(node_id = node(bob)))$status, 403L)
+  expect_identical(post("bob", "/api/tree/restore", list(node_id = node(ada)))$status, 403L)
+
+  resp <- post("ada", "/api/tree/restore", list(node_id = node(ada)))
+  expect_identical(resp$status, 200L)
+  expect_true("Shared study" %in% vapply(response_json(resp)$tree$private, function (n) n$text, character(1)))
+  expect_identical(project_access(DB, study$project_id, ada), "editor")
+  expect_identical(project_access(DB, study$project_id, bob), "viewer")
+  expect_identical(key_project(DB, key)$project_id, study$project_id)
+  expect_length(response_json(post("ada", "/api/tree/deleted"))$projects, 0)
+
+  # Deleted again, it is erased once it has been deleted for trash_days,
+  # and not before.
+  post("ada", "/api/tree/delete", list(node_id = node(ada)))
+  exists <- function () db_query(DB, "SELECT COUNT(*) FROM projects WHERE project_id = ?", "T5", list(study$project_id)) == 1L
+
+  cleanup_run(DB, REQ$CONFIG)
+  expect_true(exists())
+  cleanup_run(DB, REQ$CONFIG, now = Sys.time() + 29 * 86400)
+  expect_true(exists())
+  cleanup_run(DB, REQ$CONFIG, now = Sys.time() + 31 * 86400)
+  expect_false(exists())
+  expect_identical(db_query(DB, "SELECT COUNT(*) FROM permissions WHERE project_id = ?", "T6", list(study$project_id)), 0L)
+})
+
+
+test_that("a deleted public project leaves the public list, and keeps its key", {
+
+  local_fake_biom()
+  REQ <- local_test_req()
+  DB  <- REQ$DB
+
+  ada  <- add_test_user(DB, "Ada Lovelace")
+  open <- add_test_project(DB, ada, "Open study", is_public = TRUE)
+  key  <- db_query(DB, "SELECT public_key FROM projects WHERE project_id = ?", "T1", list(open$project_id))
+
+  public <- function () vapply(tree_data(as.environment(list(DB = DB, SESSION = list(user_id = ada))))$public, function (n) as.vector(n$text), character(1))
+  expect_true("Open study" %in% public())
+
+  trash_project(DB, open$project_id)
+
+  expect_false("Open study" %in% public())
+  expect_identical(project_access(DB, open$project_id, NULL), "none")
+  expect_null(key_project(DB, key))
+
+  # Nobody else can take its address while it can still come back.
+  other <- add_test_project(DB, ada, "Another study")
+  expect_error(check_public_key(DB, key, other$project_id), "already in use", class = "atima_http_error")
+
+  restore_project(DB, open$project_id)
+  expect_true("Open study" %in% public())
+  expect_identical(project_access(DB, open$project_id, NULL), "viewer")
+})

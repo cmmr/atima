@@ -9,7 +9,10 @@
 #   2. Drafts (unsaved working copies) that no session has open.
 #   3. Guest users not seen for `guest_ttl` seconds who have no session,
 #      and auth tokens that have expired.
-#   4. Private projects that no user has in their tree any more.
+#   4. Projects that were deleted `trash_ttl` seconds ago, and private
+#      projects that no user has in their tree any more.
+#      Connections of AI apps that have run out, expired tokens and upload
+#      tickets, and old rows of the record of changes (`cleanup_apps()`).
 #   5. `biom_files` rows that no project or draft refers to.
 #   6. Files in `<data_dir>/files` that have no `biom_files` row and are
 #      older than `session_ttl` (a job writes its files before the main
@@ -33,7 +36,7 @@ cleanup_interval <- 600
 #'
 #' @param DB      The connection.
 #' @param config  The server configuration: `data_dir`, `temp_dir`,
-#'                `session_ttl` and `guest_ttl`.
+#'                `session_ttl`, `guest_ttl` and `trash_ttl`.
 #' @param now     The current time; tests pass other values.
 #' @return A named list: how many of each kind of thing were removed.
 #' @noRd
@@ -49,7 +52,8 @@ cleanup_run <- function (DB, config, now = Sys.time()) {
     # before an upgrade, and what they own is the local user's own work.
     guests     = if (identical(config[['auth']], "none")) 0L else cleanup_guests(DB, guest_cutoff),
     tokens     = cleanup_tokens(DB, now),
-    projects   = cleanup_projects(DB),
+    projects   = cleanup_projects(DB, now - config[['trash_ttl']]),
+    apps       = cleanup_apps(DB, now),
     biom_files = cleanup_biom_files(DB) ))
 
   removed[['stored_files']] <- cleanup_stored_files(DB, config, session_cutoff)
@@ -161,12 +165,16 @@ cleanup_tokens <- function (DB, now) {
 
 
 #______________________________________________________________________________
-#' Rule 4: private projects that are in nobody's tree: left behind by
-#' "delete project", or by the removal of the only guest who had them.
-#' @return The number of projects deleted.
+#' Rule 4: projects that were deleted before `cutoff`, and private projects
+#' that are in nobody's tree: left behind when the last person who had one
+#' left it, or by the removal of the only guest who had it.
+#' @return The number of projects erased.
 #' @noRd
-cleanup_projects <- function (DB) {
-  delete_where(DB, "projects", "public_key IS NULL AND project_id NOT IN (SELECT project_id FROM permissions)")
+cleanup_projects <- function (DB, cutoff) {
+  where <- paste0(
+    "deleted_utc < ?",
+    " OR (public_key IS NULL AND project_id NOT IN (SELECT project_id FROM permissions))" )
+  delete_where(DB, "projects", where, list(sql_time(cutoff)))
 }
 
 

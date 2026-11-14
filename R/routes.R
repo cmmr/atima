@@ -127,6 +127,13 @@ route_table <- function () {
     route("POST /api/tree/delete", "api_tree_delete", "session", "fast", rule = "tree_edit", args = list(
       node_id = arg_node("CP") )),
 
+    # A deleted project is kept for `trash_days`; until then its editors
+    # can list and restore it.
+    route("POST /api/tree/deleted", "api_tree_deleted", "session", "fast"),
+
+    route("POST /api/tree/restore", "api_tree_restore", "session", "fast", rule = "tree_restore", args = list(
+      node_id = arg_node("P") )),
+
     route("POST /api/tree/move", "api_tree_move", "session", "fast", rule = "tree", args = list(
       node_id        = arg_node("CP"),
       parent_node_id = arg_node("C", root = TRUE) )),
@@ -244,13 +251,86 @@ route_table <- function () {
     # handler gets the request as it came. The route is `public` because
     # there is no cookie or tab session; who the caller is, and what each
     # tool needs, is decided per tool call (`tool_call()` in
-    # `R/mcp-tools.R`). Only for a server without accounts, so far.
+    # `R/mcp-tools.R`). On a server with accounts the caller is the user of
+    # the bearer token the request carries (`R/oauth.R`).
 
-    route("POST /mcp", "mcp_post", "public", "compute", modes = "none", raw = TRUE, args = list(
+    route("POST /mcp", "mcp_post", "public", "compute", raw = TRUE, args = list(
       body    = arg_body(),
       headers = arg_headers() )),
 
-    route("GET /mcp", "mcp_get", "public", "fast", modes = "none"),
+    route("GET /mcp", "mcp_get", "public", "fast"),
+
+
+    #__________________________________________________________________________
+    # Signing in for AI apps (`R/oauth.R`): on a server with accounts, atima
+    # is the OAuth authorization server that issues the tokens `/mcp` asks
+    # for. The first three are documents apps read to find their way. The
+    # two `/oauth` pages are for a person's browser; who that person is
+    # comes from the auth cookie, which the handlers check themselves,
+    # since a browser on these pages has no tab session. The token and
+    # revocation endpoints are called by the apps and take no cookie:
+    # what proves the caller is the code, PKCE verifier or token it sends.
+
+    route("GET /.well-known/oauth-protected-resource", "oauth_protected_resource", "public", "fast", modes = "oidc"),
+
+    route("GET /.well-known/oauth-protected-resource/mcp", "oauth_protected_resource", "public", "fast", modes = "oidc"),
+
+    route("GET /.well-known/oauth-authorization-server", "oauth_server_metadata", "public", "fast", modes = "oidc"),
+
+    route("GET /oauth/authorize", "oauth_authorize", "public", "fast", modes = "oidc", html = TRUE, strict = FALSE, args = list(
+      response_type         = arg_string(max = 40L,   optional = TRUE),
+      client_id             = arg_string(max = 300L,  optional = TRUE),
+      redirect_uri          = arg_string(max = 500L,  optional = TRUE),
+      code_challenge        = arg_string(max = 200L,  optional = TRUE),
+      code_challenge_method = arg_string(max = 20L,   optional = TRUE),
+      state                 = arg_string(max = 1000L, optional = TRUE, trim = FALSE),
+      scope                 = arg_string(max = 200L,  optional = TRUE),
+      resource              = arg_string(max = 500L,  optional = TRUE),
+      request               = arg_string(max = 43L,   optional = TRUE, pattern = "^[A-Za-z0-9]{43}$") )),
+
+    route("POST /oauth/approve", "oauth_approve", "public", "fast", modes = "oidc", html = TRUE, args = list(
+      request  = arg_string(max = 43L, pattern = "^[A-Za-z0-9]{43}$"),
+      csrf     = arg_secret(min = 43L, max = 43L),
+      decision = arg_choice(c("connect", "cancel")),
+      access   = arg_choice(c("read", "write"), default = "read") )),
+
+    route("POST /oauth/token", "oauth_token", "public", "fast", modes = "oidc", strict = FALSE, args = list(
+      grant_type    = arg_string(max = 40L,  optional = TRUE),
+      client_id     = arg_string(max = 300L, optional = TRUE),
+      code          = arg_secret(max = 200L, optional = TRUE),
+      redirect_uri  = arg_string(max = 500L, optional = TRUE),
+      code_verifier = arg_secret(max = 200L, optional = TRUE),
+      refresh_token = arg_secret(max = 200L, optional = TRUE),
+      resource      = arg_string(max = 500L, optional = TRUE),
+      scope         = arg_string(max = 200L, optional = TRUE) )),
+
+    route("POST /oauth/revoke", "oauth_revoke", "public", "fast", modes = "oidc", strict = FALSE, args = list(
+      token           = arg_secret(max = 200L, optional = TRUE),
+      token_type_hint = arg_string(max = 40L,  optional = TRUE) )),
+
+
+    #__________________________________________________________________________
+    # What AI apps have been let in, and what they did (`R/apps.R`). The
+    # record of changes exists on a server without accounts too; the list
+    # of connected apps is empty there, since nothing needs approving. The
+    # `app_grant` rule checks that a connection named is the caller's own.
+
+    route("POST /api/apps/list", "api_apps_list", "session", "fast", account = TRUE),
+
+    route("POST /api/apps/disconnect", "api_apps_disconnect", "session", "fast", account = TRUE, modes = "oidc", rule = "app_grant", args = list(
+      grant_id = arg_int(min = 1L, optional = TRUE) )),
+
+
+    #__________________________________________________________________________
+    # A file sent for a tool call (`R/mcp-upload.R`). An AI app that is
+    # allowed to change data asks for a ticket with the `upload_file` tool
+    # and is given a command that sends the file here. The ticket is the
+    # permission: it works once, for a quarter of an hour, for the person
+    # and the purpose it was made for (the `upload_ticket` rule).
+
+    route("POST /api/upload", "api_upload_ticket", "public", "compute", rule = "upload_ticket", args = list(
+      ticket = arg_secret(min = 20L, max = 100L),
+      file   = arg_file() )),
 
 
     #__________________________________________________________________________

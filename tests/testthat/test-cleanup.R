@@ -130,7 +130,7 @@ test_that("rule 4: private projects in nobody's tree are deleted", {
 
   session <- add_test_session(DB, ada, orphan)
 
-  expect_identical(cleanup_projects(DB), 2L)
+  expect_identical(cleanup_projects(DB, Sys.time() - 30 * 86400), 2L)
   expect_setequal(db_query(DB, "SELECT project_id FROM projects", "T2"), c(owned, public))
 
   # Its drafts went with it, and a session that had it open has none now.

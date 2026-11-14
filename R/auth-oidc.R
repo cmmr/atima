@@ -390,10 +390,13 @@ oidc_with_userinfo <- function (provider, claims, access_token) {
 
 #______________________________________________________________________________
 #' Where to send the browser after signing in: only a path on this site
-#' that is the home page or a project.
+#' that is the home page or a project, or the approval page of an AI app
+#' that is being connected (`oauth_approval()`).
 #' @noRd
 oidc_return_to <- function (return_to) {
-  if (isTRUE(grepl("^/[A-Za-z0-9-]{0,40}$", return_to))) return_to else "/"
+  if (isTRUE(grepl("^/[A-Za-z0-9-]{0,40}$", return_to)))                         return (return_to)
+  if (isTRUE(grepl("^/oauth/authorize\\?request=[A-Za-z0-9]{43}$", return_to))) return (return_to)
+  "/"
 }
 
 

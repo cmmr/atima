@@ -79,7 +79,7 @@ tree_data <- function (REQ) {
   #________________________________________________________
   public <- c(
     nodes("SELECT * FROM collections WHERE user_id IS NULL", "AJData1"),
-    nodes("SELECT * FROM projects WHERE public_key IS NOT NULL", "AJData2", public = TRUE, editor = is_admin) )
+    nodes("SELECT * FROM projects WHERE public_key IS NOT NULL AND deleted_utc IS NULL", "AJData2", public = TRUE, editor = is_admin) )
 
 
   #________________________________________________________
@@ -90,7 +90,7 @@ tree_data <- function (REQ) {
     "SELECT * FROM permissions",
     " LEFT JOIN projects    USING (project_id)",
     " LEFT JOIN last_access USING (user_id, project_id)",
-    " WHERE user_id = ?" )
+    " WHERE user_id = ? AND deleted_utc IS NULL" )
 
   private <- c(
     nodes("SELECT * FROM collections WHERE user_id = ?", "AJData3", list(user_id)),
@@ -214,6 +214,8 @@ api_tree_leave <- function (REQ, node_id) {
 
 #______________________________________________________________________________
 #' Delete a project or empty collection.
+#'
+#' A deleted project is not erased at once: see `trash_project()`.
 #' @return list()
 #' @noRd
 api_tree_delete <- function (REQ, node_id) {
@@ -223,16 +225,8 @@ api_tree_delete <- function (REQ, node_id) {
 
   # Deleting a PROJECT, based on a permission_id
   #________________________________________________________
-  if (startsWith(node_id, 'P')) {
-
-    project_id <- node_permission(DB, node_id)[['project_id']]
-
-    # Really, just delete all permissions to it, to avoid clobbering
-    # other users' open drafts of this project. Projects that nobody
-    # can reach any more are removed by the cleanup job.
-    sql <- "DELETE FROM permissions WHERE project_id = ?"
-    db_query(DB, sql, "AJDel1", list(project_id))
-  }
+  if (startsWith(node_id, 'P'))
+    trash_project(DB, node_permission(DB, node_id)[['project_id']])
 
 
   # Deleting an empty COLLECTION, based on a collection_id
@@ -259,6 +253,68 @@ api_tree_delete <- function (REQ, node_id) {
   return (list())
 }
 
+
+
+#______________________________________________________________________________
+#' Delete a project, for everyone, in a way that can be undone.
+#'
+#' The project is marked as deleted and from then on is treated as if it
+#' did not exist (`R/access.R`). Nothing else changes: its files, its keys
+#' and everyone's grants stay, so that `restore_project()` brings it back
+#' as it was. The cleanup timer erases it once it has been deleted for
+#' `trash_days`.
+#' @noRd
+trash_project <- function (DB, project_id) {
+  sql <- "UPDATE projects SET deleted_utc = CURRENT_TIMESTAMP WHERE project_id = ? AND deleted_utc IS NULL"
+  db_query(DB, sql, "TProj1", list(project_id))
+  invisible(NULL)
+}
+
+#' Bring a deleted project back.
+#' @noRd
+restore_project <- function (DB, project_id) {
+  sql <- "UPDATE projects SET deleted_utc = NULL WHERE project_id = ?"
+  db_query(DB, sql, "RProj1", list(project_id))
+  invisible(NULL)
+}
+
+
+#______________________________________________________________________________
+#' The deleted projects the caller can restore: those they were an editor
+#' of, newest deletion first.
+#' @return list(projects = list(node_id, title, deleted_utc, erased_utc,
+#'         n_samples, n_taxa))
+#' @noRd
+api_tree_deleted <- function (REQ) {
+
+  sql <- paste0(
+    "SELECT permission_id, title, deleted_utc, n_samples, n_taxa",
+    " FROM permissions JOIN projects USING (project_id)",
+    " WHERE user_id = ? AND is_editor = 1 AND deleted_utc IS NOT NULL",
+    " ORDER BY deleted_utc DESC, project_id DESC" )
+  found <- db_query(REQ[['DB']], sql, "ATDeld1", list(REQ[['SESSION']][['user_id']]), simplify = FALSE)
+
+  ttl <- REQ[['CONFIG']][['trash_ttl']]
+
+  list(projects = lapply(seq_len(nrow(found)), function (i) list(
+    node_id     = unbox(paste0("P", found[i, 'permission_id'])),
+    title       = unbox(found[i, 'title']),
+    deleted_utc = unbox(sql_time(found[i, 'deleted_utc'])),
+    erased_utc  = unbox(sql_time(found[i, 'deleted_utc'] + ttl)),
+    n_samples   = unbox(found[i, 'n_samples']),
+    n_taxa      = unbox(found[i, 'n_taxa']) )))
+}
+
+
+#______________________________________________________________________________
+#' Restore a deleted project. The router has checked that the node is a
+#' deleted project the caller was an editor of.
+#' @return list(tree)
+#' @noRd
+api_tree_restore <- function (REQ, node_id) {
+  restore_project(REQ[['DB']], node_permission(REQ[['DB']], node_id)[['project_id']])
+  list(tree = tree_data(REQ))
+}
 
 
 #______________________________________________________________________________

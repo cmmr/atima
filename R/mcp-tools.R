@@ -9,7 +9,8 @@
 # The handlers (`tool_*()`) check nothing themselves.
 #
 # A tool call has no browser tab behind it. The caller is a user (with
-# `auth = "none"`, the local owner), each call names its project by key, and
+# `auth = "none"` the local owner, with `auth = "oidc"` the user of the
+# request's bearer token), each call names its project by key, and
 # the work is done on the saved project, never on a tab's unsaved changes.
 # For the length of the call, `REQ$SESSION` holds that user and project in
 # the shape a tab's session has, without a session id or key, so that the
@@ -26,10 +27,25 @@
 # the result's data. None of it is ever part of a tool's name, description
 # or schema, which are fixed text written here.
 #
-# The first tools only read and compute. A tool that changes data would
-# declare `read_only = FALSE` and the permission it needs; such tools are
-# offered only when the server's configuration allows them (`mcp_writes`),
-# which nothing sets yet.
+# The tools in this file only read and compute. Those that change data
+# (`R/mcp-write.R`, `R/mcp-upload.R`) declare `read_only = FALSE`, the
+# permission they need and, where the browser's route has one, the access
+# rule that looks at their arguments. Three things decide whether such a
+# tool is offered to a caller at all (`mcp_tools()`): the server's setting
+# (`mcp_writes`), the authentication mode (sharing needs accounts), and,
+# with accounts, whether the person let this app make changes (the token's
+# `write` scope). `tool_call()` then holds every change to two more rules,
+# for all such tools alike: one connection may make only so many changes an
+# hour, and every change is written to the record the person can read
+# (`R/apps.R`).
+#
+# The tools that expose data or cannot be undone (sharing, publishing,
+# deleting, a new share link) act only when called with `confirm: true`;
+# without it they say what would happen and change nothing. That is a
+# request to the app to put the consequence to the person first. It is not
+# a barrier: what stands between an instruction hidden in a project's text
+# and these tools is the read-only choice at approval, the app's own
+# prompt before a tool it is told is destructive, the cap, and the record.
 #______________________________________________________________________________
 
 
@@ -66,9 +82,24 @@ mcp_depths_max <- 40L
 #'                     An argument called `project` is a project key. The
 #'                     handler takes each under its own name, except
 #'                     `function`, which it takes as `fn` (`handler_args()`).
+#' @param scope        What the person must have let the app do for the
+#'                     tool to be offered: `"read"` or `"write"`. A tool
+#'                     that changes data needs `"write"`; so do the few
+#'                     that only read but exist to serve those.
+#' @param rule         The name of an entry of `access_rules` (`R/access.R`)
+#'                     that checks the call's arguments, as for a route.
+#' @param modes        The authentication modes in which the tool exists.
+#' @param destructive  For a tool that changes data: does it replace or
+#'                     remove something, or expose it, rather than only add?
+#' @param idempotent   For a tool that changes data: does calling it again
+#'                     with the same arguments change nothing more?
+#' @param open_world   Does the tool reach people other than its caller?
 #' @return A list of class `tool`.
 #' @noRd
-tool <- function (name, title, description, permission, args = list(), read_only = TRUE) {
+tool <- function (
+    name, title, description, permission, args = list(), read_only = TRUE,
+    scope = if (read_only) "read" else "write", rule = NULL, modes = auth_modes,
+    destructive = FALSE, idempotent = read_only, open_world = FALSE ) {
 
   stopifnot(
     is_scalar_character(name), grepl("^[a-z][a-z_]{0,63}$", name),
@@ -76,6 +107,13 @@ tool <- function (name, title, description, permission, args = list(), read_only
     is_scalar_character(description),
     is_one_of(permission, tool_levels),
     is_bool(read_only),
+    is_one_of(scope, oauth_scopes),
+    read_only || scope == "write",
+    is.null(rule) || is_one_of(rule, names(access_rules)),
+    is.character(modes), length(modes) > 0, all(modes %in% auth_modes),
+    is_bool(destructive), !(read_only && destructive),
+    is_bool(idempotent),
+    is_bool(open_world),
     is.list(args),
     length(args) == 0 || (!is.null(names(args)) && all(grepl("^[a-z_]+$", names(args)))),
     all(vapply(args, function (a) inherits(a, "arg_spec") && is.list(a[['json']]), logical(1))),
@@ -88,6 +126,12 @@ tool <- function (name, title, description, permission, args = list(), read_only
     handler     = paste0("tool_", name),
     permission  = permission,
     read_only   = read_only,
+    scope       = scope,
+    rule        = rule,
+    modes       = modes,
+    destructive = destructive,
+    idempotent  = idempotent,
+    open_world  = open_world,
     strict      = TRUE,
     args        = args ))
 }
@@ -145,8 +189,9 @@ mcp_tool_table <- function () {
 
   schema_once("mcp_tools", {
 
-    plots <- schema_fns("plot")
-    stats <- schema_fns("stats")
+    plots    <- schema_fns("plot")
+    stats    <- schema_fns("stats")
+    clusters <- schema_fns("clusters")
 
     labels <- function (fns) paste0(
       fns, " (", vapply(fns, function (fn) schema_functions[[fn]][['label']], character(1)), ")", collapse = "; " )
@@ -216,13 +261,14 @@ mcp_tool_table <- function () {
           "Give the arguments of one of the rbiom functions that run_stats and make_plot can run, as a JSON Schema:",
           " each argument's type, choices, default and meaning, and the rules about which go together.",
           " With `project`, metadata fields, ranks and diversity metrics are listed as that project has them.",
-          " Statistics: ", labels(stats), ". Plots: ", labels(plots), "." ),
+          " Statistics: ", labels(stats), ". Plots: ", labels(plots), ".",
+          " Clustering, for add_clusters where that tool is offered: ", labels(clusters), "." ),
         permission  = "session",
         args        = list(
           `function` = tool_arg(
-            spec        = arg_choice(c(stats, plots)),
+            spec        = arg_choice(c(stats, plots, clusters)),
             description = "The rbiom function to describe.",
-            json        = list(type = "string", enum = as.list(c(stats, plots))) ),
+            json        = list(type = "string", enum = as.list(c(stats, plots, clusters))) ),
           project    = tool_arg(
             spec        = arg_string(min = 4L, max = 40L, pattern = access_key_pattern, optional = TRUE),
             description = "A project's key, to have its fields, ranks and metrics listed in the schema.",
@@ -314,17 +360,33 @@ mcp_tool_table <- function () {
             description = "For `taxa`: a taxonomic rank of the project, or \"otu\".",
             json        = list(type = "string", default = "otu") ))) )
 
+    tools <- c(tools, mcp_write_tools(project, fn_args, samples, clusters))
+
     names(tools) <- vapply(tools, function (t) t[['name']], character(1))
     tools
   })
 }
 
 
-#' The tools a server offers: all that only read, and those that change
-#' data only if its configuration says so.
+#' The tools a server offers a caller.
+#'
+#' A tool that needs the `write` scope is offered only if the server's
+#' configuration allows changes (`mcp_writes`); a tool exists only in the
+#' authentication modes it names.
+#'
+#' @param caller  Who is asking (`mcp_identify()`): the tools are then
+#'                limited to what the person let this app do. `NULL` for
+#'                every tool the server has.
 #' @noRd
-mcp_tools <- function (config = list()) {
-  Filter(function (t) t[['read_only']] || isTRUE(config[['mcp_writes']]), mcp_tool_table())
+mcp_tools <- function (config = list(), caller = NULL) {
+
+  mode <- config[['auth']] %||% "none"
+
+  Filter(x = mcp_tool_table(), function (t) {
+    (t[['scope']] == "read" || isTRUE(config[['mcp_writes']])) &&
+      mode %in% t[['modes']] &&
+      (is.null(caller) || t[['scope']] %in% caller[['scope']])
+  })
 }
 
 
@@ -345,27 +407,29 @@ tool_definition <- function (tool) {
       if (length(args) > 0)     list(properties = lapply(args, function (a) a[['json']])),
       if (length(required) > 0) list(required = as.list(required)),
       list(additionalProperties = FALSE) ),
+    # Hints for the app, which may ask its user before a call it is told
+    # is destructive. An app is free to ignore them.
     annotations = list(
       readOnlyHint    = tool[['read_only']],
-      destructiveHint = FALSE,
-      idempotentHint  = tool[['read_only']],
-      openWorldHint   = FALSE ))
+      destructiveHint = tool[['destructive']],
+      idempotentHint  = tool[['idempotent']],
+      openWorldHint   = tool[['open_world']] ))
 }
 
 
 #______________________________________________________________________________
-#' Who is calling the MCP endpoint.
-#'
-#' Without accounts it is the local owner. (The route does not exist with
-#' `auth = "oidc"`, where a caller will be the user of a bearer token.)
-#' @return `list(user_id)`
+#' Who is calling the MCP endpoint: what `mcp_post()` found out before it
+#' read the message (`mcp_identify()`).
+#' @return `list(user_id, grant_id, scope, app)`
 #' @noRd
 mcp_caller <- function (REQ) {
 
-  if (!identical(REQ[['CONFIG']][['auth']], "none"))
-    stop_unauthorized("Sign-in for AI apps is not available on this server.")
+  caller <- REQ[['CALLER']]
 
-  list(user_id = local_owner(REQ[['DB']]))
+  if (is.null(caller[['user_id']]))
+    stop_unauthorized("Sign in to use this server.")
+
+  caller
 }
 
 
@@ -373,8 +437,15 @@ mcp_caller <- function (REQ) {
 #' Check a tool call against the tool's declaration, then run its handler.
 #'
 #' The order is the router's: who is calling, whether they may do this with
-#' the project they name, whether the arguments are valid, and only then
-#' the handler.
+#' the project they name, whether the arguments are valid, whether the
+#' tool's rule allows it, and only then the handler.
+#'
+#' A tool that changes data is held to two more things here, so that no
+#' handler can leave them out: the cap on changes per connection and hour,
+#' checked before anything is done, and the record of changes, written
+#' when the handler reports one. A handler reports a change by returning
+#' `change`, one sentence saying what changed (and `project_id`, if the
+#' project changed is not the one the call named).
 #'
 #' @param tool  A `tool`.
 #' @param args  The call's arguments, as they came.
@@ -384,19 +455,44 @@ mcp_caller <- function (REQ) {
 #' @noRd
 tool_call <- function (REQ, tool, args) {
 
+  DB     <- REQ[['DB']]
   caller <- mcp_caller(REQ)
+
+  sql  <- "SELECT full_name FROM users WHERE user_id = ?"
+  name <- db_query(DB, sql, "TCall1", list(caller[['user_id']]))
 
   REQ[['SESSION']] <- list(user_id = caller[['user_id']])
 
   if (is_scalar_character(args[['project']]) && "project" %in% names(tool[['args']]))
-    REQ[['SESSION']] <- caller_project(REQ[['DB']], caller[['user_id']], args[['project']], tool[['permission']])
+    REQ[['SESSION']] <- caller_project(DB, caller[['user_id']], args[['project']], tool[['permission']])
+
+  REQ[['SESSION']][['full_name']] <- name
+
+  if (!tool[['read_only']])
+    check_change_cap(REQ, caller)
 
   args <- validate_args(tool, args, REQ)
 
+  if (!is.null(tool[['rule']]))
+    access_rules[[tool[['rule']]]](REQ, args)
+
   names(args) <- handler_args(names(args))
 
+  record <- function (out) {
+    if (!is.null(out[['change']]))
+      record_change(DB, caller, tool[['name']], out[['change']], out[['project_id']] %||% REQ[['SESSION']][['project_id']])
+    out
+  }
+
   handler <- get(tool[['handler']], envir = asNamespace("atima"), mode = "function")
-  do.call(handler, c(list(REQ = REQ), args))
+  out     <- do.call(handler, c(list(REQ = REQ), args))
+
+  if (!inherits(out, "job")) return (record(out))
+
+  job(
+    fn     = out[['fn']],
+    args   = out[['args']],
+    finish = function (result) record(out[['finish']](result)) )
 }
 
 
@@ -553,7 +649,7 @@ tool_list_projects <- function (REQ) {
     "       m.permission_id",
     " FROM projects p",
     " LEFT JOIN permissions m ON m.project_id = p.project_id AND m.user_id = ?",
-    " WHERE m.permission_id IS NOT NULL OR p.public_key IS NOT NULL",
+    " WHERE (m.permission_id IS NOT NULL OR p.public_key IS NOT NULL) AND p.deleted_utc IS NULL",
     " ORDER BY (m.permission_id IS NULL), p.title, p.project_id",
     " LIMIT ?" )
   found <- db_query(DB, sql, "TLProj1", list(user_id, mcp_projects_max + 1L), simplify = FALSE)
@@ -654,7 +750,7 @@ tool_describe_function <- function (REQ, fn, project = NULL) {
   describe <- function (summary = NULL) list(data = list(
     `function`  = fn,
     label       = schema_functions[[fn]][['label']],
-    tool        = if (uses == "stats") "run_stats" else "make_plot",
+    tool        = switch(uses, stats = "run_stats", clusters = "add_clusters", "make_plot"),
     counts      = if (plot_sample_set(fn) == "full") "all reads (not rarefied); `depth` has no effect" else "rarefied to `depth`",
     args_schema = fn_json_schema(fn, summary) ))
 

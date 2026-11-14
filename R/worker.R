@@ -606,3 +606,120 @@ work_table_head <- function (ctx, src, what) {
 }
 
 
+
+
+#______________________________________________________________________________
+#' Make a metadata field numeric or categorical, by name.
+#'
+#' A field can only become numeric if every value it has is a number, which
+#' is the rule the browser's metadata table applies before it offers the
+#' choice.
+#'
+#' @param field  The field's name.
+#' @param type   `"numeric"` or `"categorical"`.
+#' @return list(full, rare, data)
+#' @noRd
+work_field_type <- function (ctx, full, rare, field, type) {
+
+  worker_init(ctx)
+
+  full_biom <- read_biom(ctx, full)
+  depth     <- read_biom(ctx, rare)$depth
+  md        <- full_biom$metadata
+
+  if (!is_one_of(field, setdiff(colnames(md), ".sample")))
+    stop_user("This project has no metadata field called '", log_truncate(field, 60L), "'.")
+
+  values <- md[[field]]
+
+  if (identical(type, "numeric") == is.numeric(values))
+    stop_user("The field '", field, "' is ", type, " already.")
+
+  if (type == "numeric") {
+    text <- as.character(values)
+    if (!all(is.na(text) | grepl("^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)$", text)))
+      stop_user("The field '", field, "' has values that are not numbers, so it cannot be numeric.")
+    md[[field]] <- as.numeric(text)
+  } else {
+    md[[field]] <- as.character(values)
+  }
+
+  full_biom$metadata <- md
+
+  store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]))
+}
+
+
+#______________________________________________________________________________
+#' The stored files of a project that holds only some of another project's
+#' samples, rarefied to the same depth where that is still possible.
+#'
+#' @param subset_args  The samples to keep; see `subset_biom()`.
+#' @param checked      Was `subset_args` checked against the project in the
+#'                     main process?
+#' @return list(full, rare, data)
+#' @noRd
+work_subset <- function (ctx, full, rare, subset_args, checked = TRUE) {
+
+  worker_init(ctx)
+
+  if (!isTRUE(checked))
+    subset_args <- worker_check("samples", check_subset_args(subset_args, cached_summary(ctx, full, rare)))
+
+  full_biom <- subset_biom(read_biom(ctx, full), subset_args)
+  depth     <- read_biom(ctx, rare)$depth
+
+  if (full_biom$n_samples == 0)
+    stop_user("No samples match `samples`, so there is nothing to copy.")
+
+  rare_biom <- tryCatch(
+    expr  = rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]),
+    error = function (e) NULL )
+
+  if (is.null(rare_biom) || rare_biom$n_samples == 0)
+    rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
+
+  store_pair(ctx, full_biom, rare_biom)
+}
+
+
+#______________________________________________________________________________
+#' Change a saved project's data, for a tool an AI app called.
+#'
+#' The browser changes a working copy and saves it later; a tool changes
+#' the saved project in one go. So besides the new files this returns the
+#' values the `projects` table keeps about them.
+#'
+#' @param what  `"clusters"`, `"field_type"`, `"component"`, `"depth"` or
+#'              `"subset"`.
+#' @param args  The arguments of that change, by name.
+#' @return `list(full, rare, data, details)`; `full` is missing when only
+#'         the rarefied file changed. For `"depth"` also `kept`, the number
+#'         of samples that have that many reads.
+#' @noRd
+work_edit <- function (ctx, full, rare, what, args = list()) {
+
+  worker_init(ctx)
+
+  out <- switch(
+    EXPR       = what,
+    clusters   = work_add_clusters(ctx, full, rare, args[['cluster_fn']], args[['cluster_args']], args[['name']], args[['checked']]),
+    field_type = work_field_type(ctx, full, rare, args[['field']], args[['type']]),
+    component  = work_component(ctx, full, rare, args[['component']], args[['infile']]),
+    subset     = work_subset(ctx, full, rare, args[['subset_args']], args[['checked']]),
+    depth      = {
+      rarefied <- rarefy_to(ctx, full, rare, args[['depth']])
+      if (is.null(rarefied))
+        stop_user("The project is rarefied to ", as.integer(args[['depth']]), " reads already.")
+      list(
+        rare = rarefied[['rare']],
+        kept = rarefied[['rare_biom']]$n_samples,
+        data = cached_summary(ctx, full, rarefied[['rare']][['file']], rare_biom = rarefied[['rare_biom']]) )
+    },
+    stop("Unknown kind of edit: ", what) )
+
+  now_full <- if (is.null(out[['full']])) full else file.path(ctx[['files_dir']], out[['full']][['file']])
+
+  out[['details']] <- biom_to_details(read_biom(ctx, now_full))
+  out
+}

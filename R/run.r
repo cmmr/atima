@@ -93,6 +93,17 @@
 #'                    after this many days without a visit, along with any
 #'                    projects that only they could open.
 #' @param max_upload_mb  Largest upload to accept, in megabytes.
+#' @param trash_days  A deleted project is kept for this many days, during
+#'                    which its editors can restore it, and is then erased.
+#' @param mcp_writes  May AI apps change data: upload, edit, copy, share,
+#'                    publish and delete projects? `FALSE` offers them only
+#'                    the tools that read and compute. See the section on
+#'                    AI apps.
+#' @param app_days    With `auth = "oidc"`: an AI app that a person has
+#'                    connected stays connected until it has not been used
+#'                    for this many days.
+#' @param app_changes_per_hour  The most changes one connected AI app may
+#'                    make in an hour.
 #' @param legacy      Older atima installations whose users may import
 #'                    their projects: a named character vector,
 #'                    `c(<label shown to users> = <file>)`, of files made by
@@ -154,15 +165,28 @@
 #' minutes. This needs the 'bcrypt' package.
 #'
 #' @section AI apps:
-#' With `auth = "none"` the server is also a Model Context Protocol (MCP)
-#' server, at the path `/mcp` (for example `http://127.0.0.1:8080/mcp`). An
-#' AI app that is given that address can list and describe the local user's
-#' projects, run 'rbiom' statistics, draw plots and export data, as six
-#' tools. The tools only read and compute: none of them changes a project.
-#' What they return is handed to the app, which may send it to its
-#' provider's servers, so connect an app only if the data may leave this
-#' computer that way. The endpoint follows revision 2026-07-28 of the MCP
-#' specification. Shared servers (`auth = "oidc"`) do not offer it yet.
+#' The server is also a Model Context Protocol (MCP) server, at the path
+#' `/mcp` (for example `http://127.0.0.1:8080/mcp`). An AI app that is given
+#' that address can list and describe a person's projects, run 'rbiom'
+#' statistics, draw plots and export data. Unless `mcp_writes` is `FALSE`,
+#' it can also upload files, change, copy, share, publish and delete
+#' projects, as that person can in the browser. Every change an app makes
+#' is recorded and shown on the app's "Connected apps" page, one app may
+#' make `app_changes_per_hour` changes an hour, and a deleted project can
+#' be restored for `trash_days`. What the tools return is handed to the
+#' app, which may send it to its provider's servers, so connect an app
+#' only if the data may leave the computer that way.
+#'
+#' With `auth = "none"` any app that is given the address is let in, as the
+#' local user. With `auth = "oidc"` the app must be approved by the person
+#' it works for: the server is an OAuth 2.1 authorization server for its
+#' own `/mcp` endpoint, the person signs in as they do in the browser and
+#' chooses whether the app may only read or may also change things, and can
+#' disconnect it again. An app identifies itself with a Client ID Metadata
+#' Document, an https address that the server fetches; addresses inside
+#' private networks are refused. The endpoint follows revision 2026-07-28
+#' of the MCP specification, and also answers apps that only know the
+#' revisions of 2025.
 #'
 #' @section Database:
 #' The database is the file `sqlite.db` in `data_dir`. When a newer version
@@ -189,10 +213,12 @@
 #' @section Cleanup:
 #' When the server starts, and every ten minutes after that, it deletes
 #' closed and expired sessions, working copies that no session has open,
-#' guests who have not returned, private projects that nobody has in their
-#' project tree any more, stored files that nothing refers to, and old
-#' temporary files. See `session_hours` and `guest_days`. Saved projects
-#' that belong to a signed-in user are never deleted.
+#' guests who have not returned, projects that were deleted `trash_days`
+#' ago, private projects that nobody has in their project tree any more,
+#' connections of AI apps that have run out, stored files that nothing
+#' refers to, and old temporary files. See `session_hours` and `guest_days`.
+#' Saved projects that belong to a signed-in user are never erased unless
+#' somebody deleted them.
 #'
 #' @section Server log:
 #' The server writes one line of JSON per request and per error to standard
@@ -232,6 +258,10 @@ run <- function(
     max_upload_mb = 50,
     session_hours = 24,
     guest_days    = 30,
+    trash_days    = 30,
+    mcp_writes    = TRUE,
+    app_days      = 30,
+    app_changes_per_hour = 60,
     legacy        = NULL,
     open          = interactive() ) {
 
@@ -288,6 +318,10 @@ run <- function(
   guest_days    <- find_arg('guest_days',    'int')
   open          <- find_arg('open',          'bool')
   signin_days   <- find_arg('signin_days',   'int')
+  trash_days    <- find_arg('trash_days',    'int')
+  app_days      <- find_arg('app_days',      'int')
+  mcp_writes    <- find_arg('mcp_writes',    'bool')
+  app_changes_per_hour <- find_arg('app_changes_per_hour', 'int')
   operator      <- text_setting(find_arg('operator', 'chr'), 'operator')
   contact       <- text_setting(find_arg('contact',  'chr'), 'contact')
 
@@ -314,8 +348,12 @@ run <- function(
   if (is.null(time_limit))
     time_limit <- default_time_limit(auth_cfg[['auth']])
 
-  for (param in c('workers', 'max_cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days'))
+  for (param in c(
+      'workers', 'max_cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days',
+      'trash_days', 'app_days', 'app_changes_per_hour' ))
     if (get(param) < 1) stop(param, ' must be at least 1.')
+
+  if (is.na(mcp_writes)) stop('mcp_writes must be TRUE or FALSE.')
 
   cache_size_bytes <- cache_size_mb * 1024 * 1024
   max_upload_bytes <- max_upload_mb * 1024 * 1024
@@ -347,6 +385,12 @@ run <- function(
     session_ttl = session_hours * 3600,
     guest_ttl   = guest_days * 86400,
     signin_ttl  = signin_days * 86400,
+    trash_ttl   = trash_days * 86400,
+    # AI apps: how long a connection lasts unused, whether the tools that
+    # change data are offered, and how many changes one app may make an hour.
+    app_ttl     = app_days * 86400,
+    mcp_writes  = mcp_writes,
+    app_changes_per_hour = app_changes_per_hour,
     legacy      = legacy,
     # Who runs the server and how to reach them, for the app's "Privacy and
     # terms" page.
@@ -357,8 +401,6 @@ run <- function(
     # The address to put in front of links that leave the browser, such as
     # those in the results of tools called by AI apps.
     base_url    = auth_cfg[['public_url']] %||% local_url(host, port),
-    # No tool an AI app can call changes data yet (`R/mcp-tools.R`).
-    mcp_writes  = FALSE,
     forwarded_proto_header = auth_cfg[['forwarded_proto_header']]
   )
 
@@ -472,8 +514,10 @@ run <- function(
   #
   url <- if (config[['auth']] == 'oidc') config[['public_url']] else local_url(host, port)
   message("Server listening on ", host, " port ", port, ". Open ", url)
-  if (config[['auth']] == 'none')
-    message("AI apps can connect to ", url, "/mcp")
+  message(
+    "AI apps can connect to ", url, "/mcp",
+    if (config[['auth']] == 'oidc') " (each person approves an app when it first connects)",
+    if (!mcp_writes) "; they can read and analyse, not change anything" )
 
   if (open) utils::browseURL(url)
 

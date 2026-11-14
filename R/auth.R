@@ -16,6 +16,9 @@
 # are replaced when the browser signs in or out. Each browser tab also has
 # a session key, sent in the `x-session-key` header (`R/sessions.r`).
 #
+# An AI app is recognised differently: on a shared server by a bearer token
+# that its user approved (`R/oauth.R`), and only at `/mcp`.
+#
 # What a signed-in user or a guest may do is not decided here; see
 # `R/access.R`.
 #______________________________________________________________________________
@@ -117,7 +120,9 @@ auth_new <- function (mode = "none", oidc = NULL) {
     mode     = mode,
     oidc     = oidc,
     provider = NULL,
-    pending  = new.env(parent = emptyenv()) ))
+    pending  = new.env(parent = emptyenv()),
+    # AI apps that are in the middle of being connected (`R/oauth.R`).
+    oauth    = oauth_state() ))
 }
 
 
