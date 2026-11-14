@@ -1,0 +1,241 @@
+---
+title: "Importing from an older atima"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+This article is for the administrator of a site that ran atima 2, the
+Shiny application with a MariaDB or MySQL database, and wants its users'
+projects on a current atima. It describes the three things the
+administrator does, what each person then does, what comes over and what
+does not, and what to watch for while people move. Other old versions of
+atima cannot be imported from.
+
+**A person who has forgotten their old password cannot import their
+projects, and nobody else can do it for them.** atima 2 encrypted every
+project with keys that only its users' passwords unlock. The administrator
+does not have those keys, and the old database does not contain them in a
+form anyone can use without the password.
+
+
+## How it works
+
+Because of that encryption, an administrator cannot move the data alone.
+Instead:
+
+1. The administrator saves the old database to one file, once.
+2. The administrator tells the new server where the file is.
+3. Each person signs in to the new server, types the email address and
+   password they had on the old site, and chooses which projects to bring
+   over. The server checks the password against the file and decrypts that
+   person's projects in memory.
+
+The old database server is only needed for step 1.
+
+
+## Step 1: save the old database
+
+Do this on a computer that can reach the old database, with the `atima`
+and `RMariaDB` packages installed. A database account that may only
+`SELECT` is enough. The old database is read and not changed.
+
+```{r}
+con <- DBI::dbConnect(
+  RMariaDB::MariaDB(),
+  dbname   = "atima",
+  host     = "<database host>",
+  user     = "<user>",
+  password = Sys.getenv("ATIMA2_DB_PASSWORD") )
+
+atima::legacy_convert(con, "atima2.sqlite")
+DBI::dbDisconnect(con)
+```
+
+`legacy_convert()` reports how many accounts, projects and objects it
+copied. The file it names must not exist yet. Converting a database with
+about 5,000 projects took less than a minute and gave a file of a little
+under 1 GB.
+
+If all you have is a `mysqldump` file, restore it into any MariaDB server
+first and connect to that. The tables needed are `Users`, `Projects`,
+`Permissions` and `Objects`.
+
+### What is in the file
+
+| In the file | Not in the file |
+|-------------|-----------------|
+| For each account with an email address: the email address, the bcrypt hash of the password, and the account's encrypted private key. | Names and affiliations. |
+| For each project that was not deleted: who could open it and at what level, and its BIOM file, metadata, taxonomy, tree, name and rarefaction depth, each still encrypted as atima 2 stored it. | Sessions, sign-in tokens and cached results. |
+| | Who could view the old site's public example projects, since every account could. |
+
+Nothing is decrypted by the conversion. The file is as sensitive as the
+old database was: it holds password hashes and email addresses. Keep it
+out of version control and readable only by the account the server runs
+as.
+
+
+## Step 2: register the file
+
+Install the `bcrypt` package where the server runs:
+
+```{r}
+install.packages("bcrypt")
+```
+
+Then name the file when starting the server, with the label people should
+see for it:
+
+```{r}
+atima::run(
+  auth   = "oidc",
+  legacy = c("ATIMA 2 (2019 to 2026)" = "/srv/atima/atima2.sqlite") )
+```
+
+or with an environment variable, `<label>=<file>`:
+
+```sh
+ATIMA_LEGACY="ATIMA 2 (2019 to 2026)=/srv/atima/atima2.sqlite"
+```
+
+Several installations are separated by `;`. A label may have at most 60
+characters.
+
+The server only reads the file. It refuses to start if the file is
+missing, was not made by `legacy_convert()`, or if `bcrypt` is not
+installed, and says which.
+
+When the server runs in a container, mount the file read-only. The article
+[Running a shared server](server.html) shows how.
+
+### Give the server at least two workers
+
+An import runs in a worker process, one project at a time per person, and
+one large project may hold that worker for up to 15 minutes. With
+`workers = 1`, everyone's figures wait behind it. Start a server that
+people import to with `workers = 2` or more.
+
+
+## Step 3: what each person does
+
+Someone who has signed in finds **Import from an older atima** in the
+menu. (A guest is asked to sign in first. On a local atima,
+`auth = "none"`, the link is there for the local user.) They:
+
+1. Enter the email address and password they used on the old site, and
+   choose "Find my projects".
+2. Tick the projects to bring over, and choose "Import selected".
+3. Keep working, or close the page. The import runs on the server in the
+   background, and a notice says when it is done.
+
+Tell your users the following.
+
+**How long it takes.** Most projects take a few seconds. A project with
+tens of thousands of taxa can take several minutes. One project may take
+at most 15 minutes; a larger one is reported as not imported.
+
+**The import can be interrupted.** A person can cancel their import. A
+restart of the server ends running imports. In both cases, what was
+imported stays, and the rest can be started again with the same steps.
+
+**Counts that are not whole numbers.** Such a project is listed as "Not
+imported: its counts are not whole numbers". The person can choose "Scale
+and import" after typing the old password again; atima then scales the
+counts to whole numbers once, as it does for an upload.
+
+**Five wrong passwords.** After five wrong passwords in 15 minutes, the
+person must wait, and so must anyone else who tries that old account.
+
+**One import at a time.** A person has one import running at a time.
+
+
+## What comes over
+
+| Comes over | Does not come over |
+|------------|--------------------|
+| Samples, counts, metadata, taxonomy and tree, as the project last had them on the old site, including edits made there. | The old account itself. The person's name on the new server comes from the sign-in provider. |
+| The project's name, creation date and rarefaction depth. | Sessions and cached results. |
+| Sharing, as people arrive (see below). | The old site's public example projects, except for people who could edit them. |
+| | Projects that were deleted on the old site. |
+
+### How sharing carries over
+
+A project is imported once. The first person to import it brings it over.
+When someone else who could open it on the old site imports it later, they
+are added to that same project instead of getting a copy.
+
+Everyone gets the access they had on the old site, editor or viewer, and
+never more. Someone who could only view a project can only view it on the
+new server. If a viewer is the first to import a project, the project has
+no editor until one of its old editors imports it. Until then the viewer
+can use "Save a copy" to get a project of their own that they can change.
+
+Importing a project again does not duplicate it: the list shows it as
+"Already in your projects".
+
+
+## What the server does with the old password
+
+- The password is sent to the server over the same connection as
+  everything else, which is why a shared server must use HTTPS.
+- It is checked, and the projects are decrypted, in memory in a worker
+  process.
+- The server keeps the password in memory while that person's import
+  runs, and drops it when the last project is done.
+- The password and the keys it unlocks are never written to the database,
+  the log or a file.
+- Wrong attempts are counted in the database, so a restart does not reset
+  the count. The old email address is kept there only as a hash. These
+  rows are removed after a day, the next time anyone makes an attempt.
+
+
+## What to watch for in the server log
+
+The server log is one line of JSON per event. Search it for:
+
+| In the log | Meaning | What to do |
+|------------|---------|------------|
+| `legacy_import_failed` | A project could not be imported for a reason the person cannot do anything about. They see "Not imported" with an error id; the log line has the same `id`, the old project's id (`old_project`) and the reason (`message`). | If the message says the project took longer than the 900 seconds allowed, the project is too large for the 15 minute limit. Otherwise report it at <https://github.com/cmmr/atima/issues> with the log line, after checking that it holds nothing private. The person's other projects are not affected. |
+| `encryption key could not be rebuilt` | The person's password was right, but atima could not rebuild the key that atima 2 derived from it. atima 2 derived this key in a way that depended on the old server's software, and atima tries the variants that are known. The line names the old user id. | Report it. That person cannot import until atima knows the variant their account used. |
+| `legacy_start`, `legacy_import`, `legacy_done` | An import started, a project arrived, an import finished. | Nothing. They show how the move is going. |
+| An `error` line with status 429 and "Too many wrong passwords" | Someone is locked out for up to 15 minutes. | Nothing, unless one address does it many times: see below. |
+
+Each password check costs a worker about a second of work. A person is
+stopped after five wrong passwords, but a script could try many accounts.
+If the server is public, have the reverse proxy limit how often one
+address may call the paths under `/api/legacy/`; see
+[Running a shared server](server.html).
+
+Imports count towards `jobs_per_user`, and wait their turn in the same
+queue as figures. When the queue is full, an import waits and tries again
+every five seconds.
+
+
+## Limits
+
+| Limit | Value |
+|-------|-------|
+| Time for one project | 15 minutes |
+| Imports per person at a time | 1 |
+| Projects in one import | 2,000 |
+| Wrong passwords | 5 in 15 minutes, per person and per old account |
+| Supported old version | atima 2 only |
+
+
+## When everyone has moved
+
+Remove the `legacy` setting, restart the server, and delete the file and
+every copy of it. People who have not imported by then cannot do so
+afterwards, so announce a date first. If you keep the file for stragglers,
+keep it as carefully as the old database.
+
+
+## Related articles
+
+- [Setting up sign-in](sign-in.html): people must be able to sign in to
+  the new server before they can import.
+- [Running a shared server](server.html): workers, the reverse proxy,
+  mounting the file in a container.
+- `?atima::legacy_convert` and `?atima::run`.

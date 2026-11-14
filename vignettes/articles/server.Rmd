@@ -1,0 +1,454 @@
+---
+title: "Running a shared server"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+This article is for the person who sets up atima for a lab, a department or
+the public: one server that many people use from their browsers, each
+signed in to their own account. It walks through the container setup that
+is kept in the `deploy/` folder of the
+[repository](https://github.com/cmmr/atima): the atima server, a reverse
+proxy (Caddy) in front of it for HTTPS and rate limits, and a nightly
+backup. To use atima alone on your own computer you need none of this; see
+[Using atima on your own computer](local-install.html).
+
+Everything here was built and run on one development machine with Docker
+Desktop. It has not yet been run on a public server, with a real
+certificate, or with a real sign-in provider.
+
+
+## What you need
+
+- A Linux machine with [Docker Engine](https://docs.docker.com/engine/install/)
+  and its Compose plugin. Four CPU cores and 8 GB of memory are a
+  reasonable start; see [How large a server](#how-large-a-server).
+- A host name for the server (for example `atima.example.org`) that points
+  at the machine, with ports 80 and 443 reachable from the internet, so
+  that Caddy can get a certificate from Let's Encrypt. If your institution
+  puts its own proxy in front, see
+  [Behind another proxy](#behind-another-proxy).
+- A registration with a sign-in provider: a client id and a client secret.
+  [Setting up sign-in](sign-in.html) explains how to get them from Globus
+  Auth or ORCID. You can start without them and try the server as a guest.
+- Disk space for the data: the database is small; each uploaded dataset is
+  stored once, as a file of at most the upload limit (50 MB by default).
+  Backups should go to a different disk.
+
+
+## The pieces
+
+`deploy/compose.yaml` starts three containers:
+
+| Container | What it does |
+|---|---|
+| `atima`  | The atima server: one R process that answers requests and owns the database, and its worker processes, which do the computing. Runs as an unprivileged user on a read-only file system. Listens on port 8080 inside the Docker network only. |
+| `caddy`  | [Caddy](https://caddyserver.com) with the rate-limit module. Gets and renews the TLS certificate, passes requests on to atima, tells atima the truth about each request (HTTPS or not, the visitor's address), and limits how often one address may call the expensive routes. |
+| `backup` | The same image as `atima`, running a loop that makes a backup every night. |
+
+and keeps data in Docker volumes:
+
+| Volume | Mounted at | Holds |
+|---|---|---|
+| `atima_data` | `/var/lib/atima` | The database (`sqlite.db`), the stored data files (`files/`), and a cache that can be deleted at any time (`cache/`). **This is what must not be lost.** |
+| `atima_temp` | `/var/tmp/atima` | Figures and exports waiting to be downloaded. The server deletes them after a day. |
+| `atima_backup` | `/backup` | The backups, unless you point `ATIMA_BACKUP_DIR` somewhere better. |
+| `caddy_data`, `caddy_config` | | Caddy's certificates and state. |
+
+Every setting is an environment variable. They are read from the file
+`deploy/.env`, which you make from `deploy/.env.example` and which is not
+in git. No file in the repository needs editing, and no secret belongs in
+one.
+
+
+## A trial run on your own machine
+
+This starts the whole stack on `http://localhost`, without a certificate
+and without a sign-in provider. You can use it as a guest.
+
+```sh
+git clone https://github.com/cmmr/atima.git
+cd atima/deploy
+cp .env.example .env
+docker compose up -d --build
+```
+
+The first build downloads R and about 150 packages and takes ten to
+fifteen minutes; the image is about 2.7 GB. Later builds reuse most of it.
+When the command returns, check that the three containers are up and that
+`atima` is "healthy":
+
+```sh
+docker compose ps
+```
+
+Then open <http://localhost>. The two example projects are there, and you
+can upload a file. "Sign in" will not work yet: the example `.env` has a
+placeholder where the client id and secret go.
+
+To try signing in before you have registered with a provider, the
+repository has a mock provider that signs anyone in under any name they
+type. It is for a test on your own machine only:
+
+```sh
+docker compose -f compose.yaml -f ../loadtest/compose.mock.yaml up -d
+```
+
+To stop the trial and delete its data:
+
+```sh
+docker compose down --volumes
+```
+
+
+## Setting up the real server
+
+Edit `deploy/.env`. The settings that every server needs:
+
+```sh
+ATIMA_SITE_ADDRESS=atima.example.org
+ATIMA_PUBLIC_URL=https://atima.example.org
+ATIMA_OIDC_CLIENT_ID=<client id from the provider>
+ATIMA_OIDC_CLIENT_SECRET=<client secret from the provider>
+ATIMA_OPERATOR=the Example Lab at Example University
+ATIMA_CONTACT=atima@example.org
+ATIMA_BACKUP_DIR=/mnt/backup/atima
+```
+
+- `ATIMA_SITE_ADDRESS` is what Caddy serves. A bare host name means HTTPS
+  with a certificate from Let's Encrypt.
+- `ATIMA_PUBLIC_URL` is the address people type. The sign-in provider sends
+  people back to `<ATIMA_PUBLIC_URL>/auth/callback`, and that exact address
+  is what you register with the provider.
+- `ATIMA_OPERATOR` and `ATIMA_CONTACT` are shown on the app's "Privacy and
+  terms" page: who runs this server, and an email address or web page for
+  questions.
+- `ATIMA_BACKUP_DIR` is a directory on the host for the backups, on a
+  different disk from the data or on a network share. It must be writable
+  by user id 10001, the user the containers run as:
+  `sudo chown 10001 /mnt/backup/atima`.
+
+Keep `.env` readable by you alone (`chmod 600 .env`): it holds the client
+secret. If you use Docker secrets or another secret store instead, give the
+`atima` container `ATIMA_OIDC_CLIENT_SECRET_FILE`, the path of a file that
+holds the secret, in place of `ATIMA_OIDC_CLIENT_SECRET`.
+
+Then start it:
+
+```sh
+docker compose up -d --build
+docker compose logs -f atima
+```
+
+Once the site works over HTTPS, add `ATIMA_HSTS=max-age=31536000` to `.env`
+and run `docker compose up -d` again. Browsers that have visited will then
+refuse to use the site without HTTPS for a year.
+
+### All settings
+
+The settings of `atima::run()` are described in its help page; each is the
+environment variable `ATIMA_<NAME>`. `deploy/compose.yaml` passes these on
+from `.env`:
+
+| In `.env` | Default | Meaning |
+|---|---|---|
+| `ATIMA_SITE_ADDRESS` | | What Caddy serves: a host name (HTTPS), `http://localhost` (trial), or `:80` (behind another proxy). |
+| `ATIMA_PUBLIC_URL` | | The address people type, with `https://` and no path. |
+| `ATIMA_OIDC_ISSUER` | `https://auth.globus.org` | The sign-in provider. |
+| `ATIMA_OIDC_CLIENT_ID`, `ATIMA_OIDC_CLIENT_SECRET` | | From the provider. |
+| `ATIMA_ADMINS` | none | Administrators, by the provider's identifier for them, separated by commas. |
+| `ATIMA_OPERATOR`, `ATIMA_CONTACT` | none | Shown on the "Privacy and terms" page. |
+| `ATIMA_WORKERS` | half the cores, at most 4 | Worker processes. |
+| `ATIMA_MAX_CPUS` | cores divided by workers | CPU cores one job may use. |
+| `ATIMA_TIME_LIMIT` | 60 | Seconds a job may run. |
+| `ATIMA_JOBS_PER_USER` | 16 | Jobs one account may have waiting or running. |
+| `ATIMA_MAX_UPLOAD_MB` | 50 | Largest upload. Caddy enforces the same number. |
+| `ATIMA_CACHE_SIZE_MB` | 100 | Size of the cache of computed results. |
+| `ATIMA_SESSION_HOURS`, `ATIMA_GUEST_DAYS`, `ATIMA_SIGNIN_DAYS` | 24, 30, 30 | How long an idle tab, a guest and a sign-in last. |
+| `ATIMA_TRUSTED_PROXIES` | none | Only [behind another proxy](#behind-another-proxy). |
+| `ATIMA_HSTS` | off | `max-age=31536000` once HTTPS works. |
+| `ATIMA_HTTP_PORT`, `ATIMA_HTTPS_PORT` | 80, 443 | The host's ports for Caddy. |
+| `ATIMA_BACKUP_DIR` | a Docker volume | Where backups go. |
+| `ATIMA_BACKUP_HOUR`, `ATIMA_BACKUP_DAILY`, `ATIMA_BACKUP_WEEKLY`, `ATIMA_BACKUP_UPGRADES` | 8, 7, 4, 3 | See [Backups](#backups). |
+| `ATIMA_LIMIT_...` | | See [Rate limits](#rate-limits). |
+
+
+## Administrators and the public projects
+
+An administrator can edit and unpublish any public project and arranges the
+public list: on the Projects page, administrators see controls to create,
+rename, move and delete the collections (folders) that public projects are
+listed under, and to move public projects between them. Administrators
+cannot open other people's private projects.
+
+To make someone an administrator, have them sign in once, then find the
+provider's identifier for them:
+
+```sh
+docker compose exec atima Rscript -e 'con <- DBI::dbConnect(RSQLite::SQLite(), "/var/lib/atima/sqlite.db"); print(DBI::dbGetQuery(con, "SELECT full_name, sub FROM users WHERE is_guest = 0"))'
+```
+
+Put the `sub` values, separated by commas, in `ATIMA_ADMINS` in `.env`, run
+`docker compose up -d`, and have them sign in again. From then on
+`ATIMA_ADMINS` decides who is an administrator, at every sign-in.
+
+A new server shows two example projects from rbiom. Anyone who is signed in
+and can edit a project can publish it, under a short name of their
+choosing, and public projects are not reviewed before they appear; the
+"Privacy and terms" page says so. To add example datasets of your own,
+sign in, upload them, and publish them.
+
+
+## What Caddy does, and why
+
+The configuration is `deploy/caddy/Caddyfile`. You should not need to
+change it, but if you use a different proxy, this is the list to reproduce.
+
+- **Passes everything on.** `/api/` (the app's requests), `/auth/` (the
+  way to and from the sign-in provider), `/www/` (the app's own files),
+  `/tmp/` (figures and exports), `/mcp` (for AI apps; not offered by shared
+  servers yet), and the pages and downloads at `/<project key>` and
+  `/<project key>/<file>`.
+- **Says whether the visitor used HTTPS, and from which address.** Caddy
+  sets `X-Forwarded-Proto`, `X-Forwarded-For`, `X-Forwarded-Host` and
+  `X-Real-IP` itself on every request and discards what the visitor sent
+  under those names. atima is told to believe `X-Forwarded-Proto`
+  (`ATIMA_FORWARDED_PROTO_HEADER`, set in `compose.yaml`). A proxy that
+  passed a visitor's own `X-Forwarded-Proto` through would let them switch
+  off the cookie's `Secure` flag for their own session.
+- **Does not cache.** atima sends its own files with
+  `Cache-Control: no-cache`, so that browsers ask before reusing a script
+  and never run old scripts against an upgraded server. A proxy may answer
+  those "has it changed?" requests, but must not keep `/www` files longer
+  than that.
+- **Does not buffer or compress `/mcp`.** Answers there are passed on the
+  moment they are ready.
+- **Refuses uploads over the limit** before they reach atima.
+- **Limits rates** (below).
+- **Writes no access log.** Request paths contain the keys that give access
+  to private projects (`/<key>`), so a proxy's access log would hold them.
+  atima's own log records each request by its route, without the key.
+
+The page atima serves sets a Content-Security-Policy that allows nothing
+from other sites, and loads nothing from other sites. If your proxy adds a
+policy of its own, both apply: check that figures, fonts and the CSV
+download of a statistics table still work.
+
+### Rate limits
+
+Limits are per visitor address and per minute. They protect the routes
+that cost the server something before any account is involved. Inside
+atima, each account is also limited to `ATIMA_JOBS_PER_USER` jobs waiting
+or running at once; a request over that gets status 429 and a message to
+wait.
+
+| Setting | Default | Applies to | Why |
+|---|---|---|---|
+| `ATIMA_LIMIT_SESSION_INIT` | 120 | `POST /api/session/init` | Each call from a new browser makes a guest account. |
+| `ATIMA_LIMIT_SIGNIN` | 30 | `/auth/` | Each sign-in is remembered for ten minutes and calls the provider. |
+| `ATIMA_LIMIT_LEGACY` | 10 | `POST /api/legacy/list`, `/api/legacy/start` | Checking an old password takes a worker about a second. |
+| `ATIMA_LIMIT_DOWNLOADS` | 60 | `GET /<key>/<file>` | Needs no session, so anyone with a key can queue work. |
+| `ATIMA_LIMIT_OAUTH` | 30 | `/oauth/`, `/.well-known/` | For AI apps signing in, in a later version. |
+| `ATIMA_LIMIT_API` | 1200 | `/api/` as a whole | A ceiling. |
+
+A lecture room of people may share one address, so the defaults are
+generous. If a class is turned away with status 429 when everyone opens the
+page together, raise `ATIMA_LIMIT_SESSION_INIT`.
+
+### Behind another proxy
+
+If your institution's proxy or load balancer terminates TLS and passes
+requests to this machine, keep Caddy, on plain HTTP, for the rate limits
+and the header rules:
+
+```sh
+ATIMA_SITE_ADDRESS=:80
+ATIMA_PUBLIC_URL=https://atima.example.org
+ATIMA_TRUSTED_PROXIES=10.0.0.5/32
+```
+
+`ATIMA_TRUSTED_PROXIES` is the address (or network, in CIDR form; several
+are separated by spaces) that the institution's proxy connects from. Caddy
+then believes that proxy's `X-Forwarded-For` and `X-Forwarded-Proto`, and
+nobody else's. The proxy in front must set those two headers itself on
+every request, overwriting what the visitor sent, must pass the `Host`
+header through, must allow request bodies up to the upload limit, and must
+not cache.
+
+### Without containers, or with another proxy
+
+atima is an R package and the server is one function, so it can run
+without Docker: install the package, set the same `ATIMA_` variables, and
+run `atima::run()` under a service manager that restarts it and stops it
+with an interrupt signal (SIGINT), which is what makes it shut down
+cleanly. Put a reverse proxy in front that does what the list above says.
+`deploy/Dockerfile` lists the system libraries and the optional R packages
+a full server needs. Only the Caddy configuration in this repository has
+been tested.
+
+A server with `auth = "none"` cannot be put behind a proxy: it refuses to
+listen on anything but the loopback address and refuses requests addressed
+to any other host name. That is deliberate. A server that other computers
+can reach needs accounts.
+
+
+## Looking after the server
+
+### Logs
+
+```sh
+docker compose logs -f atima
+```
+
+atima writes one line of JSON per request (`"event":"request"`: method,
+route, status, milliseconds, user id) and per error, to the container's
+standard error. An error shown to a person carries a short id; the log
+line with the same `id` has the details. Requests are logged by route, so
+project keys and what requests contain are not in the log; error details
+can include values from the failed request. Other events worth knowing:
+
+| Event | Meaning |
+|---|---|
+| `sign_in`, `sign_out` | Someone signed in or out. |
+| `oidc_discovery_failed` | The sign-in provider could not be reached at start-up. The server runs and tries again at the first sign-in. |
+| `job_timeout` | A job passed the time limit and was stopped. |
+| `worker_killed`, `worker_lost` | A worker process had to be ended, or died; a new one took its place. |
+| `cleanup` | Old sessions, guests, drafts or files were deleted. |
+| `db_backup`, `db_migration` | A schema upgrade (see below). |
+| `legacy_import_failed` | A project could not be imported from an older atima. |
+| `unhealthy` | The health check failed. |
+
+Docker keeps container logs without limit unless told otherwise; set up
+[log rotation](https://docs.docker.com/engine/logging/configure/) for the
+Docker daemon.
+
+### Health
+
+`GET /api/health` answers `{"status":"ok"}` with status 200 when the
+database answers and the worker pool is running, and 503 otherwise. It
+starts no session. The image's own health check calls it every 30 seconds,
+and `docker compose ps` shows the result.
+
+### Stopping and restarting
+
+```sh
+docker compose stop        # or: docker compose restart atima
+```
+
+Stopping interrupts the R process. atima then cancels running jobs (people
+see "The server is shutting down"), stops its worker processes, writes the
+database's pending changes into `sqlite.db` and exits with status 0, within
+a few seconds; Docker waits up to 30. Imports from an older atima that
+were running end, and can be started again.
+
+### Upgrading
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+When a new version needs a different database structure, the server first
+saves a copy of the database as `sqlite.db.v<N>.<date>.bak` in the data
+volume, then upgrades the database in place; the log shows `db_backup` and
+one `db_migration` line per step. To go back to the older version, stop
+the server, restore the last backup from before the upgrade (below), and
+start the older image. The backup service keeps the three newest of these
+upgrade copies.
+
+### Backups
+
+The `backup` container makes a backup every night at `ATIMA_BACKUP_HOUR`
+(UTC, default 8). A backup is a consistent copy of the database, made with
+SQLite's backup interface while the server runs, plus the stored data
+files, each of which is copied once because they never change. Copying
+`sqlite.db` by hand while the server runs is not a backup: the database
+uses a write-ahead log, and the file alone can be incomplete.
+
+The newest `ATIMA_BACKUP_DAILY` (7) backups are kept, and the newest of
+each of the last `ATIMA_BACKUP_WEEKLY` (4) weeks. Backups hold everything
+the server holds, including data that people have since deleted, until the
+backup itself is removed. Protect the backup directory as you protect the
+server.
+
+```sh
+docker compose run --rm backup backups     # list the backups
+docker compose run --rm backup backup      # make one now
+```
+
+To restore, stop the server first:
+
+```sh
+docker compose stop atima
+docker compose run --rm backup restore atima-20270115T080000Z.db
+docker compose start atima
+```
+
+The database that was there is kept beside the restored one as
+`sqlite.db.before-restore.<date>`; delete it when you are sure. If the
+server was not shut down cleanly, `restore` refuses, because it cannot
+tell a crashed server from a running one; add the word `force` after the
+backup's name once you are sure the server is stopped.
+
+Test a restore on another machine before you rely on the backups.
+
+### Importing from an older atima
+
+[Importing from an older atima](legacy-import.html) explains how to make
+the file that holds an old installation's data. To give it to the
+container, set in `.env`
+
+```sh
+ATIMA_LEGACY_FILE=/srv/atima/atima2.sqlite
+ATIMA_LEGACY_LABEL=atima.example.org before 2027
+```
+
+and add the second compose file to every command:
+
+```sh
+docker compose -f compose.yaml -f compose.legacy.yaml up -d
+```
+
+The file is mounted read-only. It is as sensitive as the old database:
+keep it readable only by user id 10001 (`chown 10001`, `chmod 400`). An
+import can keep a worker busy for up to 15 minutes per project, so run at
+least two workers while people are importing.
+
+
+## How large a server
+
+Memory: each worker is an R process with rbiom loaded. On the development
+machine a worker held 500 to 650 MB after drawing plots of the larger
+example project (1,006 samples), and the main process 400 MB. Allow 1 GB
+per worker, plus 1 GB for the main process and Caddy; datasets near the
+upload limit will need more. CPU: `ATIMA_WORKERS` times
+`ATIMA_MAX_CPUS` should not exceed the cores the container may use. atima
+reads the container's CPU limit, so its defaults (half the cores as
+workers, at most four) follow a limit you set with Docker.
+
+What happens when the server is too small: requests that need a worker
+wait in a queue of ten per worker. A plot that would take one second takes
+longer because it waits; when the queue is full, new requests are answered
+503 ("The server is busy") until there is room. Requests that need no
+worker (loading the page, the project list, signing in) are answered by
+the main process and stay fast.
+
+The repository has a load test (`loadtest/`) that simulates people
+browsing, one person starting many jobs at once, and many people signing
+in together. `loadtest/README.md` has the measurements from the
+development machine and says how to run the test against your own server
+before you open it.
+
+
+## What is not protected
+
+- Anyone who has a project's link (its private key) can open the project
+  and download its data. That is how sharing by link works; "New link" on
+  the Sharing page replaces the key.
+- Links to figures and exports work for anyone who has them, for a day.
+- Whoever administers the machine can read everything on it. The data is
+  not encrypted at rest.
+- Public projects are published by their editors without review.

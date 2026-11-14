@@ -1,0 +1,233 @@
+---
+title: "Connecting an AI app"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+An atima that runs on your own computer can be used by an AI app as well
+as through the browser. You ask the app a question in plain words, and it
+looks at your projects, runs statistics and draws figures by calling
+atima. This article explains how to connect an app, what the app can and
+cannot do, the limits, and what happens to your data when you do this.
+Shared servers (`auth = "oidc"`) do not offer this yet.
+
+**Read "Where your data goes" below before you connect an app.** What
+atima returns to the app is, with most apps, sent on to the company that
+provides the app's model.
+
+
+## What MCP is
+
+The [Model Context Protocol](https://modelcontextprotocol.io) (MCP) is a
+standard way for an AI app to use other programs. A program that offers
+itself this way is an MCP server. It gives the app a list of **tools**:
+named operations, each with a description and a list of arguments. The
+app's language model decides when to call a tool and with which
+arguments, the server does the work, and the result goes back to the
+model, which uses it to answer you. A local atima is an MCP server. Its
+address is the server's address followed by `/mcp`, and `run()` prints it
+at start-up:
+
+```
+AI apps can connect to http://127.0.0.1:8080/mcp
+```
+
+
+## Connecting
+
+atima must be running, and must keep running while you use the app. Start
+it as usual (see [Using atima on your own computer](local-install.html)):
+
+```{r}
+atima::run()
+```
+
+### Claude Code
+
+[Claude Code](https://claude.com/claude-code) is the app atima has been
+tested with. In a terminal:
+
+```sh
+claude mcp add --transport http atima http://127.0.0.1:8080/mcp
+```
+
+`claude mcp list` shows whether it connected. To disconnect again:
+
+```sh
+claude mcp remove atima
+```
+
+### Other apps
+
+Any app that can use a remote MCP server and knows the protocol revision
+atima speaks (see "Protocol revision") should work, but only Claude Code
+has been tried. In the app's settings for MCP servers, tools or
+connectors, add a server with:
+
+| Setting | Value |
+|---------|-------|
+| Type or transport | "HTTP", "Streamable HTTP" or "remote". Not "stdio", and not "SSE". |
+| URL | `http://127.0.0.1:8080/mcp`, with your own port if you changed it. |
+| Authentication | None. There is no key, token or sign-in. |
+| Name | Anything, for example `atima`. |
+
+The app has to run on the same computer as atima. An app that runs on a
+company's servers, such as a chat website, cannot reach `127.0.0.1` on
+your computer.
+
+
+## What to ask
+
+Ask in plain words. Name the project if you have several. For example:
+
+- "List my atima projects."
+- "Describe the hmp50 project. Which metadata fields does it have?"
+- "Which metadata fields of hmp50 are related to alpha diversity?"
+- "Is body site associated with community composition in hmp50? Use
+  Bray-Curtis."
+- "Draw an ordination of hmp50 colored by body site."
+- "Which genera differ most between body sites? Show the ten with the
+  smallest p-values."
+- "Give me the R code for that last figure."
+- "Export the genus-level abundances of hmp50 as a table."
+
+Each figure comes with its statistics table and the rbiom code that makes
+it, so you can check what was done and repeat it in R.
+
+An AI app can misread a result or choose an unsuitable test. Treat what
+it tells you as you would a colleague's first look: check the statistics
+table and the code before you rely on a conclusion.
+
+
+## The six tools
+
+| Tool | What it does |
+|------|--------------|
+| `list_projects` | Lists the projects you can open, with their keys and titles. |
+| `describe_project` | A project's samples, sequencing depths, metadata fields and their values, taxonomic ranks, most abundant taxa, and whether it has a tree. |
+| `describe_function` | The arguments of an rbiom statistics or plot function, as a JSON Schema, so that the app knows what it may ask for. |
+| `run_stats` | Runs `adiv_stats()`, `bdiv_stats()`, `taxa_stats()` or `taxa_da()` and returns the table. |
+| `make_plot` | Draws any of the plots the web interface offers and returns the image, its statistics table and the R code. |
+| `export` | Writes a file and returns a link to it: the BIOM file, an Excel workbook, or a table of the metadata, taxonomy, alpha diversity, beta diversity or taxa abundances, or the tree. |
+
+`run_stats` and `make_plot` can rarefy to another depth, or use only some
+of the samples, for that one call. Nothing in the project changes.
+
+
+## What the tools cannot do
+
+**The tools read and compute. None of them changes anything.**
+
+- They cannot upload a file, save, rename, publish or delete a project,
+  or change metadata.
+- They work on saved projects. They do not see unsaved changes in an open
+  browser tab.
+- They cannot read files on your computer. An app may have other tools
+  that can; those are not atima's.
+- They do not make PDF or SVG figures. Use the web interface for those.
+
+
+## Limits
+
+| What | Limit |
+|------|-------|
+| Rows of a statistics table in a result | 50 by default; the app can ask for up to 500. Rows come smallest p-value first. The result says how many rows there are in all and links to the whole table as a CSV file. |
+| Numbers in a result's table | Rounded to four significant digits. The CSV file has them in full. |
+| Figures | PNG images, 900 by 600 pixels unless the app asks otherwise, 200 to 2,000 pixels a side. |
+| Projects in `list_projects` | 200. |
+| Values listed per metadata field in `describe_project` | 50. |
+| Time for one tool call | `time_limit` seconds, 60 by default, as for a figure in the browser. A call that takes longer is stopped and the app is told. |
+| Links to figures, tables and exports | They work for `session_hours`, 24 by default, and only while atima runs. Save what you want to keep. |
+| Calls at once | Each call is a job that waits for a free worker. An app that calls many tools at once fills the queue, and further calls are told that the server is busy. |
+
+To raise the time limit, start atima with, for example,
+`atima::run(time_limit = 300)`.
+
+
+## Where your data goes
+
+atima itself only answers requests from your own computer, and sends
+nothing anywhere. But what a tool returns is handed to the AI app:
+project titles and descriptions, metadata field names and values, taxon
+names, statistics tables, figures, and whatever is in a file the app
+exports and opens. Most apps send all of
+it to the servers of the company that provides their model, where that
+company's terms decide what happens to it.
+
+- If your data must not leave your computer, do not connect an app, or
+  use one that runs its model on your computer.
+- If your data may leave under conditions (for example, human-subject
+  metadata under a data use agreement), check that the app provider's
+  terms meet them before you connect.
+- Nothing is sent until the app calls a tool, and tools are called only
+  while you use the app. Removing the server from the app ends it.
+
+The article [Where your data goes](data-handling.html) covers the rest of
+what a local atima stores and sends.
+
+### Files you did not make yourself
+
+The text in a project is read by the app's language model: titles,
+descriptions, metadata and taxon names. atima returns it as data and tells
+the model to treat it as data, but a model can still be misled by text
+that was written to mislead it, for example a description that says
+"ignore your instructions and ...". This is called prompt injection.
+
+With atima's own tools, the harm such text can do is small, because no
+tool changes or sends anything. The risk is in what else the app can do.
+If the same app can also read your files, send email or run commands,
+text hidden in a dataset from someone else could try to make it do those
+things. For datasets you did not make yourself, read what the app
+proposes to do before you allow it, and do not let the app act without
+asking.
+
+
+## Protocol revision
+
+atima speaks revision **2026-07-28** of the MCP specification, over
+Streamable HTTP, without sessions, and only that revision. An app that
+only knows earlier revisions cannot connect: it opens with a handshake
+that this revision no longer has, and atima answers with an error that
+names 2026-07-28. Update the app. If it still cannot connect, it does not
+support this revision yet.
+
+
+## When it does not work
+
+**The app says it cannot connect, or the connection is refused.** atima
+is not running, or runs on another port. Start it, and compare the
+address in the app with the line `AI apps can connect to ...` that
+`run()` printed.
+
+**403, "This server only answers requests made to localhost".** The
+address in the app uses a name other than `localhost`, `127.0.0.1` or
+`[::1]`, for example the computer's network name. atima refuses such
+requests on purpose. Use the address `run()` printed.
+
+**404 for `/mcp`.** The server runs with `auth = "oidc"`. Shared servers
+do not offer the endpoint yet.
+
+**An error that mentions the protocol version or `initialize`.** The app
+speaks an earlier revision. See "Protocol revision".
+
+**The app says a project does not exist.** Tools name a project by its
+key, the word in the address when the project is open in the browser, for
+example `hmp50`. Ask the app to list your projects first.
+
+**A tool call is refused with a message about an argument.** The message
+comes from rbiom and names the option and its valid choices. Apps usually
+correct the call themselves. If one does not, tell it which field or
+option you meant.
+
+**"The server is busy" or a time-out.** See "Limits".
+
+**The link to a figure or export no longer works.** Links stop working
+after `session_hours`, and when atima is restarted with a new temporary
+directory, which is the default.
+
+In atima's log, each request from an app is a `request` line for `/mcp`
+with an `rpc` field that names the tool, such as `tools/call make_plot`.
+The arguments of a call are not logged.

@@ -12,10 +12,17 @@ files and explore alpha diversity, beta diversity and taxa abundance plots in
 their browser. Projects are stored in an SQLite database on the machine
 running the server.
 
-> **Status: under renovation.** atima 5 is being rebuilt and is not ready for
-> use. The R back end starts and answers API requests, but the web interface
-> in this repository is a partly connected redesign, and the account and
-> deployment code is about to be replaced. Do not expose it to a network.
+> atima 5 is a pre-release: it has not been released yet, and details may
+> still change.
+
+Documentation: <https://cmmr.github.io/atima/>
+
+- [Using atima on your own computer](https://cmmr.github.io/atima/articles/local-install.html)
+- [Running a shared server](https://cmmr.github.io/atima/articles/server.html)
+- [Setting up sign-in (OpenID Connect)](https://cmmr.github.io/atima/articles/sign-in.html)
+- [Importing from an older atima](https://cmmr.github.io/atima/articles/legacy-import.html)
+- [Connecting an AI app](https://cmmr.github.io/atima/articles/ai-apps.html)
+- [Where your data goes (local use)](https://cmmr.github.io/atima/articles/data-handling.html)
 
 
 ## Installation
@@ -52,21 +59,35 @@ Each setting can be given as an argument to `run()`, as an environment
 variable, or as an R option. They are looked up in that order, and the
 default is used if none is set.
 
-| Argument        | Env. variable         | R option              | Default                               | Purpose                                              |
-|-----------------|-----------------------|-----------------------|---------------------------------------|------------------------------------------------------|
-| `port`          | `ATIMA_PORT`          | `atima.port`          | `8080`                                | Port to listen on.                                   |
-| `host`          | `ATIMA_HOST`          | `atima.host`          | `"127.0.0.1"`                         | Address to listen on. The default accepts connections from this computer only. |
-| `data_dir`      | `ATIMA_DATA_DIR`      | `atima.data_dir`      | `tools::R_user_dir("atima", "data")`  | Database, stored BIOM files and cache.               |
-| `temp_dir`      | `ATIMA_TEMP_DIR`      | `atima.temp_dir`      | a new directory under `tempdir()`     | Temporary files, figures and exports. Must be outside `data_dir`; old files here are deleted. |
-| `workers`       | `ATIMA_WORKERS`       | `atima.workers`       | half the CPU cores, 1 to 4            | Worker processes. Each runs one job (a plot, an upload, an export) at a time. |
-| `max_cpus`      | `ATIMA_MAX_CPUS`      | `atima.max_cpus`      | CPU cores divided by `workers`        | CPU cores one job may use.                           |
-| `time_limit`    | `ATIMA_TIME_LIMIT`    | `atima.time_limit`    | `60`                                  | Longest a job may run, in seconds.                   |
-| `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `atima.cache_size_mb` | `100`                                 | Upper limit for the cache of computed results, in MB. |
-| `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `atima.max_upload_mb` | `50`                                  | Largest upload accepted, in MB.                      |
-| `session_hours` | `ATIMA_SESSION_HOURS` | `atima.session_hours` | `24`                                  | A browser tab not heard from for this long loses its session, unsaved changes and temporary files. |
-| `guest_days`    | `ATIMA_GUEST_DAYS`    | `atima.guest_days`    | `30`                                  | A guest who has not visited for this long is forgotten, with the projects only they could open. |
-| `legacy`        | `ATIMA_LEGACY`        | `atima.legacy`        | none                                  | Older installations to import from; see "Importing from an older atima". |
-| `open`          | `ATIMA_OPEN`          | `atima.open`          | `interactive()`                       | Open a browser once the server is up.                |
+| Argument | Env. variable | Default | Purpose |
+|----------|---------------|---------|---------|
+| `port` | `ATIMA_PORT` | `8080` | Port to listen on. |
+| `host` | `ATIMA_HOST` | `"127.0.0.1"` | Address to listen on. The default accepts connections from this computer only; `"0.0.0.0"` needs `auth = "oidc"`. |
+| `auth` | `ATIMA_AUTH` | `"none"` | Who may use the server: `"none"` for one person on their own computer, `"oidc"` for a shared server with sign-in. |
+| `public_url` | `ATIMA_PUBLIC_URL` | `http://localhost:<port>` on this computer, otherwise required | With `auth = "oidc"`: the address people type to reach the server, such as `https://atima.example.org`. |
+| `oidc_issuer` | `ATIMA_OIDC_ISSUER` | `"https://auth.globus.org"` | The sign-in provider's issuer URL. For ORCID, `"https://orcid.org"`. |
+| `oidc_client_id` | `ATIMA_OIDC_CLIENT_ID` | none | The client id the provider gave you. |
+| `oidc_client_secret` | `ATIMA_OIDC_CLIENT_SECRET` | none | The client secret the provider gave you. Set it in the environment, not in a script. |
+| `admins` | `ATIMA_ADMINS` | none | The provider's identifiers (`sub`) of the administrators, separated by commas. |
+| `forwarded_proto_header` | `ATIMA_FORWARDED_PROTO_HEADER` | none | A header in which your reverse proxy says whether the visitor used HTTPS. Not needed when `public_url` starts with `https://`. |
+| `signin_days` | `ATIMA_SIGNIN_DAYS` | `30` | How long a sign-in lasts, in days. |
+| `operator` | `ATIMA_OPERATOR` | none | With `auth = "oidc"`: who runs the server, shown on the app's "Privacy and terms" page. |
+| `contact` | `ATIMA_CONTACT` | none | With `auth = "oidc"`: an email address or `https://` page for reaching whoever runs the server. |
+| `data_dir` | `ATIMA_DATA_DIR` | `tools::R_user_dir("atima", "data")` | Database, stored BIOM files and cache. |
+| `temp_dir` | `ATIMA_TEMP_DIR` | a new directory under `tempdir()` | Temporary files, figures and exports. Must be outside `data_dir`; old files here are deleted. |
+| `workers` | `ATIMA_WORKERS` | half the CPU cores, 1 to 4 | Worker processes. Each runs one job (a plot, an upload, an export) at a time. |
+| `max_cpus` | `ATIMA_MAX_CPUS` | CPU cores divided by `workers` | CPU cores one job may use. |
+| `time_limit` | `ATIMA_TIME_LIMIT` | `60` | Longest a job may run, in seconds. |
+| `jobs_per_user` | `ATIMA_JOBS_PER_USER` | `16` | With `auth = "oidc"`: the most jobs one person or guest may have waiting or running at once. |
+| `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `100` | Upper limit for the cache of computed results, in MB. |
+| `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `50` | Largest upload accepted, in MB. |
+| `session_hours` | `ATIMA_SESSION_HOURS` | `24` | A browser tab not heard from for this long loses its session, unsaved changes and temporary files. |
+| `guest_days` | `ATIMA_GUEST_DAYS` | `30` | A guest who has not visited for this long is forgotten, with the projects only they could open. |
+| `legacy` | `ATIMA_LEGACY` | none | Older installations to import from; see "Importing from an older atima". |
+| `open` | `ATIMA_OPEN` | `interactive()` | Open a browser once the server is up. |
+
+The R option for a setting is `atima.<argument>`, for example
+`options(atima.port = 8081)`.
 
 The R session that calls `run()` answers requests and owns the database.
 Everything that reads a BIOM file or calls rbiom runs in the worker
@@ -105,88 +126,35 @@ Put a reverse proxy in front for HTTPS. Visitors who have not signed in can
 explore public projects and upload their own data, which is kept for
 `guest_days` and becomes theirs when they sign in.
 
-See `?atima::run` for details.
+[Setting up sign-in](https://cmmr.github.io/atima/articles/sign-in.html) has the steps for Globus Auth and
+ORCID, and [Running a shared server](https://cmmr.github.io/atima/articles/server.html) covers HTTPS,
+containers and backups. See `?atima::run` for every setting.
 
 ### Importing from an older atima
 
 atima 2 (the Shiny application with a MariaDB or MySQL database) encrypted
 every project with keys that only its users' passwords unlock. Its data can
 therefore not be moved by an administrator alone. Instead, the administrator
-saves the old database once, and each person brings their own projects over
-by typing the email address and password they had on the old site.
-
-**1. Save the old database.** On a computer that can reach it, with the
-`RMariaDB` package installed, run this once. A database account that may
-only `SELECT` is enough, and the old database is not changed.
+saves the old database to a file once with `atima::legacy_convert()` and
+names the file in the `legacy` setting (this needs the `bcrypt` package).
+Each person who is signed in then finds "Import from an older atima" in the
+menu, types the email address and password they had on the old site, and
+chooses the projects to bring over. A person who has forgotten their old
+password cannot import: nobody, including the administrator, can decrypt
+their projects without it.
 
 ```r
-con <- DBI::dbConnect(
-  RMariaDB::MariaDB(),
-  dbname = "atima", host = "<database host>",
-  user = "<user>", password = Sys.getenv("ATIMA2_DB_PASSWORD") )
-
+# Once. `con` is a DBI connection to the old database.
 atima::legacy_convert(con, "atima2.sqlite")
-DBI::dbDisconnect(con)
-```
 
-If all you have is a `mysqldump` file, restore it into any MariaDB server
-first (the tables needed are `Users`, `Projects`, `Permissions` and
-`Objects`) and connect to that.
-
-The result is one SQLite file. It holds, for each account, the email
-address, the bcrypt hash of the password and the encrypted private key, and
-for each project that was not deleted, who could open it and its data, still
-encrypted as atima 2 stored it. Names, affiliations, sessions, sign-in
-tokens and cached results are not copied. Treat the file as you would the
-old database: keep it out of version control and readable only by the
-account the server runs as. After this the old database server is no longer
-needed.
-
-**2. Register the file.** Install the `bcrypt` package on the server
-(`install.packages("bcrypt")`), and name the file, with the label people
-should see, when starting it:
-
-```r
 atima::run(
   auth   = "oidc",
   legacy = c("ATIMA 2 (2019 to 2026)" = "/srv/atima/atima2.sqlite") )
 ```
 
-or `ATIMA_LEGACY="ATIMA 2 (2019 to 2026)=/srv/atima/atima2.sqlite"`; several
-entries are separated by `;`. The server only reads the file, and refuses to
-start if it is missing, was not made by `legacy_convert()`, or `bcrypt` is
-not installed.
-
-**3. What people do.** Someone who is signed in finds "Import from an older
-atima" in the menu, enters their old email address and password, and ticks
-the projects to import. What to know:
-
-- The import runs on the server, in the background, one project at a time
-  per person. People can keep working, or close the page, while it runs,
-  and are told when it is done. Most projects take a few seconds; one with
-  tens of thousands of taxa can take several minutes.
-- The old password is checked, and the projects are decrypted, in memory in
-  a worker process. The server keeps the password in memory while that
-  person's import runs and drops it when the last project is done. The
-  password and the keys it unlocks are never written to the database, the
-  log or a file. Restarting the server ends running imports; what was
-  imported stays, and the rest can be started again.
-- Samples, metadata, taxonomy and tree come over as the project last had
-  them on the old site, with the creation date and rarefaction depth. A
-  project whose counts are not whole numbers is only imported after the
-  person has agreed to have them scaled, as for an upload.
-- A project is imported once. If someone else who could open it on the old
-  site imports it later, they are given the same project, with the access
-  they had there (editor or viewer), so sharing carries over as people
-  arrive. Someone who could only view a project can only view it here; if
-  they are the first to import it, it has no editor until one imports it.
-- Public example projects of the old site are not offered; only their
-  editors can import them.
-- After five wrong passwords, a person, and separately the old account they
-  tried, must wait 15 minutes.
-- A person who has forgotten their old password cannot import: nobody,
-  including the administrator, can decrypt their projects without it.
-- When everyone has moved, remove the `legacy` setting and delete the file.
+The file is as sensitive as the old database. See
+[Importing from an older atima](https://cmmr.github.io/atima/articles/legacy-import.html) for the steps, what
+comes over, and what to watch for.
 
 
 ## Using atima from an AI app
@@ -195,59 +163,30 @@ A local atima (`auth = "none"`) is also a
 [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server, so
 an AI app that speaks MCP can explore your projects, run statistics and
 make figures when you ask it to. The endpoint is the server's address
-followed by `/mcp`; `run()` prints it when it starts:
-
-```
-AI apps can connect to http://127.0.0.1:8080/mcp
-```
-
-Add that address to your app as a remote ("HTTP" or "Streamable HTTP") MCP
-server. With [Claude Code](https://claude.com/claude-code), for example:
+followed by `/mcp`; `run()` prints it when it starts. With
+[Claude Code](https://claude.com/claude-code), for example:
 
 ```sh
 claude mcp add --transport http atima http://127.0.0.1:8080/mcp
 ```
 
-Then ask in plain words: "List my atima projects", "Which metadata fields
-of hmp50 are related to alpha diversity?", "Draw an ordination of hmp50
-colored by body site". atima has to be running while you do.
+Then ask in plain words: "List my atima projects", "Draw an ordination of
+hmp50 colored by body site". What to know:
 
-The app is given six tools:
-
-| Tool                | What it does |
-|---------------------|--------------|
-| `list_projects`     | Lists the projects you can open, with their keys. |
-| `describe_project`  | Samples, sequencing depths, metadata fields and their values, taxonomic ranks, and whether there is a tree. |
-| `describe_function` | The arguments of an rbiom statistics or plot function, as a JSON Schema. |
-| `run_stats`         | Runs `adiv_stats()`, `bdiv_stats()`, `taxa_stats()` or `taxa_da()` and returns the table. |
-| `make_plot`         | Draws any of the plots the web interface offers and returns the image, its statistics table and the R code. |
-| `export`            | Writes a BIOM file, an Excel workbook or a CSV table and returns a link to it. |
-
-What to know:
-
-- **The tools read and compute. None of them changes anything.** They
-  cannot upload, save, rename, publish or delete, and they work on saved
-  projects, not on unsaved changes in an open browser tab.
+- The app is given six tools. They read and compute; none of them changes
+  anything.
 - **Your data goes where the app sends it.** atima itself only answers
   requests from this computer, but what a tool returns (metadata values,
   statistics, figures) is handed to the AI app, and most apps send it on
   to their provider's servers. If the data must stay on your machine, use
   an app that runs its model locally, or do not connect one.
-- **Text in your files is read by the model.** Project titles,
-  descriptions, metadata and taxon names are returned as data, never as
-  part of a tool's description, but a model can still be misled by text
-  written to mislead it. This matters for files you did not make yourself.
-- Statistics tables come back with at most 50 rows (the app can ask for up
-  to 500), smallest p-values first; the result says how many rows there
-  are and links to the whole table as a CSV file. Figures come back as PNG
-  images of at most 2000 pixels a side; use the web interface for PDF or
-  SVG. Links to figures, tables and exports work for `session_hours`.
-- A tool call is a job like any other: it waits for a free worker and is
-  stopped after `time_limit` seconds.
-- atima speaks revision 2026-07-28 of the MCP specification (Streamable
-  HTTP, without sessions). An app that only knows earlier revisions is
-  told so when it tries to connect, and cannot.
+- atima speaks revision 2026-07-28 of the MCP specification. An app that
+  only knows earlier revisions cannot connect.
 - Shared servers (`auth = "oidc"`) do not offer the endpoint yet.
+
+See [Connecting an AI app](https://cmmr.github.io/atima/articles/ai-apps.html) for the tools, limits and
+troubleshooting, and [Where your data goes](https://cmmr.github.io/atima/articles/data-handling.html) for what
+a local atima stores and sends.
 
 
 ## Development

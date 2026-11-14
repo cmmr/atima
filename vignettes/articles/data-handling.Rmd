@@ -1,0 +1,248 @@
+---
+title: "Where your data goes (local use)"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+This article is for someone whose data must stay on their own computer,
+and for whoever has to confirm that it does. It describes atima as it
+runs by default, `atima::run()` with `auth = "none"`: what it writes to
+disk and where, who can reach it, what it sends over the network (nothing),
+what it logs, how long it keeps things, and how to delete everything. It
+ends with the one way data can leave: an AI app that you connect yourself.
+Each statement names the setting or the part of the source code that it
+rests on, so that it can be checked. For a shared server, see
+[Running a shared server](server.html) instead.
+
+
+## Summary
+
+| Question | Answer |
+|----------|--------|
+| Where is my data stored? | In one directory on your computer, the data directory, plus a temporary directory. |
+| Is it encrypted? | No. It is protected by your operating system's file permissions and, if you use it, disk encryption. |
+| Can other computers connect? | No. atima listens on the loopback address only, and refuses to start otherwise. |
+| Does atima send data anywhere? | No. It has no telemetry, no update check and no outgoing connections in this mode. |
+| Does the page load anything from other sites? | No. The browser is told to allow this server only. |
+| Who can open the app? | Anyone who can use this computer while the server runs. There are no accounts. |
+| Can data leave some other way? | Only if you take it out: by downloading a file and sharing it, or by connecting an AI app. |
+
+
+## What is stored, and where
+
+### The data directory
+
+By default the data directory is `tools::R_user_dir("atima", "data")`; the
+`data_dir` setting chooses another. `run()` prints it at start-up.
+
+| Path | What it holds |
+|------|---------------|
+| `sqlite.db` | An SQLite database: each project's title, description, numbers of samples and taxa, metadata field names and keys; your project tree; and the browser sessions (when each started and was last heard from, and the address it came from, which is always this computer's). |
+| `sqlite.db-wal`, `sqlite.db-shm` | Part of the database while the server runs. |
+| `files/` | Your data: every uploaded BIOM file as you uploaded it, and the versions atima derives (the working version, and one rarefied to the project's depth). Each file is named by the SHA-256 hash of its contents. |
+| `cache/` | Results kept so that they are not computed twice, such as parsed files and rbiom's intermediate results. They are derived from your data and are as sensitive as it is. Its size is limited by `cache_size_mb`. |
+| `sqlite.db.v<N>.<date>.bak` | A copy of the whole database, made before an upgrade of atima changed its structure. atima never deletes these. |
+
+Sample metadata, counts, taxonomy and trees are in the files under
+`files/` (and, derived, under `cache/`), not in the database.
+
+### The temporary directory
+
+Figures, tables and exports that the browser downloads, uploads in
+progress, and files made for AI apps go to `temp_dir`. By default this is
+a new directory inside R's own temporary directory for the session, which
+R removes when the R session ends normally. If R is killed or crashes, it
+can be left behind; `run()` prints its path at start-up.
+
+Each browser tab has a directory there, named by a random key, and files
+made for AI apps are under `mcp/`.
+
+### In your browser
+
+atima sets one cookie, `auth_token`, a random string that tells the server
+which browser is asking. It holds no data. atima stores nothing else in
+the browser. Your browser may keep figures and pages in its own cache and
+history, as it does for any site, and files you download are wherever you
+saved them.
+
+### In R
+
+The worker processes hold your data in memory while they work. Nothing is
+written outside the two directories above.
+
+
+## Who can reach the server
+
+**Only this computer.** With `auth = "none"`, atima listens on
+`127.0.0.1`, the loopback address, which only programs on the same
+computer can connect to. If `host` is set to anything other than a
+loopback address (`127.x.x.x`, `localhost`, `::1`), `run()` stops with an
+error before it opens the database. This is checked in `auth_settings()`
+in `R/run.r`.
+
+**Only under a local name.** The page and every API request are refused
+with status 403 unless the request is addressed to `localhost`,
+`127.0.0.1` or `[::1]`. This stops a web page elsewhere from reaching your
+local atima by pointing its own domain name at `127.0.0.1` (an attack
+called DNS rebinding). Requests that say they come from another web site
+are refused as well. See `check_host()` and `check_origin()` in
+`R/auth.R`. The two exceptions are the app's own scripts and styles under
+`/www`, which contain no data, and files under `/tmp`, which can only be
+fetched by someone who knows the random key in their path.
+
+**Anyone on this computer.** There are no accounts in this mode. While
+the server runs, anyone who can use the computer can open
+`http://127.0.0.1:8080` and see every project. This includes other people
+logged in to the same computer at the same time, for example on a shared
+workstation or a multi-user server, and any program running on it. The
+files in the data directory are protected only by the operating system's
+file permissions. If that is not enough:
+
+- do not run atima on a computer that other people can log in to while
+  you work;
+- stop the server when you are not using it;
+- keep the data directory on an encrypted disk.
+
+Do not put a local atima behind a reverse proxy, a tunnel or a port
+forward to make it reachable from elsewhere. It refuses such requests by
+design. Sharing needs a server with sign-in; see
+[Running a shared server](server.html).
+
+
+## What goes over the network
+
+**From atima: nothing.** In this mode atima makes no outgoing connections.
+It has no telemetry, no usage statistics, no crash reports, no update
+check and no licence check. The only code in atima that contacts another
+server is the sign-in code in `R/auth-oidc.R`, which is used only with
+`auth = "oidc"`.
+
+**From the page: nothing to other sites.** Every script, style, font and
+image the page uses is part of the installed package and is served by
+your own atima. The page is sent with a Content-Security-Policy, a header
+that tells the browser what the page may load and contact:
+
+```
+default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:;
+object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+```
+
+`'self'` means this server only. A browser that enforces the policy will
+not let the page load from, or send to, any other site. You can read the
+header in the browser's developer tools (Network tab, the first request),
+and it is defined as `content_security_policy` in `R/run.r`.
+
+The page contains a few ordinary links to other web sites (the
+institution's home page, and any link you put in a project description).
+They are followed only if you click them, and they are opened without
+telling the other site which page you came from.
+
+**Installing is different.** Installing or upgrading atima and its
+packages downloads them from CRAN and GitHub. That transfers software to
+your computer and none of your data from it. Once installed, atima runs
+without a network connection.
+
+
+## What the log contains
+
+atima writes a log to R's standard error, which is the console of the R
+session that runs it. It is not written to a file unless you set
+`options(atima.log = "<path>")`, and atima then never deletes or rotates
+that file.
+
+| Line | What it holds |
+|------|---------------|
+| One line per request | The time, the method, which of atima's routes answered (such as `/api/plot`), the status, how long it took, and the internal number of the user. For requests from an AI app, the name of the tool. |
+| One line per error | An id that is also shown in the browser, the message, the route or the path that was asked for, and for an internal error the details needed to find the fault: the failing database statement with its values (shortened), and the call stack. |
+| Start-up, shutdown and housekeeping | Worker processes starting and stopping, a job stopped at the time limit, how many old items a cleanup removed, a database backup or upgrade. |
+
+Request bodies are never logged, so what you upload, the options of a
+figure and the arguments of an AI app's tool calls are not in the log. An
+error line can contain a value from the request that failed, such as a
+project's key or title, or a field name. Read a log before you send it to
+anyone.
+
+
+## How long things are kept
+
+| What | Kept until |
+|------|------------|
+| A saved project | You delete it. |
+| Unsaved changes in a browser tab | The tab has not been heard from for `session_hours` (24 by default). An open tab reports in by itself; a closed tab, or a computer that is asleep, does not. |
+| A tab's figures, tables and exports in `temp_dir` | They are `session_hours` old. |
+| Files made for an AI app | They are `session_hours` old. |
+| Anything else in `temp_dir` | It is an hour old. |
+| A deleted project's row in the database | The next cleanup. Cleanup runs when the server starts and every ten minutes while it runs. |
+| A deleted project's files in `files/` | A cleanup finds that nothing refers to them and they are at least `session_hours` old. A file is kept as long as any project or unsaved copy uses it. |
+| `cache/` | The entries used longest ago are dropped when it outgrows `cache_size_mb`. It can be a little over that limit for a while. |
+| Upgrade backups, `*.bak` | You delete them. They contain the database as it was, including projects deleted since. |
+
+Cleanup only happens while the server runs. Deleting a project removes it
+from atima; it does not overwrite the disk, and it does not remove the
+project from an upgrade backup or from backups you made yourself.
+
+
+## Deleting everything
+
+1. Stop the server (interrupt R).
+2. Delete the data directory. With the default location:
+
+   ```{r}
+   unlink(tools::R_user_dir("atima", "data"), recursive = TRUE)
+   ```
+
+3. Check that the temporary directory `run()` printed at start-up is
+   gone. It is, if R ended normally and you did not set `temp_dir`.
+   Otherwise delete it.
+4. Delete the log file, if you set `atima.log`.
+5. Delete what is outside atima's control: files you downloaded or
+   exported, backups you made, and, if it matters, your browser's cache,
+   history and cookie for `127.0.0.1`.
+
+This is ordinary deletion. Whether deleted files can be recovered from
+the disk depends on your operating system and disk, as for any file.
+
+To remove the software too: `remove.packages("atima")`.
+
+
+## The one way data leaves: an AI app you connect
+
+A local atima can be used by an AI app, through the address `run()`
+prints as `AI apps can connect to ...`. atima does nothing with this
+until an app on your computer is given that address and calls it. The
+endpoint is always there in this mode, and, like the rest of atima,
+answers only requests from this computer.
+
+When an app calls it, what atima returns is handed to the app: project
+titles and descriptions, metadata field names and values, taxon names,
+statistics tables and figures. Most AI apps send what they receive to
+their provider's servers. From there on, the provider's terms apply, not
+anything atima does.
+
+If your data must stay on your computer, do not add atima's address to an
+AI app, unless the app runs its model on your computer and sends nothing
+out. Check `claude mcp list`, or the equivalent list in other apps, if
+you are unsure whether you connected one in the past. The tools cannot
+change or delete your projects. [Connecting an AI app](ai-apps.html) has
+the details.
+
+
+## Checking these statements yourself
+
+- **Listening address.** While atima runs, list the listening ports
+  (`netstat -an` on Windows, `ss -ltn` on Linux, `lsof -iTCP -sTCP:LISTEN`
+  on macOS). Port 8080 is bound to `127.0.0.1`, not to `0.0.0.0` or your
+  network address.
+- **From another computer.** From a second computer, try to open port 8080
+  of this computer's network address. The connection is refused.
+- **Outgoing connections.** Run atima with the network disconnected. It
+  works the same. Or watch the R processes with your operating system's
+  network monitor while you use it.
+- **The page.** In the browser's developer tools, the Network tab shows
+  only requests to `127.0.0.1:8080`.
+- **The source.** atima is open source:
+  <https://github.com/cmmr/atima>. The files named in this article are
+  short.

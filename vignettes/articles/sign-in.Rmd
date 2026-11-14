@@ -1,0 +1,367 @@
+---
+title: "Setting up sign-in (OpenID Connect)"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+A shared atima server does not keep passwords. People sign in through an
+identity provider, an organisation that already knows who they are, using
+OpenID Connect (OIDC), the standard that "Sign in with ..." buttons use.
+This article is for the person who runs the server. It explains what
+`auth = "oidc"` does, how to register the server with Globus Auth or ORCID,
+every setting involved, how to name administrators, and the things that go
+wrong if a setting is changed later. Putting the server behind HTTPS and
+running it in a container are covered in
+[Running a shared server](server.html).
+
+Sign-in has been tested against a mock provider, in automated tests and by
+hand. It has not yet been tested against Globus Auth or ORCID themselves.
+Try a sign-in on a test server before you announce yours.
+
+
+## What `auth = "oidc"` does
+
+- Visitors start as **guests**. A guest is a browser that has not signed
+  in. Guests can explore public projects, upload data and save projects.
+- A visitor who chooses "Sign in" is sent to the provider, signs in there,
+  and is sent back. atima never sees the password they use with the
+  provider.
+- atima recognises a person by two values the provider vouches for: the
+  provider's address (the **issuer**) and the provider's identifier for the
+  person (the **`sub`**, short for subject). It never matches people by
+  email address or name.
+
+### What atima stores about a person
+
+| Stored | Where it comes from |
+|--------|---------------------|
+| Issuer and `sub` | The provider, at sign-in. |
+| Name, email address, affiliation | The provider, replaced with what it says at each sign-in. ORCID sends no email address and no affiliation. |
+| Whether the person is an administrator | The `admins` setting. |
+| When the person last used the server | atima. |
+
+In the browser atima sets one cookie, `auth_token`, a random string. The
+database keeps only a hash of it (SHA-256), so the database cannot be used
+to forge a cookie. The cookie cannot be read by scripts, is not sent with
+requests that other sites make, and is marked `Secure` when the site is
+served over HTTPS.
+
+atima stores no password and none of the provider's tokens.
+
+### What other people can see of a person
+
+Someone who is signed in and shares a project can search for other people
+with accounts. The search, and the list of who has access to a project,
+show a person's name, their affiliation, and their email address with part
+of it hidden. For someone who signed in with ORCID, which sends no email
+address, the ORCID iD is shown instead; an ORCID iD is public by design.
+The `sub` of any other provider is never shown. Guests cannot search for
+people or see who a project is shared with.
+
+
+## Before you register
+
+Decide the address people will type, for example
+`https://atima.example.org`. This is the server's `public_url`. Sign-in
+depends on it in two places:
+
+- The provider sends people back to `<public_url>/auth/callback`, the
+  **redirect URL**. You give this URL to the provider when you register,
+  and it must match exactly: the scheme (`https`), the host name, the port
+  if there is one, and the path. `https://atima.example.org/auth/callback`
+  and `https://www.atima.example.org/auth/callback` are different URLs.
+- `public_url` must start with `https://`, unless it is a `localhost`
+  address used for a trial.
+
+A server uses one provider. Choose it before people start to use the
+server (see "Changing the provider later").
+
+
+## Registering with Globus Auth
+
+[Globus Auth](https://www.globus.org/platform/services/auth) lets people
+sign in with the account of their university or institute, and with ORCID
+and Google accounts. It is atima's default provider.
+
+1. Sign in at <https://app.globus.org/settings/developers>.
+2. Choose to register a **portal or web application that you host**. Do
+   not choose a native app or a service account.
+3. Put the registration in a Globus project that belongs to your lab or
+   group, not to you alone, so that a colleague can manage it later.
+4. Set the redirect URL to `https://atima.example.org/auth/callback`, with
+   your own host name. Globus accepts only `https://` redirect URLs, with
+   one exception: `http://localhost`.
+5. If you are asked for scopes, give `openid`, `profile` and `email`.
+6. Generate a client secret. Note the client id (a UUID) and the secret;
+   the secret is shown once.
+
+Then start the server with:
+
+| Environment variable | Value |
+|----------------------|-------|
+| `ATIMA_AUTH` | `oidc` |
+| `ATIMA_PUBLIC_URL` | `https://atima.example.org` |
+| `ATIMA_OIDC_CLIENT_ID` | `<client id>` |
+| `ATIMA_OIDC_CLIENT_SECRET` | `<client secret>` |
+
+The issuer does not have to be set: the default,
+`https://auth.globus.org`, is right.
+
+### Trying it on your own computer first
+
+Because Globus accepts `http://localhost`, you can try sign-in on a laptop
+with no HTTPS and no host name. Register a second application (or add a
+second redirect URL) with exactly `http://localhost:8080/auth/callback`,
+then, in a terminal:
+
+```sh
+export ATIMA_OIDC_CLIENT_ID="<client id>"
+export ATIMA_OIDC_CLIENT_SECRET="<client secret>"
+Rscript -e 'atima::run(auth = "oidc", data_dir = tempfile("atima_trial_"))'
+```
+
+With `auth = "oidc"`, the default `host` and no `public_url`, atima takes
+`http://localhost:8080` as its address. Open exactly that address, not
+`http://127.0.0.1:8080`: the browser treats the two as different sites,
+and a sign-in started at one cannot finish at the other. The example uses a
+temporary data directory so that the trial does not touch your own local
+data (see "Moving a local data directory to a shared server").
+
+
+## Registering with ORCID instead
+
+[ORCID](https://orcid.org) gives every researcher an identifier, the ORCID
+iD. Use it as the provider if your users are more likely to have an ORCID
+iD than an institute that Globus knows.
+
+1. Sign in at <https://orcid.org>.
+2. Open **Developer Tools** in the menu under your name, and register for
+   the public API.
+3. Add the redirect URI `https://atima.example.org/auth/callback`, with
+   your own host name. ORCID accepts only HTTPS in production, and the URI
+   must match exactly, host name included.
+4. Note the client id and the client secret.
+
+Then start the server with:
+
+| Environment variable | Value |
+|----------------------|-------|
+| `ATIMA_AUTH` | `oidc` |
+| `ATIMA_PUBLIC_URL` | `https://atima.example.org` |
+| `ATIMA_OIDC_ISSUER` | `https://orcid.org` |
+| `ATIMA_OIDC_CLIENT_ID` | `<client id>` |
+| `ATIMA_OIDC_CLIENT_SECRET` | `<client secret>` |
+
+What is different with ORCID:
+
+- ORCID sends a name and nothing else: no email address and no
+  affiliation. People are told apart by their ORCID iD.
+- A person's `sub` is their ORCID iD, for example `0000-0002-1825-0097`
+  (ORCID's own example iD).
+- ORCID has a sandbox for trying things, at <https://sandbox.orcid.org>,
+  with its own accounts and its own registrations. To use it, register
+  there and set `ATIMA_OIDC_ISSUER=https://sandbox.orcid.org`. Accounts
+  from the sandbox are not the same people as accounts from
+  `https://orcid.org`; do not let real users onto a server that points at
+  the sandbox.
+
+
+## Settings
+
+Each setting can be an argument of `atima::run()`, an environment
+variable, or an R option (`options(atima.<name> = )`). The first that is
+set is used. On a server, environment variables are the usual way.
+
+| Argument | Environment variable | Default | What it does |
+|----------|----------------------|---------|--------------|
+| `auth` | `ATIMA_AUTH` | `none` | `oidc` switches sign-in on. |
+| `host` | `ATIMA_HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` listens on all interfaces, which a server behind a reverse proxy or in a container needs. |
+| `public_url` | `ATIMA_PUBLIC_URL` | `http://localhost:<port>` when `host` is this computer, otherwise required | The address people type, with no path. The redirect URL is this plus `/auth/callback`. |
+| `oidc_issuer` | `ATIMA_OIDC_ISSUER` | `https://auth.globus.org` | The provider's issuer URL, exactly as the provider states it. |
+| `oidc_client_id` | `ATIMA_OIDC_CLIENT_ID` | none, required | The client id from the registration. |
+| `oidc_client_secret` | `ATIMA_OIDC_CLIENT_SECRET` | none, required | The client secret from the registration. |
+| `admins` | `ATIMA_ADMINS` | not set | The `sub` values of the administrators, separated by commas. See "Administrators". |
+| `signin_days` | `ATIMA_SIGNIN_DAYS` | `30` | How long a sign-in lasts. |
+| `guest_days` | `ATIMA_GUEST_DAYS` | `30` | A guest who has not visited for this many days is forgotten, with the projects only they could open. |
+| `forwarded_proto_header` | `ATIMA_FORWARDED_PROTO_HEADER` | not set | The name of a header in which your reverse proxy says whether the visitor used HTTPS, usually `X-Forwarded-Proto`. Not needed when `public_url` starts with `https://`. If you set it, the proxy must overwrite that header on every request, so that a visitor cannot send their own. |
+| `jobs_per_user` | `ATIMA_JOBS_PER_USER` | `16` | The most jobs one person, or one guest, may have waiting or running at once. |
+| `operator` | `ATIMA_OPERATOR` | not set | Who runs the server, as the words that finish "This server is run by ...". Shown on the app's "Privacy and terms" page. |
+| `contact` | `ATIMA_CONTACT` | not set | How users can reach whoever runs the server: an email address or the `https://` address of a page. Shown on the same page. |
+
+atima reads everything else about the provider (where to send people,
+where to exchange the code, which keys sign its tokens) from the
+provider's discovery document, at
+`<issuer>/.well-known/openid-configuration`. It reads it when the server
+starts. If the provider cannot be reached then, the server starts anyway,
+prints a warning, writes an `oidc_discovery_failed` line to the log, and
+tries again the first time someone signs in.
+
+### Where the client secret belongs
+
+The client secret is a password for your server. Whoever has it can
+pretend to be your server to the provider.
+
+- Give it to the server through its environment, or through the secret
+  store of whatever runs the server.
+- Do not write it in an R script, in a compose file, or in any file that
+  is kept in version control.
+- atima does not write it to the log and does not pass it to its worker
+  processes.
+- If it may have leaked, generate a new one at the provider, delete the
+  old one there, and restart the server with the new one. Nobody has to
+  sign in again because of that.
+
+
+## Administrators
+
+An administrator can edit and unpublish any public project. An
+administrator cannot open other people's private projects, and there is no
+page for managing users.
+
+Administrators are named by their `sub`, which you can only know after
+the person has signed in once:
+
+1. Have the person sign in to the server.
+2. Read their `sub` from the database, the file `sqlite.db` in the
+   server's data directory:
+
+   ```{r}
+   con <- DBI::dbConnect(
+     RSQLite::SQLite(), "<data directory>/sqlite.db",
+     flags = RSQLite::SQLITE_RO )
+   DBI::dbGetQuery(con, "
+     SELECT full_name, email, sub FROM users
+     WHERE is_guest = 0 AND issuer IS NOT NULL")
+   DBI::dbDisconnect(con)
+   ```
+
+   For Globus Auth a `sub` is a UUID. For ORCID it is the ORCID iD.
+3. Set `ATIMA_ADMINS` to the `sub` values, separated by commas, and
+   restart the server:
+
+   ```sh
+   ATIMA_ADMINS="<sub of the first administrator>,<sub of the second>"
+   ```
+
+4. The person becomes an administrator the next time they sign in. If
+   they are signed in already, they sign out and in again.
+
+When `ATIMA_ADMINS` is set, it decides at every sign-in: a person who is
+on the list is made an administrator, and a person who is not on it stops
+being one. When it is not set, administrators stay as they are in the
+database.
+
+
+## What people who use the server should know
+
+**Signing in lasts `signin_days`.** After 30 days (by default) the browser
+has to sign in again. There is no silent renewal. Signing in and signing
+out both close the browser's open atima tabs on the server, and unsaved
+changes in them are lost, so save first.
+
+**Signing out of atima does not sign out of the provider.** On a shared
+computer, sign out of the provider as well, or the next person can sign
+straight back in.
+
+**Guests.** A guest's projects are tied to a cookie in their browser. They
+are deleted `guest_days` after the guest's last visit, and are lost
+earlier if the browser's cookies are cleared. A guest cannot share a
+project with a named person, search for people, or publish a project.
+
+**What happens to a guest's data at sign-in.** When a guest signs in from
+the same browser, everything they saved as a guest becomes theirs: their
+projects, their collections, and the access they had to other projects.
+The guest is then deleted. Unsaved changes in the open tab are not carried
+over.
+
+**A sign-in must be finished within ten minutes** of choosing "Sign in",
+in the same browser. If the server is restarted in between, the person
+starts again.
+
+**Public projects are not reviewed.** Anyone who is signed in and can edit
+a project can publish it. Administrators can edit or unpublish it
+afterwards.
+
+The app has a page, "Privacy and terms", that tells users what the server
+stores and for how long. Set `operator` and `contact` so that it says who
+runs the server.
+
+
+## Things that go wrong later
+
+### Changing the provider later
+
+A person is the pair (issuer, `sub`). If you change `oidc_issuer` on a
+server that people have already signed in to, every one of them is a
+stranger to atima at their next sign-in. They get a new, empty account.
+Their old account and its projects are still in the database, but nobody
+can sign in to it, and atima has no way to join the two.
+
+This also applies to moving between ORCID's sandbox and ORCID, and to
+moving between Globus Auth and ORCID even though Globus lets people sign
+in with their ORCID account: the two providers give different `sub`
+values for the same person.
+
+A server uses one provider at a time. Choose it before you invite anyone.
+
+### Moving a local data directory to a shared server
+
+A data directory that was used with `auth = "none"` contains one user, the
+local owner, who owns every project in it. If you start a server with
+`auth = "oidc"` on that directory, those projects still belong to the
+local owner, and nobody can sign in as the local owner. The projects are
+not deleted, but they are in nobody's project list, and nobody can edit,
+share or delete them.
+
+To bring local projects to a shared server, start the shared server on a
+new, empty data directory, and upload the projects again: in the local
+atima, download each project as a BIOM file, then upload the file to the
+shared server after signing in.
+
+The opposite mistake is less harmful. If a shared server's data directory
+is opened with `auth = "none"`, people who signed in through a provider
+are left as they are.
+
+### The redirect URL does not match
+
+The provider refuses the sign-in, on its own page, with a message about
+the redirect URI. Compare the URL registered at the provider with
+`<public_url>/auth/callback`, character by character. Common causes are
+`http` instead of `https`, a `www.` on one side only, a port on one side
+only, and a `public_url` that was changed after registration.
+
+### "Sign-in could not be completed. Please try again."
+
+atima shows this one message whatever the reason, and writes the reason to
+the server log, in the `detail` of an `error` line. The usual reasons:
+
+| `detail` in the log | Meaning |
+|---------------------|---------|
+| `Unknown, reused or expired state.` | The sign-in took more than ten minutes, the server was restarted meanwhile, or the browser's Back button replayed an old sign-in. |
+| `The sign-in was not started by this browser.` | The sign-in began at one address and ended at another (for example `127.0.0.1` and `localhost`), or cookies are blocked. |
+| `The provider refused the code (HTTP ..., ...).` | The provider did not accept the request, and its error code is in the brackets. `invalid_client` means that the client id or secret is wrong. |
+| `The ID token has expired (exp).` or `... is not valid yet (nbf).` | The server's clock is wrong. |
+
+### The provider's issuer does not match
+
+At start-up atima prints that the provider "says its issuer is ..., not
+...". Set `oidc_issuer` to exactly the value the provider states, without
+a trailing slash unless the provider's has one.
+
+### The provider is slow or down
+
+While atima waits for the provider during a sign-in (at most ten seconds
+per call), it answers no other requests. People who are already signed in
+are not affected by a provider that is down, until their sign-in runs out.
+
+
+## Related articles
+
+- [Running a shared server](server.html): HTTPS, the reverse proxy,
+  containers, backups.
+- [Importing from an older atima](legacy-import.html): for people who had
+  an account on an atima 2 site.
+- `?atima::run`: every setting.

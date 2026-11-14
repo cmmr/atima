@@ -19,7 +19,7 @@ Description:
     correlations with metadata, enabling quick assessment of many variables.
     Generated data and figures can be exported as Excel-compatible spreadsheets
     and publication quality PDFs.
-URL: https://github.com/cmmr/atima, https://cmmr.github.io/atima/index.html
+URL: https://github.com/cmmr/atima, https://cmmr.github.io/atima/
 BugReports: https://github.com/cmmr/atima/issues
 License: MIT + file LICENSE
 Encoding: UTF-8

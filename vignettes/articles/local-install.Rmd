@@ -1,0 +1,318 @@
+---
+title: "Using atima on your own computer"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+This article is for one person who wants to analyse their own microbiome
+data on a laptop or desktop. It covers installing atima, starting and
+stopping it, where it keeps your data, the settings that matter on one
+computer, upgrading, backing up, and what to do when it does not start. In
+this mode there are no accounts, and other computers cannot connect.
+
+
+## What you need
+
+| What | Version | Notes |
+|------|---------|-------|
+| [R](https://cran.r-project.org) | 4.3 or later | |
+| [rbiom](https://github.com/cmmr/rbiom) | 4.0.0 or later | The R package that does the analyses. It is installed together with atima. |
+| [Pandoc](https://pandoc.org/installing.html) | any recent | A document converter. atima uses it for project descriptions. |
+| A web browser | a current one | The interface runs in the browser. |
+
+atima runs on Windows, macOS and Linux.
+
+
+## Installing
+
+rbiom 4 is not on CRAN yet, so atima and rbiom are both installed from
+GitHub. The `pak` package does this in one step:
+
+```{r}
+install.packages("pak")
+pak::pak("cmmr/atima")
+```
+
+Then check that R can find Pandoc:
+
+```{r}
+pandoc::pandoc_available()
+```
+
+If the answer is `FALSE`, install Pandoc from
+<https://pandoc.org/installing.html>, or from R with
+`pandoc::pandoc_install()`. RStudio ships with a copy of Pandoc, which is
+found when atima is started from inside RStudio.
+
+
+## Starting atima
+
+```{r}
+atima::run()
+```
+
+R prints what it is doing and then waits:
+
+```
+Initializing Atima Server...
+ - Data Directory: <your data directory>
+ - Temp Directory: <a temporary directory>
+ - Sign-in: none (single local user)
+ - Starting 4 worker processes (2 CPUs each)
+ - Loading example projects
+Server listening on 127.0.0.1 port 8080. Open http://127.0.0.1:8080
+AI apps can connect to http://127.0.0.1:8080/mcp
+```
+
+When R is used interactively (the R console or RStudio), the address is
+opened in your browser. Otherwise, open <http://127.0.0.1:8080> yourself.
+
+The R session that called `run()` is busy for as long as the server runs.
+To keep using R for other things, start atima in a second R session or in a
+terminal:
+
+```sh
+Rscript -e "atima::run()"
+```
+
+### What the first start does
+
+The first time it starts, atima creates its data directory, creates an empty
+database in it, and loads two example projects that come with rbiom, `hmp50`
+and `gems`. Later starts find the database and skip this.
+
+### Stopping
+
+Interrupt R: press Esc or the Stop button in RStudio, or Ctrl+C in a
+terminal. atima then cancels running jobs, stops its worker processes and
+closes the database. Closing the browser tab does not stop the server.
+
+
+## Where your data is kept
+
+Everything atima keeps is in one directory, the data directory. By default
+it is the directory R assigns to the package for user data:
+
+```{r}
+tools::R_user_dir("atima", "data")
+```
+
+| Operating system | Default data directory |
+|------------------|------------------------|
+| Windows | `%APPDATA%\R\data\R\atima` |
+| macOS   | `~/Library/Application Support/org.R-project.R/R/atima` |
+| Linux   | `~/.local/share/R/atima` |
+
+It holds:
+
+| Path | Contents |
+|------|----------|
+| `sqlite.db` | The database: projects, their titles and descriptions, and your project tree. While the server runs there are also `sqlite.db-wal` and `sqlite.db-shm`, which belong to it. |
+| `files/` | The uploaded BIOM files and the versions atima derives from them. |
+| `cache/` | Results kept so that they need not be computed twice. It can be deleted while the server is stopped. |
+| `sqlite.db.v<N>.<date>.bak` | Copies of the database made before an upgrade changed it (see "Upgrading"). |
+
+To keep the data somewhere else, name the directory when you start:
+
+```{r}
+atima::run(data_dir = "D:/microbiome/atima-data")
+```
+
+Use the same `data_dir` every time, or set it once as described in the next
+section. Starting with a different directory gives you a new, empty atima
+with only the example projects; the other directory is not changed.
+
+Figures, exports and uploads in progress go to a separate temporary
+directory, `temp_dir`. By default it is a new directory inside R's
+temporary directory, which R removes when the R session ends.
+
+The article [Where your data goes](data-handling.html) describes in detail
+what is stored and what leaves your computer.
+
+
+## Settings
+
+Each setting can be given in three ways. The first that is set is used:
+
+1. an argument, `atima::run(port = 8081)`;
+2. an environment variable, `ATIMA_PORT=8081`;
+3. an R option, `options(atima.port = 8081)`, for example in your
+   `.Rprofile`.
+
+These are the settings that matter on one computer. `?atima::run` lists
+them all.
+
+| Argument | Environment variable | Default | What it does |
+|----------|----------------------|---------|--------------|
+| `port` | `ATIMA_PORT` | `8080` | The port in the address, `http://127.0.0.1:<port>`. Change it if another program uses 8080. |
+| `data_dir` | `ATIMA_DATA_DIR` | see above | Where the database, stored files and cache are kept. |
+| `temp_dir` | `ATIMA_TEMP_DIR` | a new directory in R's temporary directory | Figures, exports and uploads in progress. It must not be `data_dir`, or inside it, or contain it: atima deletes old files here. |
+| `workers` | `ATIMA_WORKERS` | half the CPU cores, at least 1, at most 4 | The number of worker processes. A worker is a separate R process that runs one job (a figure, an upload, an export) at a time. Each uses memory for its own copy of R and rbiom. |
+| `max_cpus` | `ATIMA_MAX_CPUS` | CPU cores divided by `workers` | CPU cores one job may use. |
+| `time_limit` | `ATIMA_TIME_LIMIT` | `60` | The longest a job may run, in seconds. A job that takes longer is stopped and you are told so. Raise it for large datasets or slow tests. |
+| `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `50` | The largest file accepted, in megabytes. |
+| `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `100` | Upper limit for `cache/`, in megabytes. |
+| `session_hours` | `ATIMA_SESSION_HOURS` | `24` | Unsaved changes in a browser tab, and that tab's figures and exports, are deleted when the tab has not been heard from for this many hours. |
+| `open` | `ATIMA_OPEN` | `TRUE` when R is interactive | Whether to open the browser when the server is up. |
+
+With `workers = 1` jobs run one after another. That is enough for one
+person, and uses the least memory. With more workers the page stays quicker
+while a slow figure is drawn, because lists and tables do not wait behind
+it.
+
+An example for a laptop with little memory and a large dataset:
+
+```{r}
+atima::run(workers = 1, time_limit = 300, max_upload_mb = 200)
+```
+
+
+## Optional packages
+
+Some features need an R package that rbiom does not install by itself.
+Without the package, atima does not offer the feature. Install the ones
+you want and start atima again.
+
+| Package | What it switches on |
+|---------|---------------------|
+| `openxlsx` | Exporting a project as an Excel workbook. |
+| `fillpattern` | Patterns (hatching) to tell groups apart in a figure. |
+| `Rtsne` | tSNE ordinations. |
+| `uwot` | UMAP ordinations. |
+| `ggdensity` | The density layer of ordination plots. |
+| `lmerTest` | The `strata` option of the differential abundance forest plot. |
+| `svglite` | Saving figures as SVG. |
+| `bcrypt` | [Importing from an older atima](legacy-import.html). |
+
+```{r}
+install.packages(c("openxlsx", "fillpattern", "Rtsne", "uwot", "ggdensity", "lmerTest", "svglite"))
+```
+
+
+## Upgrading
+
+Install the new version the same way as the first time, then start atima
+with the same data directory:
+
+```{r}
+pak::pak("cmmr/atima")
+atima::run()
+```
+
+If the new version stores things differently, atima first saves a copy of
+the database next to it, named `sqlite.db.v<N>.<date>.bak`, where `<N>` is
+the database's version number before the upgrade and `<date>` is the date
+and time in UTC. It then upgrades `sqlite.db` in place. atima never deletes
+these copies. Delete them yourself when you are satisfied that the upgrade
+went well; each is as large as the database was.
+
+A database cannot be opened by an older atima than the one that last
+upgraded it. atima refuses to start and asks you to install a newer
+version; to go back, restore the `.bak` copy (see "Restoring").
+
+### A data directory from atima 5.0.x
+
+A data directory made by atima 5.0.x is upgraded the same way when the
+server first starts on it. The copy is named `sqlite.db.v0.<date>.bak`.
+atima 5.0.x had accounts with passwords, and guests. A local atima has one
+user and no sign-in, so every project and collection that any account or
+guest had in that directory becomes the local user's, and the old accounts
+are removed. Nothing has to be claimed or imported.
+
+
+## Backing up
+
+The data directory is all there is to back up. `cache/` can be left out.
+
+**With the server stopped**, copy the data directory. When atima stops it
+writes everything into `sqlite.db`, so the copy is complete.
+
+**While the server runs**, do not copy `sqlite.db` by itself. The database
+is in write-ahead logging (WAL) mode, in which recent changes are in the
+`sqlite.db-wal` file beside it, and a copy of one file without the other
+can be incomplete or unreadable. Ask SQLite for a consistent copy instead,
+from a second R session, and then copy the `files` directory:
+
+```{r}
+data_dir   <- tools::R_user_dir("atima", "data")
+backup_dir <- "D:/backups/atima-2026-11-13"
+dir.create(backup_dir, recursive = TRUE)
+
+con <- DBI::dbConnect(RSQLite::SQLite(), file.path(data_dir, "sqlite.db"))
+RSQLite::sqliteCopyDatabase(con, file.path(backup_dir, "sqlite.db"))
+DBI::dbDisconnect(con)
+
+file.copy(file.path(data_dir, "files"), backup_dir, recursive = TRUE)
+```
+
+Copy the database first and the files second, in that order, so that every
+file the database copy refers to is in the backup.
+
+### Restoring
+
+Stop the server. Put the backup's `sqlite.db` and `files` directory into an
+empty directory and start atima with that directory as `data_dir`. To
+restore into the original data directory instead, first move its contents
+away, including `sqlite.db-wal` and `sqlite.db-shm` if they are there: they
+belong to the database that is being replaced.
+
+
+## When it does not start
+
+**`Failed to create server`.** The port is in use, often by an atima that
+is still running in another R session. Stop that one, or choose another
+port: `atima::run(port = 8081)`.
+
+**`The installed rbiom is too old for this version of atima`.** rbiom's
+version number stays at 4.0.0 until it is on CRAN, so an early copy of
+rbiom 4 can be too old without its number saying so. Install the current
+one and start again:
+
+```{r}
+pak::pak("cmmr/rbiom")
+```
+
+**An error that mentions Pandoc**, such as `Requested Pandoc binary is not
+available`, while the example projects are loaded or when you upload a
+file. R cannot find Pandoc. See "Installing" above.
+
+**`auth = "none" has no accounts, so it only runs on this computer`.** You
+set `host` to an address that other computers can reach. Without accounts
+atima only listens on this computer (`127.0.0.1`, `localhost` or `::1`) and
+refuses to start otherwise. To let other people use it, see
+[Running a shared server](server.html).
+
+**`temp_dir must not be the same as data_dir, or inside it, or contain
+it`.** Choose a temporary directory elsewhere. atima deletes old files in
+`temp_dir`, and refuses a layout in which that could reach your data.
+
+**`This database has schema version ..., but this version of atima only
+knows up to ...`.** The data directory was last used by a newer atima.
+Install that version or a later one.
+
+**The page says 403, "This server only answers requests made to
+localhost".** You opened atima under a name other than `localhost`,
+`127.0.0.1` or `[::1]`, for example the computer's network name. Use the
+address `run()` printed.
+
+**`That took longer than the 60 seconds allowed, and was stopped`**, in the
+browser. A figure, upload or export ran longer than `time_limit` seconds.
+Start atima with a higher limit, for example
+`atima::run(time_limit = 300)`.
+
+When an error in the browser shows a short id, the line with the same `id`
+in R's console has the details.
+
+
+## Where to go next
+
+- [Where your data goes](data-handling.html): what is stored, and what
+  leaves your computer.
+- [Connecting an AI app](ai-apps.html): let an AI app explore your
+  projects.
+- [Importing from an older atima](legacy-import.html): bring projects over
+  from an atima 2 site.
+- [Running a shared server](server.html): atima for a lab or the public.

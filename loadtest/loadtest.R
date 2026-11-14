@@ -106,7 +106,7 @@ send <- function (kind, method, url, body = NULL, headers = character(0), done =
 
   handle <- curl::new_handle()
   curl::handle_setopt(
-    handle, customrequest = method, followlocation = FALSE, ssl_verifypeer = FALSE,
+    handle, url = url, customrequest = method, followlocation = FALSE, ssl_verifypeer = FALSE,
     ssl_verifyhost = FALSE, timeout = 600, useragent = "atima-loadtest" )
 
   if (!is.null(body)) {
@@ -137,6 +137,7 @@ send <- function (kind, method, url, body = NULL, headers = character(0), done =
       done(res$status_code, res$content, res$headers)
     },
     fail   = function (message) {
+      if (!isTRUE(records$warned)) { records$warned <- TRUE; message("A request got no answer: ", message) }
       note(0L, now() - sent, 0L)
       done(0L, raw(0), raw(0))
     })
@@ -520,11 +521,11 @@ summarise <- function (rows) {
       p95_s     = q(ok$seconds, 0.95),
       p99_s     = q(ok$seconds, 0.99),
       max_s     = q(ok$seconds, 1),
-      wait_p50_s = q(ok$queue_ms, 0.50) / 1000,
-      wait_p95_s = q(ok$queue_ms, 0.95) / 1000,
-      wait_max_s = q(ok$queue_ms, 1) / 1000,
-      run_p50_s  = q(ok$job_ms, 0.50) / 1000,
-      run_p95_s  = q(ok$job_ms, 0.95) / 1000,
+      wait_p50_s = round(q(ok$queue_ms, 0.50) / 1000, 3),
+      wait_p95_s = round(q(ok$queue_ms, 0.95) / 1000, 3),
+      wait_max_s = round(q(ok$queue_ms, 1) / 1000, 3),
+      run_p50_s  = round(q(ok$job_ms, 0.50) / 1000, 3),
+      run_p95_s  = round(q(ok$job_ms, 0.95) / 1000, 3),
       stringsAsFactors = FALSE )
   }))
 

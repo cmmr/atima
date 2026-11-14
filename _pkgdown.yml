@@ -1,0 +1,29 @@
+url: https://cmmr.github.io/atima/
+
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left:  [reference, articles]
+    right: [search, github]
+
+reference:
+- title: Functions
+  desc: atima exports two functions. Everything else is done in the browser.
+  contents:
+  - run
+  - legacy_convert
+
+# The articles are in vignettes/articles/, which is not part of the built
+# package. They appear in the menu in this order.
+articles:
+- title: Guides
+  navbar: ~
+  contents:
+  - articles/local-install
+  - articles/server
+  - articles/sign-in
+  - articles/legacy-import
+  - articles/ai-apps
+  - articles/data-handling

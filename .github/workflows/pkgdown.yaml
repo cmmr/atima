@@ -1,0 +1,91 @@
+# Builds the documentation site (pkgdown) on every push and pull request, so
+# that an article or help page that does not build fails here. On pushes to
+# main the built site is also published to GitHub Pages, as a Pages artifact:
+# nothing is pushed to the repository, and there is no gh-pages branch.
+#
+# Publishing needs GitHub Pages switched on for the repository, with
+# "GitHub Actions" as its source (Settings > Pages > Build and deployment).
+# Until it is, the deploy job fails at its first step and says so; the build
+# job is not affected.
+#
+# rbiom is installed from GitHub through the Remotes field in DESCRIPTION
+# until rbiom 4 is on CRAN.
+on:
+  push:
+  pull_request:
+
+name: pkgdown
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::pkgdown, local::.
+          needs: website
+
+      # pkgdown makes a page of every Markdown file at the top of the
+      # repository. The renovation plan is a working document, not
+      # documentation, so it is removed from this checkout first.
+      - name: Leave working documents out of the site
+        run: rm -f RENOVATION.md
+
+      - name: Build site
+        run: pkgdown::build_site_github_pages(new_process = FALSE, install = FALSE)
+        shell: Rscript {0}
+
+      - name: Check that every help page and article is listed
+        run: pkgdown::check_pkgdown()
+        shell: Rscript {0}
+
+      - name: Upload the site for GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # Stops with "Get Pages site failed" if Pages is not switched on for
+      # the repository. It is not switched on from here (`enablement` is
+      # left at its default, false): that is a repository setting.
+      - name: Check that GitHub Pages is switched on
+        uses: actions/configure-pages@v5
+
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
