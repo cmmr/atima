@@ -96,8 +96,12 @@ function descriptionEditor(html) {
   return { el: h('div.rich', bar, box), html: () => box.innerHTML };
 }
 
-/** Save the working copy over the project, or (with `copy`) as a new private project. */
-export async function saveProject({ copy = false } = {}) {
+/**
+ * Save the working copy over the project, or (with `copy`) as a new private
+ * project. The same dialog is where a project's title and description are
+ * changed; `details` opens it for that, worded accordingly.
+ */
+export async function saveProject({ copy = false, details = false } = {}) {
 
   const biom  = store.get('biom');
   const id    = newId('title');
@@ -105,12 +109,14 @@ export async function saveProject({ copy = false } = {}) {
   const desc  = descriptionEditor(biom.description);
 
   const ok = await dialog({
-    title: copy ? 'Save a copy' : 'Save project',
+    title: copy ? 'Save a copy' : details ? 'Edit title and description' : 'Save project',
     wide: true,
     body: [
       h('p.hint', copy
         ? 'The copy is a new private project of yours, made from your working copy.'
-        : 'This replaces the saved project with your working copy.'),
+        : !details ? 'This replaces the saved project with your working copy.'
+        : biom.is_saved ? 'This changes the saved project\'s title and description.'
+        : 'Your working copy has changes that are not saved. Saving the title and description saves those changes too.'),
       h('label', { for: id }, 'Title'), title,
       h('label', 'Description'), desc.el ],
     buttons: [

@@ -91,6 +91,11 @@ export function show(container) {
 
       h('div.summary-grid',
         h('div.card',
+          h('div.card-head',
+            h('h2', 'Description'),
+            biom.is_editor
+              ? button('Edit', () => saveProject({ details: true }), { icon: 'pen', title: 'Edit this project\'s title and description' })
+              : h('span.hint', { title: 'Save a copy to give it a title and description of your own.' }, 'view only')),
           serverHtml(h('div.description'), biom.description || '<p><em>No description.</em></p>'),
           biom.is_saved ? null : h('p.warning', icon('triangle-exclamation'),
             ' Your working copy differs from the saved project. Save it, or save a copy, to keep the changes.'),
