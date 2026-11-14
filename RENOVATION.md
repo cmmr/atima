@@ -522,8 +522,9 @@ it to that step's list instead of fixing it now.
 - **Interface refinement (added 2026-11-14).** Daniel finds the plot
   controls of the new front end too tall: a label above every control,
   like the R Shiny interface of atima 2, which he does not like. He
-  wants them compact, as in the plot controls he designed for atima 4,
-  with an unopened dropdown and its label on one line, and usable on a
+  wants them compact, as in the plot controls he designed for the
+  pre-renovation 5.0 (the version in `cmmr/atima-old`, which he calls
+  atima 4), with an unopened dropdown and its label on one line, and usable on a
   wide range of screen sizes. Two navigation links are much longer than
   the rest and are to be renamed. It is step 13, after the steps that
   still add pages; release moved to step 14.
@@ -2740,15 +2741,20 @@ about how it looks and how much room it takes, not what it does. It
 comes after steps 11 and 12 so that the pages they add (connected apps,
 usage) are refined with the rest.
 
-- The reference is the plot controls Daniel designed for atima 4. They
-  are not in this repository: its history starts at a pre-renovation
-  5.0, whose `inst/www/modules/` (`controls.js`, `dd.js`, `selz.js`,
-  `layers.js`, `aes.js`) and `inst/www/style.css` in the first commit
-  are the nearest thing here, and the local `archive/` holds atima 1 to
-  3 only. Ask Daniel for the atima 4 source or screenshots (the old
-  history is in the private `cmmr/atima-old`; nothing from it may be
-  committed here) and look at them before designing anything. What not
-  to resemble: atima 2's Shiny controls, a label on its own line above
+- The reference is the plot controls Daniel designed for the
+  pre-renovation 5.0, the version kept in `cmmr/atima-old` (he calls it
+  atima 4). Its code is in this repository's first commit
+  (`git show ca1fd41:inst/www/modules/controls.js`, and beside it
+  `dd.js`, `selz.js`, `layers.js`, `aes.js`, `checkbox.js`, `irs.js`,
+  `md.js`, `taxa.js`, with `inst/www/style.css` and `js/page_plot.js`);
+  step 7 deleted those files. Read them for how each kind of control was
+  laid out and how much room it took, and rebuild that look in the
+  current renderer: do not bring back the old code or its libraries
+  (jQuery, selectize, ion-rangeSlider). That commit's `index.html` is
+  the unwired mock-up, so the old interface cannot simply be run from
+  it; ask Daniel for screenshots of the old plot page, or whether a
+  server still runs it, to see it as he designed it. What not to
+  resemble: atima 2's Shiny controls, a label on its own line above
   each full-width input, which is what step 7's controls look like now.
 - Compact plot controls:
   - A dropdown that is not open, with its label, takes one line: label
@@ -2798,8 +2804,8 @@ usage) are refined with the rest.
   server of the plot page at the smallest and largest size before
   finishing, and again after his comments.
 
-Decisions for Daniel: the atima 4 reference (source or screenshots) and
-which of its details to keep; the screen sizes to support, and whether
+Decisions for Daniel: screenshots of the pre-renovation 5.0 plot page if
+he has them, and which of its details to keep; the screen sizes to support, and whether
 phones and tablets are among them; what the page does when it is too
 narrow for three columns; the new navigation labels; whether the
 tables, dialogs and other pages get the same pass now or only the plot
