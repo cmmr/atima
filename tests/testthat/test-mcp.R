@@ -750,7 +750,7 @@ test_that("errors of the job layer are tool results, and the server's own are pr
   arguments <- list(project = "hmp50", `function` = "adiv_stats", args = list(stat.by = "Sex"))
 
   # A job that ran out of time, or found the queue full: the model may try again.
-  for (status in c(503L, 504L, 409L)) {
+  for (status in c(503L, 504L, 409L, 429L)) {
     local({
       local_mocked_bindings(run_inline = function (fn, args) stop(http_condition(status, "The server is busy. Please try again in a moment.")))
       resp   <- mcp$rpc("tools/call", list(name = "run_stats", arguments = arguments))
@@ -809,6 +809,22 @@ test_that("several tool calls at once all finish, none replacing another", {
     expect_false(body$result$isError)
     expect_identical(body$result$content[[1]]$type, "image")
   }
+
+  # One caller's flood: the calls over the per-user limit are tool errors
+  # that say to wait, and the ones within it finish.
+  pool$max_user <- 2
+  withr::defer(pool$max_user <- Inf)
+
+  promises <- lapply(1:4, function (i) handle_request(request(i, "chao1"), app))
+  results  <- lapply(promises, function (p) {
+    resp <- if (inherits(p, "response")) p else await(p, seconds = 120)$value
+    expect_identical(resp$status, 200L)
+    response_json(resp)$result
+  })
+
+  refused <- vapply(results, function (r) isTRUE(r$isError), logical(1))
+  expect_identical(refused, c(FALSE, FALSE, TRUE, TRUE))
+  expect_match(results[[3]]$content[[1]]$text, "Too many of your requests")
 
   # A job that passes the time limit is a tool error that says so.
   slow <- test_app(mcp$REQ, local_test_pool(workers = 1L, time_limit = 1))

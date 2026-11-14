@@ -653,7 +653,7 @@ handle_request <- function (request, app) {
     key <- paste(session[['session_id']], REQ[['ROUTE']][['path']])
 
   promises::then(
-    promise     = pool_submit(pool, out[['fn']], out[['args']], session[['session_id']], key),
+    promise     = pool_submit(pool, out[['fn']], out[['args']], session[['session_id']], key, user_id = session[['user_id']]),
     onFulfilled = function (value) finish(function () value),
     onRejected  = function (error) finish(function () stop(error)) )
 }

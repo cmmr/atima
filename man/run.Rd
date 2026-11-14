@@ -20,6 +20,7 @@ run(
   workers = max(1, min(4, parallelly::availableCores()\%/\%2)),
   max_cpus = NULL,
   time_limit = 60,
+  jobs_per_user = 16,
   cache_size_mb = 100,
   max_upload_mb = 50,
   session_hours = 24,
@@ -92,6 +93,10 @@ divides the available cores among the workers.}
 
 \item{time_limit}{The longest a job may run, in seconds. A job that
 takes longer is stopped and the user is told so.}
+
+\item{jobs_per_user}{With \code{auth = "oidc"}: the most jobs one person (or
+one guest) may have waiting or running at the same
+time. See the section on jobs.}
 
 \item{cache_size_mb}{Upper limit, in megabytes, for the cache of
 computed results kept in \code{data_dir}. Half is for
@@ -209,6 +214,12 @@ database in place.
 \section{Jobs}{
 
 A request that needs a worker waits in a queue if all workers are busy.
+The queue holds ten jobs per worker; when it is full, further requests
+are answered 503 ("the server is busy") until there is room. On a shared
+server one person may have \code{jobs_per_user} jobs waiting or running; the
+next is answered 429 with a message to wait, so that one person's browser
+tabs, or one AI app calling many tools at once, cannot fill the queue for
+everyone else.
 A new plot, rarefaction or table page from a browser tab replaces that
 tab's earlier request of the same kind if it is still waiting or running.
 A job that passes \code{time_limit}, or is replaced, is interrupted; if it has

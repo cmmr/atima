@@ -104,6 +104,8 @@ worker_job_expr <- quote({
 #' @param grace       Seconds an interrupted job gets to stop before its
 #'                    process is ended.
 #' @param max_queue   Most jobs that may wait for a worker.
+#' @param max_user    Most jobs one user may have waiting or running at the
+#'                    same time. `Inf` for no limit.
 #' @param init        A function with no arguments to call in a worker before
 #'                    each job, or `NULL`. Tests use it to load the package
 #'                    from source.
@@ -112,9 +114,9 @@ worker_job_expr <- quote({
 #' @noRd
 pool_start <- function (
     workers, time_limit = 60, grace = 5, max_queue = 10L * workers,
-    init = NULL, profile = "atima" ) {
+    max_user = Inf, init = NULL, profile = "atima" ) {
 
-  stopifnot(workers >= 1, time_limit > 0, grace >= 0)
+  stopifnot(workers >= 1, time_limit > 0, grace >= 0, max_user >= 1)
 
   pool <- new.env(parent = emptyenv())
 
@@ -123,6 +125,7 @@ pool_start <- function (
   pool$time_limit <- time_limit
   pool$grace      <- grace
   pool$max_queue  <- as.integer(max_queue)
+  pool$max_user   <- max_user
   pool$init       <- init
   pool$jobs       <- list()          # every queued or running job, by id
   pool$queue      <- character(0)    # ids waiting for a worker, oldest first
@@ -196,16 +199,22 @@ pool_stop <- function (pool) {
 #' @param pool        The pool.
 #' @param fn,args     The worker function's name and arguments.
 #' @param session_id  The session the job belongs to, if any.
+#' @param user_id     The user the job is for, if any. One user may have
+#'                    `pool$max_user` jobs waiting or running; the next is
+#'                    refused, so that one person's tabs, or one AI app
+#'                    calling many tools at once, cannot fill the queue for
+#'                    everyone. Jobs without a user are not counted.
 #' @param key         Jobs with the same non-`NULL` key replace each other:
 #'                    submitting one cancels any other that is queued or
 #'                    running.
 #' @param time_limit  Longest the job may run, in seconds.
 #' @return A promise. It is fulfilled with what `worker_run()` returned. It
 #'         is rejected with an `atima_http_error` if the job was superseded
-#'         or cancelled (409), ran out of time (504) or found the queue full
-#'         (503), and with an ordinary error if the worker failed.
+#'         or cancelled (409), ran out of time (504), found the queue full
+#'         (503) or is one too many for its user (429), and with an ordinary
+#'         error if the worker failed.
 #' @noRd
-pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_limit = pool$time_limit) {
+pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_limit = pool$time_limit, user_id = NULL) {
 
   if (isTRUE(pool$stopped))
     return (promises::promise_reject(http_condition(503L, "The server is shutting down.")))
@@ -214,6 +223,14 @@ pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_lim
     for (j in pool$jobs)
       if (identical(j$key, key))
         pool_cancel(pool, j, http_condition(409L, "This request was replaced by a newer one."))
+
+  # Ids are compared as text: the database may hand out integers or doubles.
+  if (!is.null(user_id)) user_id <- as.character(user_id)
+
+  if (pool_user_jobs(pool, user_id) >= pool$max_user)
+    return (promises::promise_reject(http_condition(429L, paste(
+      "Too many of your requests are waiting or running at once.",
+      "Please wait for some of them to finish, then try again." ))))
 
   if (length(pool$queue) >= pool$max_queue)
     return (promises::promise_reject(http_condition(503L, "The server is busy. Please try again in a moment.")))
@@ -226,6 +243,7 @@ pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_lim
   j$args       <- args
   j$key        <- key
   j$session_id <- session_id
+  j$user_id    <- user_id
   j$time_limit <- time_limit
   j$state      <- "queued"
   j$marker     <- file.path(pool$marker_dir, j$id)
@@ -241,6 +259,20 @@ pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_lim
   pool_dispatch(pool)
 
   return (promise)
+}
+
+
+#______________________________________________________________________________
+#' How many jobs a user has waiting or running. A running job that has been
+#' told to stop (replaced or cancelled) no longer counts, although its worker
+#' may need a moment to be free again.
+#' @noRd
+pool_user_jobs <- function (pool, user_id) {
+
+  if (is.null(user_id)) return (0L)
+
+  sum(vapply(pool$jobs, FUN.VALUE = logical(1), function (j) {
+    identical(j$user_id, user_id) && is.null(j$reason) }))
 }
 
 

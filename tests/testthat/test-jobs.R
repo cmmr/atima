@@ -223,6 +223,53 @@ test_that("a full queue turns new jobs away", {
 })
 
 
+test_that("one user's jobs are capped, and other users are not held up by it", {
+
+  pool$max_user <- 3
+  withr::defer(pool$max_user <- Inf)
+
+  # Two run and one waits: that is this user's three.
+  mine <- lapply(1:3, function (i) submit(sleep_30, session_id = 11L, user_id = 1L))
+  expect_identical(pool_user_jobs(pool, "1"), 3L)
+
+  err <- error_of(submit(quote("one too many"), user_id = 1L))
+  expect_s3_class(err, "atima_http_error")
+  expect_identical(err$status, 429L)
+  expect_match(conditionMessage(err), "wait for some of them to finish")
+
+  # The same user, known by a number of another type, is still that user.
+  expect_identical(error_of(submit(quote("still too many"), user_id = 1))$status, 429L)
+
+  # Someone else still gets in the queue.
+  theirs <- submit(quote("theirs"), user_id = 2L)
+  expect_length(pool$queue, 2L)
+
+  # A job that was told to stop no longer counts against its user, even
+  # while its worker is still stopping.
+  running <- Filter(function (j) identical(j$state, "running"), pool$jobs)
+  pool_cancel(pool, running[[1]], http_condition(409L, "This request was cancelled."))
+  expect_identical(pool_user_jobs(pool, "1"), 2L)
+
+  again <- submit(quote("room again"), user_id = 1L)
+
+  expect_identical(error_of(submit(quote("and full again"), user_id = 1L))$status, 429L)
+
+  pool_cancel_session(pool, 11L)
+  for (j in mine) expect_identical(error_of(j)$status, 409L)
+
+  expect_identical(value_of(theirs), "theirs")
+  expect_identical(value_of(again), "room again")
+  expect_true(pool_idle())
+  expect_identical(pool_user_jobs(pool, "1"), 0L)
+
+  # Work that belongs to nobody is not counted.
+  pool$max_user <- 1
+  nobodys <- lapply(1:3, function (i) submit(quote("nobody's")))
+  expect_identical(pool_user_jobs(pool, NULL), 0L)
+  for (j in nobodys) expect_identical(value_of(j), "nobody's")
+})
+
+
 test_that("a job that runs past the time limit is stopped", {
 
   before  <- worker_pids()

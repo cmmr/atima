@@ -68,6 +68,9 @@
 #'                    divides the available cores among the workers.
 #' @param time_limit  The longest a job may run, in seconds. A job that
 #'                    takes longer is stopped and the user is told so.
+#' @param jobs_per_user  With `auth = "oidc"`: the most jobs one person (or
+#'                    one guest) may have waiting or running at the same
+#'                    time. See the section on jobs.
 #' @param cache_size_mb  Upper limit, in megabytes, for the cache of
 #'                    computed results kept in `data_dir`. Half is for
 #'                    atima's own cache and half for rbiom's.
@@ -146,6 +149,12 @@
 #'
 #' @section Jobs:
 #' A request that needs a worker waits in a queue if all workers are busy.
+#' The queue holds ten jobs per worker; when it is full, further requests
+#' are answered 503 ("the server is busy") until there is room. On a shared
+#' server one person may have `jobs_per_user` jobs waiting or running; the
+#' next is answered 429 with a message to wait, so that one person's browser
+#' tabs, or one AI app calling many tools at once, cannot fill the queue for
+#' everyone else.
 #' A new plot, rarefaction or table page from a browser tab replaces that
 #' tab's earlier request of the same kind if it is still waiting or running.
 #' A job that passes `time_limit`, or is replaced, is interrupted; if it has
@@ -191,6 +200,7 @@ run <- function(
     workers       = max(1, min(4, parallelly::availableCores() %/% 2)),
     max_cpus      = NULL,
     time_limit    = 60,
+    jobs_per_user = 16,
     cache_size_mb = 100,
     max_upload_mb = 50,
     session_hours = 24,
@@ -239,6 +249,7 @@ run <- function(
   data_dir      <- find_arg('data_dir',      'chr')
   temp_dir      <- find_arg('temp_dir',      'chr')
   time_limit    <- find_arg('time_limit',    'int')
+  jobs_per_user <- find_arg('jobs_per_user', 'int')
   cache_size_mb <- find_arg('cache_size_mb', 'int')
   max_upload_mb <- find_arg('max_upload_mb', 'int')
   workers       <- find_arg('workers',       'int')
@@ -268,7 +279,7 @@ run <- function(
   if (is.null(max_cpus))
     max_cpus <- max(1L, as.integer(availableCores()) %/% workers)
 
-  for (param in c('workers', 'max_cpus', 'time_limit', 'session_hours', 'guest_days', 'signin_days'))
+  for (param in c('workers', 'max_cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days'))
     if (get(param) < 1) stop(param, ' must be at least 1.')
 
   cache_size_bytes <- cache_size_mb * 1024 * 1024
@@ -332,7 +343,11 @@ run <- function(
   storage_adopt_legacy(db, file.path(data_dir, 'files'))
 
   message(' - Starting ', workers, ' worker process', if (workers > 1) 'es', ' (', max_cpus, ' CPU', if (max_cpus > 1) 's', ' each)')
-  pool <- pool_start(workers = workers, time_limit = time_limit)
+  # A local install has one user, who may fill the queue if they like.
+  pool <- pool_start(
+    workers    = workers,
+    time_limit = time_limit,
+    max_user   = if (config[['auth']] == 'none') Inf else jobs_per_user )
   on.exit(pool_stop(pool), add = TRUE, after = FALSE)
 
   if (db_is_empty(db)) {

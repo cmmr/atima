@@ -497,8 +497,9 @@ legacy_advance <- function (app, batch) {
 
   settle <- function (outcome) {
 
-    # The pool's queue was full: wait, and offer the project again.
-    if (inherits(outcome, "atima_http_error") && outcome[['status']] == 503L && batch$items[[id]]$tries < legacy_retries) {
+    # The pool's queue was full, or this person has too many jobs of their
+    # own: wait, and offer the project again.
+    if (inherits(outcome, "atima_http_error") && outcome[['status']] %in% c(503L, 429L) && batch$items[[id]]$tries < legacy_retries) {
       batch$items[[id]]$tries <- batch$items[[id]]$tries + 1L
       batch$items[[id]]$state <- "queued"
       later::later(function () legacy_advance(app, batch), legacy_retry_wait)
@@ -519,7 +520,7 @@ legacy_advance <- function (app, batch) {
 
   } else {
     promises::then(
-      promise     = pool_submit(app[['pool']], "work_legacy_import", args, time_limit = legacy_time_limit),
+      promise     = pool_submit(app[['pool']], "work_legacy_import", args, time_limit = legacy_time_limit, user_id = batch$user_id),
       onFulfilled = settle,
       onRejected  = settle )
   }

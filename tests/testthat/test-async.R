@@ -334,3 +334,41 @@ test_that("the heartbeat is answered promptly over HTTP while a slow job runs", 
   expect_lt(max(vapply(beats, function (b) b$seconds, 1)), 1)
   expect_true(all(vapply(beats, function (b) b$answered < slow$answered, NA)))
 })
+
+
+test_that("a user with too many jobs at once is told to wait, and others are served", {
+
+  s <- local_async_app()
+
+  pool$max_user <- 2
+  withr::defer(pool$max_user <- Inf)
+
+  local_handlers(list(
+    "/api/project/export" = function (REQ, args) eval_job(quote({ Sys.sleep(1); "exported" }), function (result) list(result = unbox(result))) ))
+
+  export <- function (session) handle_request(fake_request("POST", "/api/project/export", list(what = "metadata"), session), s$app)
+
+  # The same person in two tabs is one user.
+  other_tab <- add_test_session(s$DB, s$user, s$project)
+  first     <- export(s$session)
+  second    <- export(other_tab)
+  third     <- export(s$session)
+
+  resp <- response_of(third)
+  expect_identical(resp$status, 429L)
+  expect_named(response_json(resp)$error, c("message", "id"))
+  expect_match(response_json(resp)$error$message, "Too many of your requests")
+
+  # Somebody else is not affected.
+  them    <- add_test_user(s$DB, "Grace Hopper")
+  grant   <- db_insert(s$DB, "permissions", "T1", user_id = them, project_id = s$project, is_editor = FALSE)
+  theirs  <- export(add_test_session(s$DB, them, s$project))
+
+  expect_identical(response_json(response_of(first))$result,  "exported")
+  expect_identical(response_json(response_of(second))$result, "exported")
+  expect_identical(response_json(response_of(theirs))$result, "exported")
+
+  # With those done there is room again.
+  expect_identical(response_of(export(s$session))$status, 200L)
+  expect_true(pool_idle())
+})
