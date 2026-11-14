@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 15).
+at release (step 16).
 
 ## How each step runs
 
@@ -36,11 +36,12 @@ it to that step's list instead of fixing it now.
 | 8 | Legacy data import | done (2026-11-12) |
 | 9 | MCP server, local | done (2026-11-13) |
 | 10 | Deployment, docs, load testing | done (2026-11-14) |
-| 11 | Interface refinement: compact controls, navigation | not started |
+| 11 | Interface refinement: compact controls, navigation | done (2026-11-14) |
 | 12 | MCP server, shared (sign-in), and tools that change data | not started |
 | 13 | Usage monitoring | not started |
-| 14 | The lab's public server | not started |
-| 15 | Release | not started |
+| 14 | Cores given to jobs by what they can use | not started |
+| 15 | The lab's public server | not started |
+| 16 | Release | not started |
 
 ## Decision log
 
@@ -71,7 +72,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 15 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 16 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -528,7 +529,7 @@ it to that step's list instead of fixing it now.
   wide range of screen sizes. Two navigation links are much longer than
   the rest and are to be renamed. First added as step 13; later the
   same day Daniel moved it to step 11, before the remaining steps that
-  add pages, and release is step 15.
+  add pages, and release is step 16.
 - **Names of the versions (2026-11-14).** To avoid confusion Daniel
   settled: **atima v5** is the old version, the code in
   `cmmr/atima-old` (package version 5.0.x; elsewhere in this file
@@ -538,8 +539,33 @@ it to that step's list instead of fixing it now.
 - **The lab's public server (2026-11-14).** Daniel settled: atima v6
   replaces all earlier versions, which are torn down; it takes over
   `https://atima.research.bcm.edu` and has the lab's server (32 cores,
-  251 GB) to itself. Installing it there is step 14, and release is
-  step 15.
+  251 GB) to itself. Installing it there is step 15, and release is
+  step 16. Nothing from the v5 installation is migrated (it held only
+  guests and seeded examples), and the installation is to use all of
+  the server's cores.
+- **Cores by what a job can use (2026-11-14).** Daniel pointed out that
+  not all plots can use several cores and asked how to allocate cores
+  better. Recommended and accepted as step 14: the pool keeps one budget
+  of cores and grants each job what its rbiom function can use (1
+  without a `cpus` argument, up to a cap with one, fewer under load).
+  The lab's server is step 15 and release step 16.
+- **No time limit on local installs (2026-11-14).** Daniel: the limit
+  exists only so that one or two people do not take all the resources of
+  the public server; on their own computer people may use what they
+  like, and he wants to be able to tell anyone whose analysis times out
+  on the public server to run atima locally. So `run(time_limit = NULL)`
+  now means no limit with `auth = "none"` and 60 seconds with
+  `auth = "oidc"` (`default_time_limit()` in `R/jobs.R`); a limit can
+  still be set locally. The server's own jobs (`pool_call()`, legacy
+  imports) are unlimited too where users are. On a shared server the
+  message of a stopped job now adds that a local install has no limit.
+  Done outside the numbered steps, the same day.
+- **Database stays SQLite (2026-11-14).** Daniel asked whether a MariaDB
+  server would be wiser for the public installation. Kept SQLite: one
+  process does all database work, the rows are small and the BIOM data
+  is in files, local installs need no setup, and there is one SQL
+  dialect and one set of migrations to test. Revisit only if atima ever
+  runs as several server processes or machines on one database.
 
 - **Hosting (step 10).** Daniel has not decided where the public server
   runs, so nothing in the repository names a host. The deployment files
@@ -596,6 +622,82 @@ it to that step's list instead of fixing it now.
   overrides it after a crash. (j) `httr2 (>= 1.3.0)`. (k) The articles
   are pkgdown articles under `vignettes/articles/`, not package
   vignettes, so the package gains no dependency.
+
+- **Control rows (step 11).** Daniel chose one-line rows on the light
+  panel: label left, value right; what belongs to a parameter sits
+  indented under it, as atima v5 opened a bar downward. The lime and gold
+  label colors are dropped: a small icon marks a control that picks a
+  metadata field. "Changed from the default" is a bar at the row's left
+  edge and a bold label, with reset at the row's right edge.
+- **A field and the look of its values (step 11).** rbiom 4 has no
+  `color.by`, `shape.by` or `pattern.by`: one field drives all three (see
+  the step 11 notes). Daniel chose: Colors, Shapes and Patterns are one
+  line each under that field (Automatic, None, a palette, "Choose
+  each"), and whatever is set to "Choose each" shares one table with a
+  row per value of the field holding that value's color, shape and
+  pattern.
+- **Values shared between plots (step 11).** Daniel chose: every
+  parameter of the same name and kind shares its value across plot
+  types. Kind means type, field class, list of choices: a categorical
+  and a numeric `x`, or the layers of a box plot and of an ordination,
+  are kept side by side. A value applies only where it is valid; reset
+  of a control or of a plot clears the shared value for every plot.
+- **Screen sizes (step 11).** Daniel chose: laptop to large desktop, 850
+  to 2560 px wide (850 is a 1280 px laptop at 150 percent zoom), no
+  sideways scrolling of the page. Below 1100 px the navigation folds
+  away behind a button; below 760 px the controls go under the figure.
+  Tablets and phones get that stacked layout and work, but are not tuned.
+- **Label lengths (step 11).** Daniel chose to shorten every long
+  navigation link, not only the two he named: a link is 12 characters at
+  most, the full wording is its tooltip and the page's heading. He asked
+  during the step that only one group of links be open at a time, and
+  for links to the documentation, the citation, the source code and the
+  privacy page, which are the "About" group.
+- **Scope of the pass (step 11).** Daniel chose: plot controls (with the
+  sample filter and image settings), navigation, top bar and the layout;
+  other pages are only made to fit the supported widths. Tables and
+  dialogs keep their look.
+- **Step 11 choices not put to Daniel.** (a) A control with no effect (a
+  `when` rule) stays in place, greyed out, and its help icon says why;
+  before, it was hidden. Colors, shapes and patterns are hidden only
+  while their field is not set. (b) "Statistical test" is not nested
+  under the field: rbiom runs it without `stat.by` in the correlation
+  plots. (c) Control labels are 16 characters at most; 19 were shortened
+  ("Alpha diversity metric" and "Beta diversity metric" are "Metric",
+  "P-value adjustment" is "P adjustment", "Blocking variable" is "Block
+  by", ...). The MCP tool descriptions use the same labels. (d) The
+  controls column is 292 px, 320 px from 1700 px up. (e) Whether the
+  navigation is folded is remembered in the browser (`localStorage`,
+  key `atima.nav`), the first thing the front end stores there. (f) The
+  privacy page is linked on local installs too, where it says the data
+  stays on the computer. (g) The "Cite" page words the citations from
+  the package titles and the running versions; Daniel has not reviewed
+  the wording. (h) Where a statistics table holds fold changes between
+  groups (the forest plot), the page says which group a value above
+  zero favors, read from rbiom's "A - B" comparison column. (i) `V8` is
+  a Suggests: tests run `js/schema.js` in it.
+- **Account control (step 11).** Daniel asked for one in the top right
+  corner and left the design open. A visitor sees "Sign in" (with an
+  identity provider that is also how an account is made, so there is no
+  "Register"), with the privacy link beside it; someone signed in sees
+  their initials and name, which open a menu (`menu()` in
+  `js/widgets.js`): who they are signed in as (`/api/account/details`,
+  fetched when first opened), My projects, Import older projects when a
+  legacy file is registered, Privacy and terms, Sign out. A copy
+  without accounts shows "Local" there, with a menu that says the data
+  stays on the computer. Step 12's "connected apps" page belongs in
+  this menu.
+- **Depth control (step 11).** Daniel asked for the rarefaction depth to
+  move from the top bar to the bar above the figure, left of the file
+  format. It still belongs to the project and applies to every page; it
+  can now only be changed from a plot page.
+- **Editing a description (step 11).** Daniel could not find where to
+  edit a project's description: it was only in the "Save" dialog. The
+  summary page's description now has an "Edit" button for editors,
+  which opens that dialog as "Edit title and description". There is
+  still no route that changes the title and description alone: it is
+  `/api/project/save`, so unsaved changes of the working copy are saved
+  with them, and the dialog says so.
 
 ## Conventions (apply from step 2 onward)
 
@@ -2569,11 +2671,101 @@ narrow for three columns; the new navigation labels; whether the
 tables, dialogs and other pages get the same pass now or only the plot
 controls and navigation.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- What rbiom 4.0.0 allows for fields and the look of their values,
+  checked against `fn_schema()`, the functions' formals and by running
+  them (2026-11-14). No function has `color.by`, `shape.by` or
+  `pattern.by`; `fn_check()` and the functions refuse them.
+  - `adiv_boxplot`, `bdiv_boxplot`, `taxa_boxplot`: `stat.by` (one
+    categorical field; default: the same as `x`) drives `colors`,
+    `shapes` and `patterns` together. Shapes need a dot, strip or
+    pointrange layer, patterns a box, bar or violin layer.
+  - `adiv_corrplot`, `bdiv_corrplot`, `taxa_corrplot`, `rare_corrplot`,
+    `rare_multiplot`, `bdiv_ord_plot`: `stat.by` drives `colors` and
+    `shapes` (shapes need the point layer). No patterns.
+  - `taxa_stacked`: `colors` and `patterns` are given to the taxa, not
+    to a field. `label.by`, `order.by` and `facet.by` are unrelated to
+    the look.
+  - `taxa_forest`: `colors` is up to three colors by position (more
+    abundant, less abundant, not significant); `stat.by` only names
+    the groups to compare.
+  - `bdiv_heatmap`, `taxa_heatmap`: no such arguments; fields are shown
+    as `tracks`, and `grid` is the color scale. `rare_stacked`: none.
+  - Each of `colors`, `shapes`, `patterns` is `TRUE`, `FALSE`, a vector
+    by position, or a vector named by the field's values (`colors` also
+    a palette name). One field's values can have a color, a shape and
+    a pattern at once. Names of any other field are refused ("Invalid
+    `colors` option(s)"), a list form is not accepted, and with names
+    every value present needs one ("Missing `colors` for ...").
+  - In the beta diversity plots the groups are pairs ("Female vs
+    Male"), which only rbiom works out, so the interface offers values
+    by position there, not by name.
+  - For rbiom, not worked around: (1) names for a value that is absent
+    from the data are refused, so colors chosen for every group fail as
+    soon as a sample filter or the rarefaction depth leaves a group
+    empty; the browser cannot know which groups a filter on another
+    field removes. (2) `taxa_forest()` with a two-level `stat.by` says
+    which group a positive fold change favors only through its legend
+    ("Higher in Male"), and only when a taxon is significant; the
+    caption line 'Comparisons are "A - B"' is added only for three or
+    more levels. atima adds its own sentence under the figure.
+- Where things are. `js/controls.js`: `controlRow()` builds the row
+  every control uses (exported; the sample filter, the image settings
+  and the cluster page use it too), the editors return `{inline,
+  below}`, and `lookTable()` is the table of colors, shapes and
+  patterns. `js/schema.js`: "Values shared between functions"
+  (`shareKey()`, the one place that decides what is shared; `valid()`,
+  `fnArgs()`, `pruneShared()`), `inactiveReason()`, `parentOf()`.
+  `js/store.js`: the state key is `shared` (was `args`), and
+  `fnArgs()`, `setArg()` and `resetArgs()` take the function's schema
+  entry. `js/widgets.js`: a picker for several values shows "n chosen"
+  and puts its chips in `.chips`. `R/schema.R`: `short` in
+  `schema_functions` is a function's name in the navigation.
+  `css/app.css`: "Controls" and, at the end, "Window sizes".
+- What is sent to the server did not change, except that a plot now
+  starts from the values set on other plots.
+- Checked in a browser (the app's built-in browser pane, Chromium,
+  Windows): every plot function and both cluster pages at 853 x 480,
+  1024 x 576, 1280 x 720, 1536 x 864, 1920 x 1080 and 2560 x 1440 CSS
+  pixels, with shared values, hand-chosen colors and shapes and every
+  section open (no sideways scrolling, no row on two lines); the same
+  at 400 px for "nothing breaks"; a dataset with 50 fields with long
+  names and long values; values carrying between plots, and not
+  carrying where invalid; greyed-out controls; the folded navigation
+  and its drawer; one group open at a time; the About links, the Cite
+  page; the forest plot's direction sentence; the other pages at 853 px
+  in both auth modes (a guest and a signed-in person, mock issuer); the
+  account control in its three states, with sign-in and sign-out; the
+  depth control above the figure, from 400 to 1200 px; editing a
+  description on a copy of the demo project.
+- **Not checked in a browser**: real browser zoom (125 and 150 percent
+  were stood in for by the window sizes they produce, 1024 and 853 px
+  wide for a 1280 px screen); Firefox and Safari; a touch screen;
+  keyboard-only use beyond focus moving into and out of the navigation
+  drawer (every control is a native input, button or the picker, which
+  step 7 checked); patterns chosen by hand; the import page with a
+  legacy file registered.
+
 ## Step 12: MCP server, shared (sign-in), and tools that change data
 
 Pages and navigation links this step adds (connected apps, the approval
-page) follow what step 11 settled for control rows, label lengths and
-screen sizes; read step 11's notes first.
+page) follow what step 11 settled:
+
+- A navigation link is 12 characters at most (a test in
+  `test-frontend.R` reads them from `main.js`); its full name is the
+  link's `title` and the page's heading. Group headings are 15 at most.
+  One group is open at a time. A link to another site uses
+  `navOutside()` and its address goes on the test's list.
+- A setting is a row from `controlRow()` in `js/controls.js`: label
+  left (16 characters at most), value right, one line; more lines only
+  for several values. Never a label on its own line above a full-width
+  input.
+- Supported widths are 850 to 2560 px with no sideways scrolling of the
+  page; below 760 px things stack. Check a new page at 853 px and at
+  400 px. Wide content scrolls inside its own box (`.table-scroll`).
+- Nothing inline, text inserted as text, native inputs and buttons so
+  the keyboard works, a visible focus ring (step 7).
 
 Step 9's `/mcp` route for `auth = "oidc"`, so people can connect claude.ai
 and other apps to the lab's server and work with their own projects.
@@ -2753,7 +2945,7 @@ and other apps to the lab's server and work with their own projects.
     to get one.
 
 Decisions for Daniel: whether this ships in the first release (if not, it
-moves after step 15 and the status table says so); atima as its own
+moves after step 16 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
 browser also disconnects apps. For the tools that change data: whether
@@ -2766,7 +2958,12 @@ period; whether an agent may search for users to share with.
 ## Step 13: Usage monitoring
 
 The page and navigation link this step adds follow what step 11 settled
-for label lengths and screen sizes; read step 11's notes first.
+(the list is under step 12's heading): a link of 12 characters at most
+with the full name as tooltip and heading, rows from `controlRow()` for
+any settings (a period, a grouping), no sideways scrolling from 850 px
+up, and tables or charts that scroll inside their own box. An
+administrators' link belongs in the "About" group or beside it, shown
+only to administrators.
 
 An administrators' page on the shared server that answers two questions
 with numbers that hold up in a grant application or a paper: how many
@@ -2921,7 +3118,82 @@ small vendored library, or figures drawn in R); whether a public
 hidden; and whether Baylor has rules on recording use of a public
 research server that this must follow.
 
-## Step 14: The lab's public server
+## Step 14: Cores given to jobs by what they can use
+
+Added by Daniel on 2026-11-14. Not every plot can use several cores, and
+today the pool does not know the difference: each worker owns a fixed
+number of cores (`max_cpus`, by default the cores divided among the
+workers). On a 32-core server with the defaults that is 4 workers of 8
+cores: a taxa box plot holds 8 cores and uses 1, and only four jobs run
+at once; 32 workers of 1 core would never let a UniFrac ordination go
+faster. This step makes the pool hand out cores from one budget. It
+comes before the lab's server is installed, so that server's load test
+measures the final scheduler.
+
+- What is known already. rbiom says which functions can use several
+  cores: they take a `cpus` argument, and `with_cpus()` in `R/worker.R`
+  already looks for it when a job runs, but only to pass the number on.
+  In the rbiom installed on 2026-11-14 they are `bdiv_boxplot`,
+  `bdiv_corrplot`, `bdiv_heatmap`, `bdiv_ord_plot`, `bdiv_clusters`,
+  `bdiv_stats`, `rare_corrplot`, `rare_multiplot`, the tables behind
+  them and rarefying; every alpha diversity and taxa plot, `rare_stacked`
+  and the alpha and taxa statistics do not. Take the list from rbiom at
+  run time (`formals()`, or the schema if rbiom comes to say it there),
+  never from a list kept by hand.
+- The design to build, unless reading the code shows a better one:
+  - As many worker processes as cores (an idle R process costs memory
+    only), and a budget of cores kept by the pool. `pool_dispatch()`
+    starts a job when the cores it needs are free, not merely when a
+    worker is.
+  - Each job states what it can use when it is submitted: 1 for a
+    function without `cpus`, up to a cap for one with it. The pool
+    decides the grant when the job starts and the worker is told it
+    (today `ctx` carries one `max_cpus` for the whole server).
+  - The grant follows load: the full cap when nothing is waiting, fewer
+    when jobs wait, down to 1, so that as many people as there are cores
+    can each get an answer. A job waiting for several cores must not be
+    starved by a stream of one-core jobs, nor hold them up: state the
+    rule and test both.
+  - `workers` and `max_cpus` keep meaning something sensible for people
+    who set them, and the defaults change so that nobody has to: on a
+    laptop one user's parallel job gets every core. Memory is the limit
+    on small machines, since each worker is an R process with rbiom
+    loaded; do not start more workers than the memory allows.
+  - Jobs other than plots have needs too: uploads and summaries
+    (`work_import()`, `work_summary()`), exports, legacy imports, the
+    server's own `pool_call()`. Give each a stated need.
+  - The per-account limit (16 jobs waiting or running) and the queue
+    length were set with workers in mind; decide whether they count
+    jobs or cores now.
+- Having `cpus` is not the same as going faster. A 50-sample project
+  finishes at once on one core, and a result that is in the cache costs
+  nothing. Measure before refining: time the parallel functions at 1, 2,
+  4, 8 and 16 cores on a small, a medium and a large dataset, and let
+  that set the cap and tell whether the need should depend on the size
+  of the project. Record the measurements here.
+- Threads the package does not ask for: check that a linear algebra
+  library or a package rbiom calls does not start threads of its own
+  inside a worker that was granted one core, and pin them if it does.
+- Tests: a one-core job and a many-core job are granted what the rule
+  says, under no load and under load; the budget is never exceeded and
+  is given back when a job ends, fails, is cancelled, times out or its
+  worker is replaced; no starvation either way; a function's need is
+  read from rbiom. Run step 10's load test before and after and record
+  both, with the mix of plots stated.
+- Docs: `run()`'s help, the README table and the server and
+  local-install articles, wherever `workers` and `max_cpus` are
+  explained; the load-test notes.
+- If rbiom could say more than "takes `cpus`" (which arguments make a
+  call parallel, or how well it scales), describe what would help for
+  Daniel; rbiom is not changed from here.
+
+Decisions for Daniel: the cap on cores for one job, and whether it
+differs between a shared server and a local install; whether `workers`
+and `max_cpus` stay as the settings or are replaced; what happens under
+load (shrink every new grant, or keep large grants and let others
+wait); whether the per-account limit counts jobs or cores.
+
+## Step 15: The lab's public server
 
 Installing atima v6 on the lab's own server and moving the public
 address to it. This is Daniel's installation only: nothing here may
@@ -2981,9 +3253,22 @@ To do:
   along the whole chain. Changes that any administrator behind a
   corporate proxy would need belong in `deploy/` and the server
   article; values that are the lab's own belong on the server only.
-- Size it from step 10's load-test results: `workers` and `max_cpus`
-  for 32 cores (the default is half the cores), the cache size, where
-  `data_dir`, `temp_dir` and backups live on the one disk.
+- Use every core (Daniel, 2026-11-14): the server is atima's alone, so
+  all 32 cores are atima's to use. Step 14 changes how cores reach
+  jobs (one budget, each job granted what it can use), so set what that
+  step's settings turn out to be, and confirm its cap with a load test
+  on this machine. Before step 14 the defaults here would have been 4
+  workers of 8 cores each, and the trade-off was this: many workers of one or two
+  cores serve more people at once, fewer workers of several cores make
+  each large figure faster. The main R process needs a share of a core
+  too; see whether leaving it one matters under load. The Docker stack
+  must not cap the container below the machine's cores. Also settle the
+  cache size and where `data_dir`, `temp_dir` and backups live on the
+  one disk.
+- The time limit stays on here (60 seconds unless the load test argues
+  for another number): it is what keeps one or two people from holding
+  the workers. Someone whose analysis is stopped is told that a local
+  install has no limit, and the site's help should say the same.
 - Sign-in: Daniel registers the application with the provider (Globus
   Auth by default; the recipe is under step 10) with the redirect
   address `https://atima.research.bcm.edu/auth/callback`, and sets the
@@ -2993,11 +3278,12 @@ To do:
   machine every night with a script of Daniel's; do the same for v6.
 - Legacy import: take a final dump of the atima 2 database when atima 2
   is switched off, convert it with `legacy_convert()`, and mount it
-  read-only. Before that, decide what happens to people's projects on
-  the v5 installation: step 8 settled that only atima 2 is imported, so
-  confirm with Daniel that nothing on v5 needs to be carried over, or
-  upgrade its data directory in place (the 5.0.x upgrade path has only
-  ever been tested on a fixture).
+  read-only. Nothing from the v5 installation is migrated (Daniel,
+  2026-11-14): its database, looked at that day, held no registered
+  accounts, only guests, and three projects that were all made by the
+  first-run seeding (the six BIOM files on its disk are those
+  examples); v6 seeds its own. The v5 data directory can be removed at
+  the tear-down without a copy being imported.
 - Old links: decide what atima 2's bookmarked addresses and share links
   do on the new server (a page that explains the move and points to the
   import, or nothing).
@@ -3034,12 +3320,11 @@ in git or a commit.
 Decisions for Daniel: whether Caddy stays in front (as step 10 built
 it) or the stack sits behind a host web server as v5 did; the
 temporary name for the trial period; the date of the cut-over and how
-users of atima 2 are told; what, if anything, is carried over from v5;
-what old links do; the provider (Globus or ORCID) for the public
+users of atima 2 are told; what old links do; the provider (Globus or ORCID) for the public
 server; how long the old installations' data is kept after the
 tear-down.
 
-## Step 15: Release
+## Step 16: Release
 
 - Version, NEWS, citation, DOI. The release is atima v6: set the
   version to 6.0.0 (`DESCRIPTION` says 5.0.1), and say in NEWS that
