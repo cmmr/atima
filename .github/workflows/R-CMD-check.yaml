@@ -1,9 +1,15 @@
 # Runs R CMD check, which includes the testthat suite, on every push and pull
 # request. rbiom is installed from GitHub through the Remotes field in
 # DESCRIPTION until rbiom 4 is on CRAN.
+# A change to RENOVATION.md alone starts no run: it is the working plan,
+# is left out of the built package, and no check reads it.
 on:
   push:
+    paths-ignore:
+      - "RENOVATION.md"
   pull_request:
+    paths-ignore:
+      - "RENOVATION.md"
 
 name: R-CMD-check
 
