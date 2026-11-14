@@ -14,8 +14,10 @@ at release (step 16).
 3. Do the work. Add or extend `testthat` tests for everything touched.
 4. Before finishing: `devtools::test()` passes and `R CMD check` is no worse
    than when the step started (clean from step 2 onward).
-5. Commit in small, well-described commits directly on the default branch and
-   push. No feature branches.
+5. Commit in small, well-described commits directly on the default branch,
+   as soon as the work is done. Ask Daniel before every push: say what is
+   committed and not yet pushed, and push only on his answer to that
+   question, never on an earlier go-ahead. No feature branches.
 6. Update the status table, record decisions in the "Decision log", and note
    anything the next step needs to know under that step's heading.
 
@@ -61,8 +63,11 @@ it to that step's list instead of fixing it now.
   5.x SQLite databases. atima 1 is not supported. Import is on user request,
   from a saved copy of the old database, and may require the user's old
   credentials to decrypt their objects.
-- **Git.** Commit and push straight to `main` on `origin` (`cmmr/atima`). No
-  feature branches. The repository was restarted from a single commit on
+- **Git.** Commit straight to `main`; push to `origin` (`cmmr/atima`) only
+  after asking Daniel each time (his rule since 2026-11-14: "Commit
+  changes immediately, but prompt before pushing changes to github",
+  for every session). A push is public and starts CI, except one that
+  changes only this file. No feature branches. The repository was restarted from a single commit on
   2026-11-10; earlier history lives only in the private `cmmr/atima-old` and
   must never be pushed here. Never use `git push --all` or `--tags`.
 - **Example datasets (step 2).** The nine bundled BIOM files are not shipped
