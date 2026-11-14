@@ -36,7 +36,7 @@ it to that step's list instead of fixing it now.
 | 8 | Legacy data import | done (2026-11-12) |
 | 9 | MCP server, local | done (2026-11-13) |
 | 10 | Deployment, docs, load testing | not started |
-| 11 | MCP server, shared (sign-in) | not started |
+| 11 | MCP server, shared (sign-in), and tools that change data | not started |
 | 12 | Usage monitoring | not started |
 | 13 | Release | not started |
 
@@ -476,6 +476,8 @@ it to that step's list instead of fixing it now.
   only when the configuration says so (`mcp_writes`, which `run()` sets
   to `FALSE` and has no argument for yet). Adding upload or save later is
   a line in the tool table, a handler, and that switch.
+  On 2026-11-14 Daniel asked for those tools (upload, save, share,
+  publish, delete) to be built in step 11; that step's section says how.
 - **Step 9 choices not put to Daniel.** (a) A tool call that names a
   project needs a grant on it, or the project must be public. Knowing a
   private key is not enough and never creates a grant (in the browser it
@@ -2193,7 +2195,7 @@ tables; whether a later version may change data (upload, save).
 Decisions for Daniel: hosting details for the public server; privacy/terms
 text; backup policy.
 
-## Step 11: MCP server, shared (sign-in)
+## Step 11: MCP server, shared (sign-in), and tools that change data
 
 Step 9's `/mcp` route for `auth = "oidc"`, so people can connect claude.ai
 and other apps to the lab's server and work with their own projects.
@@ -2231,12 +2233,87 @@ and other apps to the lab's server and work with their own projects.
   rate-limits `/oauth/` and `/.well-known/` as it does `/auth/login`.
 - Prompt injection matters more here: any signed-in editor can publish,
   so a public project's text can be written to steer other people's
-  agents. The tools stay reading and computing only.
+  agents. With the tools that change data (below), an injected
+  instruction could share, publish or delete; that section says what
+  stands in its way.
 - Tests: extend the mock issuer in `tests/testthat/helper-oidc.R` to a
   whole connect flow (metadata, authorize, token, a tool call, refresh,
   disconnect). By hand: add the deployed server as a custom connector in
   claude.ai (it needs the public HTTPS address) and explore a project.
 - Docs: the MCP vignette gains connecting to a shared server.
+
+- Tools that change data (added by Daniel on 2026-11-14): upload, save,
+  share, publish and delete, so that an agent can do what a person can do
+  in the browser. Step 9 left room: each tool declares its permission and
+  whether it only reads, and writing tools are offered only when
+  `mcp_writes` is on (`run()` sets it to `FALSE` and has no argument for
+  it yet). They apply to both modes: on a local install the caller is the
+  local owner, on a shared server the token's user.
+  - Permissions are the browser's, declared in the tool table and checked
+    there, never in a handler: upload needs an account; save needs an
+    editor grant; share and delete need what the sharing and delete
+    routes need; publish needs an editor who is not a guest. The server's
+    refusals stay the same (the last editor cannot be removed, a public
+    key that is taken or reserved). Reuse the route handlers' functions
+    rather than writing the rules twice.
+  - Consent by scope: the token says whether the app may only read or
+    may also change things, and the approval page says so in words
+    ("see your projects and run analyses" against "upload, change, share,
+    publish and delete your projects"). A person can connect an app for
+    reading only. `tools/list` then depends on the token, so it must say
+    `cacheScope: "private"`.
+  - Tell the app what each tool does with the specification's tool
+    annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so
+    that apps which ask the person before a destructive call do so.
+    These are hints: an app may ignore them, so they are not the
+    protection.
+  - Upload: a tool's arguments are JSON, and a BIOM file can be many
+    megabytes. Options to weigh: the file as base64 in the call (simple,
+    small files only, and it passes through the model's context in some
+    apps); a one-use upload address the tool returns, to which the app or
+    the person sends the file; and, on a local install only, a path on
+    the same machine. Do not fetch a URL the caller names from the
+    server (it would let a caller make the server request addresses
+    inside the lab's network). The `confirm_inflate` exchange for counts
+    that are not whole numbers needs an argument of its own.
+  - Save: tools work on saved projects, with no tab and no draft, so
+    "save" has to be defined as explicit changes: title and description,
+    rarefaction depth, added cluster fields, edited metadata, and "save a
+    copy" of a subset as a new project. Say in each result exactly what
+    changed.
+  - Share: grant, change and remove access, and "new link". The user
+    search returns other people's names (and ORCID iDs); decide whether
+    an agent may search, or must be given the person exactly.
+  - Publish and unpublish, with the warnings the browser shows (a
+    published project is readable by everyone; unpublishing a project
+    nobody has a grant on leads to its deletion).
+  - Delete: find out first what deleting does today and whether anything
+    can be recovered. Recommended: deleted projects are kept for a
+    period and can be restored from the browser, for people and agents
+    alike, before any delete tool exists.
+  - What stands in the way of an injected instruction. Text in a
+    project (titles, descriptions, metadata values) reaches the model
+    beside these tools, and sharing or publishing is a way to send
+    private data to someone else. The read-only scope and the hints are
+    the first two layers. For the actions that cannot be undone or that
+    expose data (share, publish, delete, new link), choose a third: the
+    tool only records a request, and the person confirms it in atima's
+    own pages; or the protocol's way of asking the person through the
+    app (elicitation), if the revision current then offers it to
+    stateless servers and the apps that matter support it. Upload and
+    save can act at once, since the person can see and undo them.
+  - A record of what agents did: every change made through a tool is
+    recorded with the app's name, the tool and the project, and the
+    person can read it next to their list of connected apps. Step 12's
+    usage tables count these as actions with the `mcp` interface.
+  - Limits: step 10's per-user job cap covers uploads; add a cap on
+    changes per token per hour, so that a loop cannot share or delete in
+    bulk.
+  - Tests: each writing tool allowed and refused by permission, by a
+    read-only token and with `mcp_writes` off; the confirmation step for
+    the guarded actions; nothing is changed by a call that is refused; a
+    project's text containing an instruction changes nothing by itself
+    (the tools treat it as data); the record of changes.
 
 - From step 9: what is there to build on, and what has to change.
   - The protocol is revision 2026-07-28, stateless: no handshake and no
@@ -2283,7 +2360,12 @@ Decisions for Daniel: whether this ships in the first release (if not, it
 moves after step 13 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
-browser also disconnects apps.
+browser also disconnects apps. For the tools that change data: whether
+they are on by default on a local install and on the shared server; how a
+file is uploaded; what "save" covers; whether share, publish, delete and
+"new link" act at once or wait for the person's confirmation, and where
+that confirmation happens; whether deleted projects are kept for a
+period; whether an agent may search for users to share with.
 
 ## Step 12: Usage monitoring
 
