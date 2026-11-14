@@ -152,7 +152,7 @@ them all.
 | `temp_dir` | `ATIMA_TEMP_DIR` | a new directory in R's temporary directory | Figures, exports and uploads in progress. It must not be `data_dir`, or inside it, or contain it: atima deletes old files here. |
 | `workers` | `ATIMA_WORKERS` | half the CPU cores, at least 1, at most 4 | The number of worker processes. A worker is a separate R process that runs one job (a figure, an upload, an export) at a time. Each uses memory for its own copy of R and rbiom. |
 | `max_cpus` | `ATIMA_MAX_CPUS` | CPU cores divided by `workers` | CPU cores one job may use. |
-| `time_limit` | `ATIMA_TIME_LIMIT` | `60` | The longest a job may run, in seconds. A job that takes longer is stopped and you are told so. Raise it for large datasets or slow tests. |
+| `time_limit` | `ATIMA_TIME_LIMIT` | no limit | The longest a job may run, in seconds. On your own computer there is no limit unless you set one: a figure or test may take as long as it needs. (A shared server stops a job after 60 seconds, so that one person's long analysis does not hold up everyone else.) |
 | `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `50` | The largest file accepted, in megabytes. |
 | `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `100` | Upper limit for `cache/`, in megabytes. |
 | `session_hours` | `ATIMA_SESSION_HOURS` | `24` | Unsaved changes in a browser tab, and that tab's figures and exports, are deleted when the tab has not been heard from for this many hours. |
@@ -166,7 +166,7 @@ it.
 An example for a laptop with little memory and a large dataset:
 
 ```{r}
-atima::run(workers = 1, time_limit = 300, max_upload_mb = 200)
+atima::run(workers = 1, max_upload_mb = 200)
 ```
 
 
@@ -300,8 +300,10 @@ address `run()` printed.
 
 **`That took longer than the 60 seconds allowed, and was stopped`**, in the
 browser. A figure, upload or export ran longer than `time_limit` seconds.
-Start atima with a higher limit, for example
-`atima::run(time_limit = 300)`.
+A local install has no limit unless one was set, so this means atima was
+started with `time_limit` (or `ATIMA_TIME_LIMIT`), or that you are using a
+shared server. Start your own without a limit, `atima::run()`, and run the
+analysis again.
 
 When an error in the browser shows a short id, the line with the same `id`
 in R's console has the details.

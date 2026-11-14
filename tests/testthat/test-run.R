@@ -121,3 +121,10 @@ test_that("an interrupt inside a callback of the event loop stops the server", {
   expect_identical(calls, 2L)
   expect_identical(answers[[1]], "ok")
 })
+
+
+test_that("a local install has no time limit, a shared server has one", {
+  expect_null(formals(run)$time_limit)
+  expect_identical(default_time_limit("none"), Inf)
+  expect_identical(default_time_limit("oidc"), 60L)
+})

@@ -75,7 +75,11 @@
 #' @param max_cpus    CPU cores one job may use. The default, `NULL`,
 #'                    divides the available cores among the workers.
 #' @param time_limit  The longest a job may run, in seconds. A job that
-#'                    takes longer is stopped and the user is told so.
+#'                    takes longer is stopped and the user is told so. The
+#'                    default, `NULL`, is no limit with `auth = "none"`,
+#'                    where the computer is the user's own, and 60 seconds
+#'                    with `auth = "oidc"`, where the limit keeps one
+#'                    person's long analysis from holding up everyone else.
 #' @param jobs_per_user  With `auth = "oidc"`: the most jobs one person (or
 #'                    one guest) may have waiting or running at the same
 #'                    time. See the section on jobs.
@@ -178,7 +182,9 @@
 #' tab's earlier request of the same kind if it is still waiting or running.
 #' A job that passes `time_limit`, or is replaced, is interrupted; if it has
 #' not stopped five seconds later, its worker process is ended and a new one
-#' takes its place.
+#' takes its place. A local install (`auth = "none"`) has no time limit
+#' unless `time_limit` is given: an analysis that is stopped on a shared
+#' server can be run to its end on one's own computer.
 #'
 #' @section Cleanup:
 #' When the server starts, and every ten minutes after that, it deletes
@@ -220,7 +226,7 @@ run <- function(
     temp_dir      = tempfile(pattern = 'atima_'),
     workers       = max(1, min(4, parallelly::availableCores() %/% 2)),
     max_cpus      = NULL,
-    time_limit    = 60,
+    time_limit    = NULL,
     jobs_per_user = 16,
     cache_size_mb = 100,
     max_upload_mb = 50,
@@ -240,7 +246,7 @@ run <- function(
   explicits <- if (nargs() > 0) mget(names(match.call())[-1]) else list()
 
   optional <- c(
-    'max_cpus', 'public_url', 'oidc_client_id', 'oidc_client_secret',
+    'max_cpus', 'time_limit', 'public_url', 'oidc_client_id', 'oidc_client_secret',
     'admins', 'forwarded_proto_header', 'operator', 'contact' )
 
   find_arg <- function(param, cls) {
@@ -304,6 +310,9 @@ run <- function(
 
   if (is.null(max_cpus))
     max_cpus <- max(1L, as.integer(availableCores()) %/% workers)
+
+  if (is.null(time_limit))
+    time_limit <- default_time_limit(auth_cfg[['auth']])
 
   for (param in c('workers', 'max_cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days'))
     if (get(param) < 1) stop(param, ' must be at least 1.')
@@ -374,9 +383,11 @@ run <- function(
 
   message(' - Starting ', workers, ' worker process', if (workers > 1) 'es', ' (', max_cpus, ' CPU', if (max_cpus > 1) 's', ' each)')
   # A local install has one user, who may fill the queue if they like.
+  message(' - Time limit for one job: ', if (is.finite(time_limit)) paste(time_limit, 'seconds') else 'none')
   pool <- pool_start(
     workers    = workers,
     time_limit = time_limit,
+    timeout_note = if (config[['auth']] != 'none') timeout_note_shared,
     max_user   = if (config[['auth']] == 'none') Inf else jobs_per_user )
   on.exit(pool_stop(pool), add = TRUE, after = FALSE)
 

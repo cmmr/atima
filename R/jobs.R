@@ -135,7 +135,7 @@ worker_job_expr <- quote({
 #' @noRd
 pool_start <- function (
     workers, time_limit = 60, grace = 5, max_queue = 10L * workers,
-    max_user = Inf, init = NULL, profile = "atima" ) {
+    max_user = Inf, init = NULL, profile = "atima", timeout_note = NULL ) {
 
   stopifnot(workers >= 1, time_limit > 0, grace >= 0, max_user >= 1)
 
@@ -144,6 +144,7 @@ pool_start <- function (
   pool$profile    <- profile
   pool$workers    <- as.integer(workers)
   pool$time_limit <- time_limit
+  pool$timeout_note <- timeout_note
   pool$grace      <- grace
   pool$max_queue  <- as.integer(max_queue)
   pool$max_user   <- max_user
@@ -351,7 +352,7 @@ pool_dispatch <- function (pool) {
     j$mirai <- mirai::mirai(
       .expr    = worker_job_expr,
       .args    = list(libs = .libPaths(), init = pool$init, fn = j$fn, args = j$args, marker = j$marker),
-      .timeout = as.integer(j$time_limit * 1000),
+      .timeout = if (is.finite(j$time_limit)) as.integer(j$time_limit * 1000),
       .compute = pool$profile )
 
     local({
@@ -401,8 +402,9 @@ job_done <- function (pool, j) {
 
   } else if (code == 5L) {
     log_event("warn", "job_timeout", fn = j$fn, seconds = j$time_limit)
-    job_settle(pool, j, error = http_condition(504L, sprintf(
-      "That took longer than the %i seconds allowed, and was stopped.", as.integer(j$time_limit) )))
+    job_settle(pool, j, error = http_condition(504L, paste(c(sprintf(
+      "That took longer than the %i seconds allowed, and was stopped.", as.integer(j$time_limit) ),
+      pool$timeout_note ), collapse = " ")))
     worker_await(pool, j)
 
   } else if (code == 20L) {
@@ -548,6 +550,26 @@ worker_replace <- function (pool) {
 
 
 #______________________________________________________________________________
+#' The time limit for a job when `run()` is not given one.
+#'
+#' A local install has one user and the computer is theirs, so their jobs
+#' may run as long as they like. On a shared server the limit is what keeps
+#' one person's long analysis from holding a worker that others wait for.
+#'
+#' @param auth  `"none"` or `"oidc"`.
+#' @return Seconds; `Inf` for no limit.
+#' @noRd
+default_time_limit <- function (auth) {
+  if (identical(auth, "none")) Inf else 60L
+}
+
+# Added to the message of a job that was stopped on a shared server.
+timeout_note_shared <- paste(
+  "Analyses have no time limit when atima runs on your own computer;",
+  "see the documentation for how to install it." )
+
+
+#______________________________________________________________________________
 #' Run a job and wait for its result, keeping the event loop turning.
 #' For work the server does for itself, such as first-run seeding, which is
 #' why it has a time limit of its own instead of the one set for users.
@@ -555,10 +577,14 @@ worker_replace <- function (pool) {
 #' @param pool  The pool, or `NULL` to run the job in this process.
 #' @return The job's value. Stops if the job failed.
 #' @noRd
-pool_call <- function (pool, fn, args, time_limit = 600) {
+pool_call <- function (pool, fn, args, time_limit = NULL) {
 
   if (is.null(pool))
     return (job_value(run_inline(fn, args)))
+
+  # Ten minutes, or no limit where users have none either.
+  if (is.null(time_limit))
+    time_limit <- max(600, pool$time_limit)
 
   done    <- FALSE
   outcome <- NULL

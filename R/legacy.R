@@ -520,7 +520,7 @@ legacy_advance <- function (app, batch) {
 
   } else {
     promises::then(
-      promise     = pool_submit(app[['pool']], "work_legacy_import", args, time_limit = legacy_time_limit, user_id = batch$user_id),
+      promise     = pool_submit(app[['pool']], "work_legacy_import", args, time_limit = max(legacy_time_limit, app[['pool']]$time_limit), user_id = batch$user_id),
       onFulfilled = settle,
       onRejected  = settle )
   }

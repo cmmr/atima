@@ -139,12 +139,12 @@ of the samples, for that one call. Nothing in the project changes.
 | Figures | PNG images, 900 by 600 pixels unless the app asks otherwise, 200 to 2,000 pixels a side. |
 | Projects in `list_projects` | 200. |
 | Values listed per metadata field in `describe_project` | 50. |
-| Time for one tool call | `time_limit` seconds, 60 by default, as for a figure in the browser. A call that takes longer is stopped and the app is told. |
+| Time for one tool call | None on a local install, unless atima was started with `time_limit`; then a call that takes longer is stopped and the app is told, as for a figure in the browser. |
 | Links to figures, tables and exports | They work for `session_hours`, 24 by default, and only while atima runs. Save what you want to keep. |
 | Calls at once | Each call is a job that waits for a free worker. An app that calls many tools at once fills the queue, and further calls are told that the server is busy. |
 
-To raise the time limit, start atima with, for example,
-`atima::run(time_limit = 300)`.
+To stop calls that run too long, start atima with a limit in seconds, for
+example `atima::run(time_limit = 300)`.
 
 
 ## Where your data goes

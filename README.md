@@ -77,7 +77,7 @@ default is used if none is set.
 | `temp_dir` | `ATIMA_TEMP_DIR` | a new directory under `tempdir()` | Temporary files, figures and exports. Must be outside `data_dir`; old files here are deleted. |
 | `workers` | `ATIMA_WORKERS` | half the CPU cores, 1 to 4 | Worker processes. Each runs one job (a plot, an upload, an export) at a time. |
 | `max_cpus` | `ATIMA_MAX_CPUS` | CPU cores divided by `workers` | CPU cores one job may use. |
-| `time_limit` | `ATIMA_TIME_LIMIT` | `60` | Longest a job may run, in seconds. |
+| `time_limit` | `ATIMA_TIME_LIMIT` | none with `auth = "none"`, `60` with `auth = "oidc"` | Longest a job may run, in seconds. |
 | `jobs_per_user` | `ATIMA_JOBS_PER_USER` | `16` | With `auth = "oidc"`: the most jobs one person or guest may have waiting or running at once. |
 | `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `100` | Upper limit for the cache of computed results, in MB. |
 | `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `50` | Largest upload accepted, in MB. |
@@ -93,7 +93,9 @@ The R session that calls `run()` answers requests and owns the database.
 Everything that reads a BIOM file or calls rbiom runs in the worker
 processes, so the server keeps answering while a plot is drawn. With
 `workers = 1`, jobs run one after another, which suits a single user on a
-laptop. A job that runs past `time_limit` is stopped. When the server is
+laptop. A job that runs past `time_limit` is stopped; a local install has
+no time limit unless you set one, so an analysis that a shared server stops
+can be run to its end on your own computer. When the server is
 interrupted it cancels running jobs, stops the workers and closes the
 database.
 

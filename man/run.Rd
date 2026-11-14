@@ -21,7 +21,7 @@ run(
   temp_dir = tempfile(pattern = "atima_"),
   workers = max(1, min(4, parallelly::availableCores()\%/\%2)),
   max_cpus = NULL,
-  time_limit = 60,
+  time_limit = NULL,
   jobs_per_user = 16,
   cache_size_mb = 100,
   max_upload_mb = 50,
@@ -104,7 +104,11 @@ another, which suits a single user.}
 divides the available cores among the workers.}
 
 \item{time_limit}{The longest a job may run, in seconds. A job that
-takes longer is stopped and the user is told so.}
+takes longer is stopped and the user is told so. The
+default, \code{NULL}, is no limit with \code{auth = "none"},
+where the computer is the user's own, and 60 seconds
+with \code{auth = "oidc"}, where the limit keeps one
+person's long analysis from holding up everyone else.}
 
 \item{jobs_per_user}{With \code{auth = "oidc"}: the most jobs one person (or
 one guest) may have waiting or running at the same
@@ -249,7 +253,9 @@ A new plot, rarefaction or table page from a browser tab replaces that
 tab's earlier request of the same kind if it is still waiting or running.
 A job that passes \code{time_limit}, or is replaced, is interrupted; if it has
 not stopped five seconds later, its worker process is ended and a new one
-takes its place.
+takes its place. A local install (\code{auth = "none"}) has no time limit
+unless \code{time_limit} is given: an analysis that is stopped on a shared
+server can be run to its end on one's own computer.
 }
 
 \section{Cleanup}{

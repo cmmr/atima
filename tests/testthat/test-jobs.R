@@ -423,3 +423,20 @@ test_that("pool_call waits for a job, and stopping the pool ends everything", {
   expect_false(any(dir.exists(other$tempdirs)))
   expect_identical(pool_stop(other), NULL)
 })
+
+
+test_that("a pool without a time limit lets a job run, and a shared pool says where there is none", {
+
+  # No limit: a job longer than the other pool's 3 seconds finishes, and so
+  # does the server's own work.
+  free <- local_test_pool(workers = 1L, time_limit = Inf)
+  done <- await(quiet(pool_submit(free, "eval", list(expr = quote({ Sys.sleep(4); "finished" })))), seconds = 60)
+  expect_identical(job_value(done$value), "finished")
+  expect_identical(pool_call(free, "eval", list(expr = quote(1 + 1))), 2)
+
+  # A limit, with the note a shared server adds to the message.
+  shared <- local_test_pool(workers = 1L, time_limit = 1, timeout_note = timeout_note_shared)
+  late   <- await(quiet(pool_submit(shared, "eval", list(expr = quote(Sys.sleep(20))))), seconds = 60)
+  expect_match(conditionMessage(late$error), "longer than the 1 seconds allowed")
+  expect_match(conditionMessage(late$error), "no time limit when atima runs on your own computer")
+})
