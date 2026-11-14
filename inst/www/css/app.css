@@ -242,8 +242,8 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 /* One control is one line: label left, value right, a slot for reset at the
    edge. Lines of its own (.control-more) only for what holds several values;
    .control-kids holds the controls that belong to this one. The 16px on the
-   left of every line is a gutter for the "changed" bar and the mark of a
-   control that picks a metadata field; .controls sits that far into its
+   left of every line is a gutter for the mark of a control that picks a
+   metadata field; .controls sits that far into its
    container's padding, so labels line up with the text around them. */
 
 .controls { display: flex; flex-direction: column; margin-left: -16px; }
@@ -263,8 +263,7 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .control input[type="text"], .control input[type="number"], .control select, .control .picker-face { min-height: 24px; padding: 1px 6px; font-size: 12.5px; }
 .control select { text-overflow: ellipsis; padding-right: 2px; }
 
-/* Changed from the default: a bar in the gutter and a stronger label. */
-.control.changed > .control-row::before { content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); }
+/* Changed from the default: a stronger label, and the reset button shows. */
 .control.changed > .control-row .control-label { font-weight: 700; color: var(--navy-2); }
 
 /* No effect at the moment (a `when` rule): greyed out; the help icon says why. */
@@ -286,7 +285,6 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .control-kids { margin-left: 22px; border-left: 2px solid var(--line-soft); }
 .control-kids:empty { display: none; }
 .control-kids .control-row { padding-left: 8px; }
-.control-kids .control.changed > .control-row::before { left: -2px; border-radius: 2px; }
 .control-kids .control-more > * { margin-left: 8px; }
 
 .toggles { display: flex; flex-wrap: wrap; gap: 3px; }

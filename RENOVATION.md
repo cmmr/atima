@@ -627,8 +627,11 @@ it to that step's list instead of fixing it now.
   panel: label left, value right; what belongs to a parameter sits
   indented under it, as atima v5 opened a bar downward. The lime and gold
   label colors are dropped: a small icon marks a control that picks a
-  metadata field. "Changed from the default" is a bar at the row's left
-  edge and a bold label, with reset at the row's right edge.
+  metadata field. "Changed from the default" is a bold label, with
+  reset at the row's right edge (a blue bar at the row's left edge was
+  tried first; Daniel had it removed). The table of colors, shapes and
+  patterns lists only the groups the sample filter keeps on that field;
+  what was chosen for the others is kept for when the filter goes.
 - **A field and the look of its values (step 11).** rbiom 4 has no
   `color.by`, `shape.by` or `pattern.by`: one field drives all three (see
   the step 11 notes). Daniel chose: Colors, Shapes and Patterns are one

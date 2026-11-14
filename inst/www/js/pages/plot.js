@@ -289,7 +289,8 @@ export function show(container, fn) {
   const problems = h('div.problems', { hidden: true, role: 'alert' });
   const args     = () => store.fnArgs(def);
 
-  const filter      = subsetEditor(() => { badge.textContent = filter.count() || ''; schedule(); });
+  // The table of colors and shapes lists only the groups the filter keeps.
+  const filter      = subsetEditor(() => { badge.textContent = filter.count() || ''; if (panel) panel.refresh(); schedule(); });
   const badge       = h('span.badge', filter.count() || '');
   const image       = imageEditor(() => schedule());
   let   panel       = null;
@@ -303,7 +304,8 @@ export function show(container, fn) {
       // A change can leave another setting pointing at nothing, such as
       // colors chosen for the groups of a field that is no longer used:
       // `args()` then no longer has it, and the panel shows its default.
-      set: (name, value) => { store.setArg(def, name, value); schedule(); } });
+      set: (name, value) => { store.setArg(def, name, value); schedule(); },
+      kept: field => store.get('subset').cat[field] || null });
     fill(basicBox, panel.groups.basic);
     fill(advancedBox, panel.groups.advanced);
   }

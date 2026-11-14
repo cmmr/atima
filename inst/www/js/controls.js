@@ -498,13 +498,16 @@ function lookCell(p, current, onpick, what) {
  * The table for what is chosen by hand: one row for each value (a group of
  * the field, or a position where the groups are not known), and in it that
  * value's color, shape and pattern, for whichever of the three are set to
- * "Choose each".
+ * "Choose each". Groups that the sample filter leaves out are not listed;
+ * what was chosen for them is kept for when the filter goes.
  *
  * @param {Array} params  The aesthetic parameters that share the table.
  * @param {function} args  The arguments the user has changed so far.
+ * @param {function} kept  `kept(field)`: the values of a field that the
+ *                         sample filter keeps, or null when it keeps all.
  * @return {{el: HTMLElement, draw: function}}  `draw(current, eff)` after every change.
  */
-function lookTable(params, def, args, set) {
+function lookTable(params, def, args, set, kept) {
 
   const el = h('div.look', { hidden: true, role: 'group', 'aria-label': 'The look of each value' });
   let seen = null;
@@ -512,9 +515,13 @@ function lookTable(params, def, args, set) {
   function draw(current, eff) {
 
     const cols = params.filter(p => S.active(p, def, eff) && current[p.name] !== null && typeof current[p.name] === 'object');
-    const rows = [];
+    const named = cols.some(p => !Array.isArray(current[p.name]));
+    const by    = params[0].by ? eff[params[0].by] : null;
+    const keep  = named && typeof by === 'string' ? kept(by.replace(/^(==|!=)/, '')) : null;
+    const rows  = [];
     for (const p of cols)
-      for (const key of Object.keys(current[p.name])) if (!rows.includes(key)) rows.push(key);
+      for (const key of Object.keys(current[p.name]))
+        if (!rows.includes(key) && (!keep || keep.includes(key))) rows.push(key);
 
     // Inputs keep what the user typed; build again only for other rows or columns.
     const now = JSON.stringify([cols.map(p => p.name), rows]);
@@ -523,7 +530,6 @@ function lookTable(params, def, args, set) {
 
     el.hidden = cols.length === 0;
     fill(el, rows.map(key => {
-      const named = cols.some(p => !Array.isArray(current[p.name]));
       const what  = named ? key : `value ${Number(key) + 1}`;
       return h('div.look-row',
         cols.map(p => {
@@ -554,12 +560,14 @@ function lookTable(params, def, args, set) {
  *   biom, schema          The open project's summary and the whole schema.
  *   args()                The arguments the user has changed so far.
  *   set(name, value)      Called when the user changes one (UNSET to forget it).
+ *   kept(field)           The values of a field that the sample filter keeps,
+ *                         or null when it keeps them all. Optional.
  * @return {{groups: {basic: HTMLElement, advanced: HTMLElement}, refresh: function, rebuild: function}}
  *   `refresh()` re-reads `args()`: greys out controls by their `when`
  *   rules and rebuilds those whose value, or a value they depend on, is no
  *   longer what they show.
  */
-export function controlPanel(def, { biom, schema, args, set }) {
+export function controlPanel(def, { biom, schema, args, set, kept = () => null }) {
 
   const groups = { basic: h('div.controls'), advanced: h('div.controls') };
   const rows   = [];
@@ -611,7 +619,7 @@ export function controlPanel(def, { biom, schema, args, set }) {
   for (const row of rows.filter(r => r.p.type === 'aesthetic')) {
     const host = row.parent ? byName[row.parent] : row;
     if (!host.look) {
-      host.look = lookTable(rows.filter(r => r.p.type === 'aesthetic' && (r.parent ? byName[r.parent] : r) === host).map(r => r.p), def, args, change);
+      host.look = lookTable(rows.filter(r => r.p.type === 'aesthetic' && (r.parent ? byName[r.parent] : r) === host).map(r => r.p), def, args, change, kept);
       host.kids.append(host.look.el);
       looks.push(host.look);
     }
