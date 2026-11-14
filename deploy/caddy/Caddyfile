@@ -1,0 +1,155 @@
+# Caddy in front of atima: TLS, the forwarded headers, and rate limits.
+#
+# Everything that differs between servers is an environment variable, set in
+# deploy/.env (see deploy/.env.example). Nothing here needs editing.
+#
+#   ATIMA_SITE_ADDRESS     What Caddy serves.
+#                            atima.example.org   HTTPS, certificate from Let's
+#                                                Encrypt (ports 80 and 443 must
+#                                                be reachable from the internet)
+#                            localhost           HTTPS with Caddy's own local
+#                                                certificate, for a trial run
+#                            :80                 plain HTTP, for when another
+#                                                proxy in front does the TLS
+#   ATIMA_TRUSTED_PROXIES  Addresses (CIDR, space separated) of a proxy in
+#                          front of Caddy whose X-Forwarded-* headers are to
+#                          be believed. Leave unset when Caddy faces the
+#                          internet itself.
+#
+# No access log is written: request paths contain projects' private keys.
+# atima's own log has one line per request, with the route but not the key.
+
+{
+	order rate_limit before reverse_proxy
+
+	servers {
+		# Whose word to take for the visitor's address and for "this came
+		# over HTTPS". By default nobody's but Caddy's own.
+		trusted_proxies static {$ATIMA_TRUSTED_PROXIES:127.0.0.1/32}
+	}
+}
+
+# What is sent on to atima. Caddy replaces X-Forwarded-For, X-Forwarded-Proto
+# and X-Forwarded-Host with what it saw itself, unless the request came from
+# a trusted proxy; a visitor cannot set them. X-Real-IP is the visitor's
+# address by the same rule, and `Forwarded` is dropped because nothing here
+# vouches for it.
+(to_atima) {
+	header_up X-Real-IP {client_ip}
+	header_up -Forwarded
+}
+
+{$ATIMA_SITE_ADDRESS:localhost} {
+
+	# Uploads larger than atima accepts are refused here (ATIMA_MAX_UPLOAD_MB).
+	request_body {
+		max_size {$ATIMA_MAX_UPLOAD_MB:50}MB
+	}
+
+	header {
+		# Set ATIMA_HSTS to "max-age=31536000" once the site works over HTTPS.
+		Strict-Transport-Security "{$ATIMA_HSTS:max-age=0}"
+		-Server
+	}
+
+
+	# Rate limits, per visitor address and minute. They protect what the
+	# per-account job limit inside atima cannot see. A whole lecture room
+	# may share one address, so the defaults are generous; each is a setting.
+
+	# Every call without a cookie makes a guest account.
+	@session_init {
+		method POST
+		path /api/session/init
+	}
+	rate_limit @session_init {
+		zone session_init {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_SESSION_INIT:120}
+			window 1m
+		}
+	}
+
+	# Signing in: each attempt is remembered by the server for ten minutes
+	# and calls the sign-in provider.
+	@signin path /auth/*
+	rate_limit @signin {
+		zone signin {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_SIGNIN:30}
+			window 1m
+		}
+	}
+
+	# Checking an old atima password costs a worker about a second.
+	@legacy {
+		method POST
+		path /api/legacy/list /api/legacy/start
+	}
+	rate_limit @legacy {
+		zone legacy {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_LEGACY:10}
+			window 1m
+		}
+	}
+
+	# Downloads by key in the URL, /<key>/<file> and /unsaved/<key>/<file>:
+	# no session, so anyone who knows a key can queue work.
+	@downloads {
+		method GET
+		path_regexp ^/(unsaved/)?[^/]+/(rare|full)\.
+	}
+	rate_limit @downloads {
+		zone downloads {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_DOWNLOADS:60}
+			window 1m
+		}
+	}
+
+	# Where AI apps will sign in once shared servers offer /mcp.
+	@oauth path /oauth/* /.well-known/*
+	rate_limit @oauth {
+		zone oauth {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_OAUTH:30}
+			window 1m
+		}
+	}
+
+	# A ceiling on API calls as a whole. Not on /mcp: an AI app's requests
+	# come from its maker's servers, so many people share those addresses,
+	# and atima limits each account's jobs itself.
+	@api path /api/*
+	rate_limit @api {
+		zone api {
+			key    {client_ip}
+			events {$ATIMA_LIMIT_API:1200}
+			window 1m
+		}
+	}
+
+
+	# The Model Context Protocol endpoint: passed on as it comes, each
+	# answer sent the moment it is ready, nothing compressed or held back.
+	# (Caddy caches nothing anywhere. That matters for /www too: atima sends
+	# those files with `Cache-Control: no-cache` so that browsers never run
+	# old scripts after an upgrade.)
+	@mcp path /mcp
+	handle @mcp {
+		reverse_proxy {$ATIMA_UPSTREAM:atima:8080} {
+			import to_atima
+			flush_interval -1
+		}
+	}
+
+	# Everything else: /api/, /auth/, /www/, /tmp/, and the pages and
+	# downloads at /<project key>.
+	handle {
+		encode zstd gzip
+		reverse_proxy {$ATIMA_UPSTREAM:atima:8080} {
+			import to_atima
+		}
+	}
+}

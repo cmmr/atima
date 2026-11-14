@@ -1,0 +1,39 @@
+# A test server that signs people in through a mock provider, for trying
+# sign-in before the real provider is registered and for load tests. Never
+# for a server with real data: the mock signs anyone in under any name.
+#
+#   cd deploy
+#   docker compose -f compose.yaml -f ../loadtest/compose.mock.yaml up -d --build
+#
+# The mock provider shares the atima container's network, so atima reaches
+# it at http://localhost:9000, and so does a browser on this machine through
+# the published port. atima accepts a provider without https only at a
+# localhost address, which this arrangement satisfies on both sides.
+
+services:
+
+  atima:
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      ATIMA_OIDC_ISSUER: http://localhost:9000
+      ATIMA_OIDC_CLIENT_ID: mock-client
+      ATIMA_OIDC_CLIENT_SECRET: mock-secret-for-testing-only
+
+  mock-issuer:
+    image: atima:${ATIMA_IMAGE_TAG:-local}
+    network_mode: "service:atima"
+    restart: unless-stopped
+    entrypoint: ["Rscript", "/loadtest/mock-issuer.R"]
+    healthcheck:
+      disable: true
+    environment:
+      MOCK_ISSUER: http://localhost:9000
+      MOCK_DELAY: ${MOCK_DELAY:-0}
+    volumes:
+      - ../loadtest/mock-issuer.R:/loadtest/mock-issuer.R:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL

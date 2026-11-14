@@ -1,0 +1,14 @@
+# Add this file when people may import projects from an older atima:
+#
+#   docker compose -f compose.yaml -f compose.legacy.yaml up -d
+#
+# ATIMA_LEGACY_FILE is the file made once by atima::legacy_convert(). It is
+# as sensitive as the old database, is only ever read, and must be readable
+# by user id 10001. ATIMA_LEGACY_LABEL is the name people see for it.
+
+services:
+  atima:
+    environment:
+      ATIMA_LEGACY: "${ATIMA_LEGACY_LABEL:-the previous atima}=/legacy/legacy.sqlite"
+    volumes:
+      - "${ATIMA_LEGACY_FILE:?Set ATIMA_LEGACY_FILE in deploy/.env}:/legacy/legacy.sqlite:ro"

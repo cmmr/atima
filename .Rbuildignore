@@ -9,3 +9,8 @@
 ^scripts$
 ^todo.txt$
 ^vignettes$
+^deploy$
+^loadtest$
+^_pkgdown\.yml$
+^pkgdown$
+^docs$

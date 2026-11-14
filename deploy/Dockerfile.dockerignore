@@ -1,0 +1,11 @@
+# Only what the image is built from leaves the repository. In particular
+# nothing under archive/, docker/ or .git ever reaches the Docker daemon.
+*
+!DESCRIPTION
+!NAMESPACE
+!LICENSE
+!R
+!inst
+!man
+!deploy/entrypoint.sh
+!deploy/backup.R

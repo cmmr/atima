@@ -1,0 +1,22 @@
+# The load generator, as one more service of the test stack. It runs in the
+# atima image (which has R, curl and jsonlite) on the stack's own network,
+# and reaches the server through Caddy, as a browser would. loadtest/README.md
+# has the commands.
+
+services:
+
+  loadtest:
+    image: atima:${ATIMA_IMAGE_TAG:-local}
+    profiles: ["loadtest"]
+    user: "0:0"
+    entrypoint:
+      - Rscript
+      - /loadtest/loadtest.R
+      - --base
+      - http://caddy
+      - --issuer
+      - http://atima:9000
+      - --out
+      - /loadtest/results
+    volumes:
+      - ../loadtest:/loadtest

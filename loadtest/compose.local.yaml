@@ -1,0 +1,35 @@
+# A server as a local install runs it (no accounts, listening on loopback
+# only), in a container, with the load generator beside it in the same
+# network namespace: the only place such a server can be reached from.
+# Used for the AI-app part of the load test. loadtest/README.md has the
+# commands. The data is thrown away with the containers.
+
+name: atima-local-test
+
+services:
+
+  atima:
+    image: atima:${ATIMA_IMAGE_TAG:-local}
+    environment:
+      ATIMA_AUTH: none
+      ATIMA_HOST: 127.0.0.1
+      ATIMA_WORKERS: ${ATIMA_WORKERS:-}
+      ATIMA_MAX_CPUS: ${ATIMA_MAX_CPUS:-}
+    stop_grace_period: 30s
+
+  loadtest:
+    image: atima:${ATIMA_IMAGE_TAG:-local}
+    profiles: ["loadtest"]
+    network_mode: "service:atima"
+    user: "0:0"
+    entrypoint:
+      - Rscript
+      - /loadtest/loadtest.R
+      - --base
+      - http://127.0.0.1:8080
+      - --mode
+      - local
+      - --out
+      - /loadtest/results
+    volumes:
+      - .:/loadtest

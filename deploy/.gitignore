@@ -1,0 +1,5 @@
+# Settings of a real server, with its client secret, and local backups.
+.env
+.env.*
+!.env.example
+backups/

@@ -1,0 +1,120 @@
+# atima as a shared server: the atima container, Caddy in front of it for
+# TLS and rate limits, and a nightly backup.
+#
+#   cd deploy
+#   cp .env.example .env        # then edit .env
+#   docker compose up -d --build
+#
+# Every setting comes from deploy/.env or the shell's environment. There are
+# no secrets in this file and none belong in it. The vignette "Running a
+# shared server" walks through all of it.
+
+name: atima
+
+services:
+
+  atima:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: atima:${ATIMA_IMAGE_TAG:-local}
+    restart: unless-stopped
+    # Stopping the container interrupts R, which cancels running jobs, stops
+    # its worker processes and checkpoints the database before it exits.
+    stop_grace_period: 30s
+    environment:
+      ATIMA_AUTH: oidc
+      ATIMA_PUBLIC_URL: ${ATIMA_PUBLIC_URL:?Set ATIMA_PUBLIC_URL in deploy/.env}
+      ATIMA_OIDC_ISSUER: ${ATIMA_OIDC_ISSUER:-https://auth.globus.org}
+      ATIMA_OIDC_CLIENT_ID: ${ATIMA_OIDC_CLIENT_ID:?Set ATIMA_OIDC_CLIENT_ID in deploy/.env}
+      ATIMA_OIDC_CLIENT_SECRET: ${ATIMA_OIDC_CLIENT_SECRET:?Set ATIMA_OIDC_CLIENT_SECRET in deploy/.env}
+      ATIMA_ADMINS: ${ATIMA_ADMINS:-}
+      ATIMA_OPERATOR: ${ATIMA_OPERATOR:-}
+      ATIMA_CONTACT: ${ATIMA_CONTACT:-}
+      # Caddy sets this header itself on every request (deploy/caddy/Caddyfile).
+      ATIMA_FORWARDED_PROTO_HEADER: X-Forwarded-Proto
+      ATIMA_WORKERS: ${ATIMA_WORKERS:-}
+      ATIMA_MAX_CPUS: ${ATIMA_MAX_CPUS:-}
+      ATIMA_TIME_LIMIT: ${ATIMA_TIME_LIMIT:-}
+      ATIMA_JOBS_PER_USER: ${ATIMA_JOBS_PER_USER:-}
+      ATIMA_CACHE_SIZE_MB: ${ATIMA_CACHE_SIZE_MB:-}
+      ATIMA_MAX_UPLOAD_MB: ${ATIMA_MAX_UPLOAD_MB:-}
+      ATIMA_SESSION_HOURS: ${ATIMA_SESSION_HOURS:-}
+      ATIMA_GUEST_DAYS: ${ATIMA_GUEST_DAYS:-}
+      ATIMA_SIGNIN_DAYS: ${ATIMA_SIGNIN_DAYS:-}
+    volumes:
+      - atima_data:/var/lib/atima
+      - atima_temp:/var/tmp/atima
+    # Nothing but the two volumes and /tmp can be written to.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8080"
+
+  caddy:
+    build:
+      context: ./caddy
+    image: atima-caddy:${ATIMA_IMAGE_TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      atima:
+        condition: service_healthy
+    ports:
+      - "${ATIMA_HTTP_PORT:-80}:80"
+      - "${ATIMA_HTTPS_PORT:-443}:443"
+      - "${ATIMA_HTTPS_PORT:-443}:443/udp"
+    environment:
+      ATIMA_SITE_ADDRESS: ${ATIMA_SITE_ADDRESS:?Set ATIMA_SITE_ADDRESS in deploy/.env}
+      ATIMA_TRUSTED_PROXIES: ${ATIMA_TRUSTED_PROXIES:-127.0.0.1/32}
+      ATIMA_HSTS: ${ATIMA_HSTS:-max-age=0}
+      ATIMA_MAX_UPLOAD_MB: ${ATIMA_MAX_UPLOAD_MB:-50}
+      ATIMA_LIMIT_SESSION_INIT: ${ATIMA_LIMIT_SESSION_INIT:-120}
+      ATIMA_LIMIT_SIGNIN: ${ATIMA_LIMIT_SIGNIN:-30}
+      ATIMA_LIMIT_LEGACY: ${ATIMA_LIMIT_LEGACY:-10}
+      ATIMA_LIMIT_DOWNLOADS: ${ATIMA_LIMIT_DOWNLOADS:-60}
+      ATIMA_LIMIT_OAUTH: ${ATIMA_LIMIT_OAUTH:-30}
+      ATIMA_LIMIT_API: ${ATIMA_LIMIT_API:-1200}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # A consistent copy of the database every night, and of each stored file
+  # once (deploy/backup.R). ATIMA_BACKUP_DIR should be a directory on another
+  # disk or a network share; it must be writable by user id 10001.
+  backup:
+    image: atima:${ATIMA_IMAGE_TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      atima:
+        condition: service_healthy
+    command: backup-loop
+    healthcheck:
+      disable: true
+    stop_grace_period: 5s
+    environment:
+      ATIMA_BACKUP_HOUR: ${ATIMA_BACKUP_HOUR:-8}
+      ATIMA_BACKUP_DAILY: ${ATIMA_BACKUP_DAILY:-7}
+      ATIMA_BACKUP_WEEKLY: ${ATIMA_BACKUP_WEEKLY:-4}
+      ATIMA_BACKUP_UPGRADES: ${ATIMA_BACKUP_UPGRADES:-3}
+    volumes:
+      - atima_data:/var/lib/atima
+      - ${ATIMA_BACKUP_DIR:-atima_backup}:/backup
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  atima_data:
+  atima_temp:
+  atima_backup:
+  caddy_data:
+  caddy_config:
