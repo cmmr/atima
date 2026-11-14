@@ -36,9 +36,9 @@ it to that step's list instead of fixing it now.
 | 8 | Legacy data import | done (2026-11-12) |
 | 9 | MCP server, local | done (2026-11-13) |
 | 10 | Deployment, docs, load testing | done (2026-11-14) |
-| 11 | MCP server, shared (sign-in), and tools that change data | not started |
-| 12 | Usage monitoring | not started |
-| 13 | Interface refinement: compact controls, navigation | not started |
+| 11 | Interface refinement: compact controls, navigation | not started |
+| 12 | MCP server, shared (sign-in), and tools that change data | not started |
+| 13 | Usage monitoring | not started |
 | 14 | Release | not started |
 
 ## Decision log
@@ -478,12 +478,12 @@ it to that step's list instead of fixing it now.
   to `FALSE` and has no argument for yet). Adding upload or save later is
   a line in the tool table, a handler, and that switch.
   On 2026-11-14 Daniel asked for those tools (upload, save, share,
-  publish, delete) to be built in step 11; that step's section says how.
+  publish, delete) to be built in step 12; that step's section says how.
 - **Step 9 choices not put to Daniel.** (a) A tool call that names a
   project needs a grant on it, or the project must be public. Knowing a
   private key is not enough and never creates a grant (in the browser it
   does both), and a key the caller may not use gets the same answer as a
-  key that does not exist. This settles for step 9 the question step 11
+  key that does not exist. This settles for step 9 the question step 12
   lists; with one local owner it only shuts out projects of users who
   came from a shared server's database. (b) Error mapping: unreadable
   JSON, a missing field, mismatched headers, an unknown method (HTTP
@@ -515,19 +515,25 @@ it to that step's list instead of fixing it now.
 - **Usage monitoring (added 2026-11-13).** Daniel asked for an
   administrators' page that quantifies atima's use among researchers
   (active users over time, where they come from, browser against MCP,
-  which analyses) and shows when the server is outgrown. It is step 12,
-  and release moved to step 13. His reason: in academia a tool that many
+  which analyses) and shows when the server is outgrown. It is step 13
+  (step 12 when it was added). His reason: in academia a tool that many
   people use is what earns grant money, so the numbers must measure
   reach and repeat use, not the usual profit-focused statistics.
 - **Interface refinement (added 2026-11-14).** Daniel finds the plot
   controls of the new front end too tall: a label above every control,
   like the R Shiny interface of atima 2, which he does not like. He
-  wants them compact, as in the plot controls he designed for the
-  pre-renovation 5.0 (the version in `cmmr/atima-old`, which he calls
-  atima 4), with an unopened dropdown and its label on one line, and usable on a
+  wants them compact, as in the plot controls he designed for atima v5,
+  with an unopened dropdown and its label on one line, and usable on a
   wide range of screen sizes. Two navigation links are much longer than
-  the rest and are to be renamed. It is step 13, after the steps that
-  still add pages; release moved to step 14.
+  the rest and are to be renamed. First added as step 13; later the
+  same day Daniel moved it to step 11, before the remaining steps that
+  add pages, and release is step 14.
+- **Names of the versions (2026-11-14).** To avoid confusion Daniel
+  settled: **atima v5** is the old version, the code in
+  `cmmr/atima-old` (package version 5.0.x; elsewhere in this file
+  "pre-renovation 5.x" or "5.0.x"). **atima v6** is the version this
+  plan is building. Use those two names from here on. `DESCRIPTION`
+  still says 5.0.1; the release step sets 6.0.0.
 
 - **Hosting (step 10).** Daniel has not decided where the public server
   runs, so nothing in the repository names a host. The deployment files
@@ -1802,7 +1808,7 @@ later steps:**
   wrapped in an environment (`secret()`), which cannot be printed,
   deparsed into a logged call stack, or bound as an SQL parameter by
   accident; `reveal()` unwraps it, and only the adapter does. Use it for
-  anything of the kind that later steps accept (step 11's tokens).
+  anything of the kind that later steps accept (step 12's tokens).
 - Errors a worker meets after it found the password right are returned
   as a value and turned into a response with `error_response()`, not
   raised: raising would roll back the transaction that takes the counted
@@ -1842,7 +1848,7 @@ later steps:**
 An MCP (Model Context Protocol) server lets AI apps (Claude Code, Claude
 Desktop, claude.ai connectors and others) use atima as a set of tools:
 describe a project, run statistics, draw a figure. This step adds it for
-`auth = "none"` only; step 11 adds sign-in for shared servers. The
+`auth = "none"` only; step 12 adds sign-in for shared servers. The
 decision log says why it is added beside the browser API instead of
 after reworking sessions and auth.
 
@@ -1854,7 +1860,7 @@ after reworking sessions and auth.
   `notifications/initialized` get 202 and no body. Read the MCP
   specification current at the time before starting; it changes often.
   The route exists only in `auth = "none"` (`modes = "none"`) until
-  step 11.
+  step 12.
 - Permissions stay in one place: the route table declares `/mcp`, and a
   second, smaller table declares each tool (name, argument specs,
   permission, handler) and is checked the same way, so tool handlers
@@ -2179,7 +2185,7 @@ tables; whether a later version may change data (upload, save).
 - From the MCP decision (2026-11-11): per-account job limits. The queue
   is one first-come list for everyone (`10 x workers`, then 503), and
   steps 4 and 5 left per-client limits to the proxy. Limits by IP address
-  at the proxy stop being enough once step 11 lets claude.ai and similar
+  at the proxy stop being enough once step 12 lets claude.ai and similar
   apps connect: their requests come from the app maker's servers, not the
   user's computer, so all their users would share one limit. And one
   agent that calls many tools at once can fill the queue for everyone.
@@ -2189,7 +2195,7 @@ tables; whether a later version may change data (upload, save).
   noted is missing. The load test should include one user starting many
   jobs at once beside other users.
 - From the MCP decision: the vignettes gain one on connecting an AI app
-  to a local install (step 9's README section, expanded). Step 11 adds
+  to a local install (step 9's README section, expanded). Step 12 adds
   shared servers to it.
 - From step 9: what the per-account job limit has to cover. A tool call's
   job has no `session_id`; the caller is `REQ$SESSION$user_id` when
@@ -2202,7 +2208,7 @@ tables; whether a later version may change data (upload, save).
   agent calling `make_plot` several times at once: each result carries
   the PNG as base64 inside JSON (about 50 kB for a box plot at the
   default size), built and sent by the main process.
-- From step 9: the proxy must pass `/mcp` once step 11 opens it on a
+- From step 9: the proxy must pass `/mcp` once step 12 opens it on a
   shared server, must not buffer or cache it (answers say `Cache-Control:
   no-store`), and must let the three request headers through
   (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`). Files for tool
@@ -2284,7 +2290,7 @@ text; backup policy.
 - `waiting(start, finish)` is for any handler that must wait for
   something other than a worker: `start()` returns a promise, the router
   answers with a promise and runs `finish` in a new transaction. Step
-  11's token and metadata requests to other servers should use it.
+  12's token and metadata requests to other servers should use it.
 - New routes: `GET /api/health`; `POST /api/public/create`, `rename`,
   `delete`, `move` (admin). New settings: `jobs_per_user`, `operator`,
   `contact`. `CONF` gained `session_hours`, `guest_days`, and `operator`
@@ -2388,7 +2394,180 @@ text; backup policy.
   workers load the installed package before any job. The file passes on
   a quiet machine.
 
-## Step 11: MCP server, shared (sign-in), and tools that change data
+## Step 11: Interface refinement: compact controls, navigation
+
+The front end from step 7 works, and Daniel approved its layout
+(navigation left, figure in the middle, controls right). This step is
+about how it looks and how much room it takes, not what it does.
+Daniel moved it ahead of steps 12 and 13, so the pages those steps add
+(connected apps, usage) are built to what this step settles; leave them
+a short written account of the conventions (how a control row is built,
+label lengths, the supported screen sizes) under their headings.
+
+- The baseline is the plot controls Daniel designed for atima v5 (the
+  version kept in `cmmr/atima-old`). Its code is in this repository's
+  first commit
+  (`git show ca1fd41:inst/www/modules/controls.js`, and beside it
+  `dd.js`, `selz.js`, `layers.js`, `aes.js`, `checkbox.js`, `irs.js`,
+  `md.js`, `taxa.js`, with `inst/www/style.css` and `js/page_plot.js`);
+  step 7 deleted those files. Read them for how each kind of control was
+  laid out and how much room it took, and rebuild that look in the
+  current renderer: do not bring back the old code or its libraries
+  (jQuery, selectize, ion-rangeSlider). That commit's `index.html` is
+  the unwired mock-up, so the old interface cannot be run from it.
+  Daniel has a development server that still runs atima v5 and showed
+  it on 2026-11-14 as the baseline to work from; ask him for its
+  address and look at it in a browser before designing (its address is
+  not written here, this file is public). What not to resemble: atima
+  2's Shiny controls, a label on its own line above each full-width
+  input, which is what step 7's controls look like now.
+- What the atima v5 plot page looks like (seen on that server with the
+  50-sample demo, alpha diversity box plot, in a window 1356 px wide):
+  - Three columns: a dark navigation on the left, the figure in the
+    middle under a bar with Save, Save As, the tabs Figure, Statistics
+    and R Code, and Download Figure with a format list; the controls in
+    a narrow column on the right, about 210 px, a sixth of the window.
+  - Navigation labels are one or two words: Select Project; Options
+    (Metadata, Rarefaction, Taxonomy, Sharing, Export); Alpha Diversity
+    (Box Plot, Regression); Beta Diversity; Taxa Abundance (Box Plot,
+    Regression, Heatmap, Stacked Bar Plot); Tutorials; How to Cite.
+  - The controls start with a "Plot Design" box: Flip and Stripe as two
+    checkboxes sharing a line; the plot's layers as three picture
+    buttons in a row; then one line each for "error bar" (a dropdown
+    beside its label), "point size" and "point opacity" (sliders beside
+    their labels).
+  - Below it, one dark bar per control, each a single line: the label
+    on the left, the chosen value beside it and an arrow on the right.
+    With nothing chosen the bar shows only the label: y-Axis, Stat By,
+    x-Axis, Facet By, Limit By. Labels were gold and chosen values
+    lime; long values are cut ("Abundance-based Co...").
+  - Choosing a field opens that bar downward. Stat By set to Body Site
+    shows, under the one-line bar: a "subset" box for choosing which
+    of the field's values to keep, "significance test" with a dropdown
+    on the same line, three checkboxes on one line (Colors, Shapes,
+    Patterns; Colors ticked), and "palette" with a strip of swatches.
+    An x on the bar clears the field. So in atima v5 one field carried
+    the colors, shapes and patterns together, switched on and off by
+    those checkboxes; compare this with what rbiom 4 allows (below).
+  - Last, Zoom, Width and Height as three small number boxes in one
+    row under their names.
+  - Not seen: the other plot types, a narrow window, and the controls
+    with many fields or long field names. Look at those too.
+- The old controls are a guide, not a template (Daniel, 2026-11-14).
+  They need not be copied exactly. The aim is controls that are compact,
+  easy to use, and in which the control one is looking for is easy to
+  find. For example, the old interface colored label text lime green
+  for controls that pick metadata and gold for plot attributes; that
+  color-coding may be kept, redone another way (grouping, icons,
+  headings) or dropped, whichever serves finding a control best.
+- Controls share their state between plot types, as the old interface
+  did. If the user sets `stat.by = "Sex"` for `adiv_boxplot` and then
+  goes to `taxa_boxplot`, it starts with `stat.by = "Sex"`. Today the
+  store keeps arguments per function (`state.args[fn]`, `fnArgs()`,
+  `setArg()`, `resetArgs()` in `inst/www/js/store.js`), so nothing
+  carries over; read `js/page_plot.js` and `modules/controls.js` in
+  commit `ca1fd41` for how the old interface did it. To settle in the
+  design:
+  - A value carries to another function only where it is valid there:
+    the parameter exists in that function's schema, the value is among
+    its choices (a metric that one plot offers and another does not, a
+    layer name), and its `when` rule holds. What does not fit falls
+    back to that function's default without an error, and comes back
+    if the user returns to a plot where it fits.
+  - Parameters of the same name do not always mean the same thing in
+    every function; decide which are shared by name and which stay with
+    their function, and keep that list in one place.
+  - "Changed from the default", reset for one control and reset for the
+    whole plot have to make sense with shared values: say what each
+    resets. Only what the user changed is sent, as now.
+  - Shared values still have to follow the project: `schema.js` already
+    drops arguments that name a field or rank the open project lacks.
+- Metadata fields and the look of their values (`color.by`, `stat.by`,
+  `shape.by`, `pattern.by` and the like). Check first, against the
+  installed rbiom 4 and its schema (`fn_schema()`, `/api/schema`, and
+  rbiom's help), not from memory: for each plot function, which of
+  these arguments exist, whether each may name a different field or one
+  field drives them all, how the value-to-color, value-to-shape and
+  value-to-pattern assignments are given (`colors`, `shapes`,
+  `patterns`, or a list form of the `.by` argument), and whether one
+  field's values can have a color, a shape and a pattern at the same
+  time. Then see how the old interface presented it (`modules/aes.js`,
+  `md.js`, `layers.js` in commit `ca1fd41`). Present what rbiom really
+  allows:
+  - If one field can control several of them, show that field once,
+    with one row per value of the field and, in that row, the color,
+    shape and pattern for that value, so the user sees the whole look
+    of each group in one place.
+  - If rbiom lets them differ, offer separate fields, but make the
+    common case (one field for everything) the easy one, and never let
+    the interface offer a combination rbiom refuses or ignores.
+  - Record in this file what rbiom allows, per function, so that the
+    answer is not worked out again. If rbiom's behaviour looks like a
+    mistake, describe it for Daniel; rbiom is not changed from here.
+- Compact plot controls:
+  - A dropdown that is not open, with its label, takes one line: label
+    on the left, current value on the right. The same for numbers,
+    short text and switches. A control grows past one line only while
+    it is open or when it holds several values (layers, a list of taxa,
+    color assignments).
+  - The marks a control carries today must survive in the smaller
+    form: the dot for "changed from the default", reset, the help text
+    (now a small icon beside the label), the reason a control is greyed
+    out by a `when` rule, and messages for a rejected value.
+  - Today's styles are in `inst/www/css/` (`.controls`, `.control`,
+    `.control-head`, `.control-body`, `.control-pair`, `.toggles`), and
+    the controls are built in one renderer from the schema, so this is
+    mostly a change to that renderer's markup and the style sheet, with
+    no change to what is sent to the server.
+  - Long labels and long values (a metadata field's name comes from the
+    user's file) are cut with an ellipsis and shown whole on hover and
+    to screen readers; they never push a row onto two lines.
+- A wide range of screens: decide the sizes to support and check each
+  one, from a small laptop (about 1280 x 720, and narrower when the
+  browser is not full screen) to a large desktop monitor, and at
+  browser zoom of 125 and 150 percent. On a large screen the figure
+  gets the space, not the controls. On a narrow one the controls and
+  the navigation must still leave room for the figure: for example a
+  navigation that folds to icons and a controls column that can be
+  collapsed or moves under the figure. Whether phones and tablets are
+  supported at all is Daniel's decision. No horizontal scrolling of the
+  page at any supported size.
+- Navigation labels: two links are much longer than the others,
+  "Import from an older atima" and "Privacy and terms" (`buildNav()` in
+  `inst/www/js/main.js`); the group names come from `areaLabels` in
+  `js/schema.js` and the plot names from `shortLabel()`. Give every
+  link a short label of about the same length (for example "Import"
+  and "Privacy"), keep the longer wording as the page's heading and
+  the link's tooltip. Steps 12 and 13 add links later and must keep
+  to the same length.
+- Keep what step 7 settled: no framework and no build step, one
+  hand-written style sheet, nothing inline (the Content-Security-Policy
+  forbids inline script and style), text from users inserted as text.
+  Keyboard use and visible focus must still work on every control, and
+  labels stay tied to their inputs.
+- Tests and checks: the front-end tests still pass; add what can be
+  tested without a browser (every nav label within a set length; no
+  inline styles). Check in a browser at each supported size, with
+  rbiom's example dataset and with one that has long field names and
+  many fields, in both auth modes. Show Daniel screenshots or a running
+  server of the plot page at the smallest and largest size before
+  finishing, and again after his comments.
+
+Decisions for Daniel: the address of the atima v5 server, and which
+details of its controls to keep; how controls are told
+apart now that the lime and gold labels are optional; which parameters
+share their value between plot types; how a field and the look of its
+values are presented, once rbiom has been checked; the screen sizes to support, and whether
+phones and tablets are among them; what the page does when it is too
+narrow for three columns; the new navigation labels; whether the
+tables, dialogs and other pages get the same pass now or only the plot
+controls and navigation.
+
+## Step 12: MCP server, shared (sign-in), and tools that change data
+
+Pages and navigation links this step adds (connected apps, the approval
+page) follow what step 11 settled for control rows, label lengths and
+screen sizes; read step 11's notes first.
 
 Step 9's `/mcp` route for `auth = "oidc"`, so people can connect claude.ai
 and other apps to the lab's server and work with their own projects.
@@ -2497,7 +2676,7 @@ and other apps to the lab's server and work with their own projects.
     save can act at once, since the person can see and undo them.
   - A record of what agents did: every change made through a tool is
     recorded with the app's name, the tool and the project, and the
-    person can read it next to their list of connected apps. Step 12's
+    person can read it next to their list of connected apps. Step 13's
     usage tables count these as actions with the `mcp` interface.
   - Limits: step 10's per-user job cap covers uploads; add a cap on
     changes per token per hour, so that a loop cannot share or delete in
@@ -2578,14 +2757,17 @@ file is uploaded; what "save" covers; whether share, publish, delete and
 that confirmation happens; whether deleted projects are kept for a
 period; whether an agent may search for users to share with.
 
-## Step 12: Usage monitoring
+## Step 13: Usage monitoring
+
+The page and navigation link this step adds follow what step 11 settled
+for label lengths and screen sizes; read step 11's notes first.
 
 An administrators' page on the shared server that answers two questions
 with numbers that hold up in a grant application or a paper: how many
 researchers use atima, from where, for what; and is the server still big
 enough for them. This is not product analytics: no funnels, conversion or
 revenue, and no following of individual people. Added by Daniel on
-2026-11-13; it comes after steps 10 and 11 so that it covers the deployed
+2026-11-13; it comes after steps 10 and 12 so that it covers the deployed
 server (client addresses behind the proxy, the per-account job limit) and
 both interfaces in both modes.
 
@@ -2733,141 +2915,11 @@ small vendored library, or figures drawn in R); whether a public
 hidden; and whether Baylor has rules on recording use of a public
 research server that this must follow.
 
-## Step 13: Interface refinement: compact controls, navigation
-
-The front end from step 7 works, and Daniel approved its layout
-(navigation left, figure in the middle, controls right). This step is
-about how it looks and how much room it takes, not what it does. It
-comes after steps 11 and 12 so that the pages they add (connected apps,
-usage) are refined with the rest.
-
-- The reference is the plot controls Daniel designed for the
-  pre-renovation 5.0, the version kept in `cmmr/atima-old` (he calls it
-  atima 4). Its code is in this repository's first commit
-  (`git show ca1fd41:inst/www/modules/controls.js`, and beside it
-  `dd.js`, `selz.js`, `layers.js`, `aes.js`, `checkbox.js`, `irs.js`,
-  `md.js`, `taxa.js`, with `inst/www/style.css` and `js/page_plot.js`);
-  step 7 deleted those files. Read them for how each kind of control was
-  laid out and how much room it took, and rebuild that look in the
-  current renderer: do not bring back the old code or its libraries
-  (jQuery, selectize, ion-rangeSlider). That commit's `index.html` is
-  the unwired mock-up, so the old interface cannot simply be run from
-  it; ask Daniel for screenshots of the old plot page, or whether a
-  server still runs it, to see it as he designed it. What not to
-  resemble: atima 2's Shiny controls, a label on its own line above
-  each full-width input, which is what step 7's controls look like now.
-- The old controls are a guide, not a template (Daniel, 2026-11-14).
-  They need not be copied exactly. The aim is controls that are compact,
-  easy to use, and in which the control one is looking for is easy to
-  find. For example, the old interface colored label text lime green
-  for controls that pick metadata and gold for plot attributes; that
-  color-coding may be kept, redone another way (grouping, icons,
-  headings) or dropped, whichever serves finding a control best.
-- Controls share their state between plot types, as the old interface
-  did. If the user sets `stat.by = "Sex"` for `adiv_boxplot` and then
-  goes to `taxa_boxplot`, it starts with `stat.by = "Sex"`. Today the
-  store keeps arguments per function (`state.args[fn]`, `fnArgs()`,
-  `setArg()`, `resetArgs()` in `inst/www/js/store.js`), so nothing
-  carries over; read `js/page_plot.js` and `modules/controls.js` in
-  commit `ca1fd41` for how the old interface did it. To settle in the
-  design:
-  - A value carries to another function only where it is valid there:
-    the parameter exists in that function's schema, the value is among
-    its choices (a metric that one plot offers and another does not, a
-    layer name), and its `when` rule holds. What does not fit falls
-    back to that function's default without an error, and comes back
-    if the user returns to a plot where it fits.
-  - Parameters of the same name do not always mean the same thing in
-    every function; decide which are shared by name and which stay with
-    their function, and keep that list in one place.
-  - "Changed from the default", reset for one control and reset for the
-    whole plot have to make sense with shared values: say what each
-    resets. Only what the user changed is sent, as now.
-  - Shared values still have to follow the project: `schema.js` already
-    drops arguments that name a field or rank the open project lacks.
-- Metadata fields and the look of their values (`color.by`, `stat.by`,
-  `shape.by`, `pattern.by` and the like). Check first, against the
-  installed rbiom 4 and its schema (`fn_schema()`, `/api/schema`, and
-  rbiom's help), not from memory: for each plot function, which of
-  these arguments exist, whether each may name a different field or one
-  field drives them all, how the value-to-color, value-to-shape and
-  value-to-pattern assignments are given (`colors`, `shapes`,
-  `patterns`, or a list form of the `.by` argument), and whether one
-  field's values can have a color, a shape and a pattern at the same
-  time. Then see how the old interface presented it (`modules/aes.js`,
-  `md.js`, `layers.js` in commit `ca1fd41`). Present what rbiom really
-  allows:
-  - If one field can control several of them, show that field once,
-    with one row per value of the field and, in that row, the color,
-    shape and pattern for that value, so the user sees the whole look
-    of each group in one place.
-  - If rbiom lets them differ, offer separate fields, but make the
-    common case (one field for everything) the easy one, and never let
-    the interface offer a combination rbiom refuses or ignores.
-  - Record in this file what rbiom allows, per function, so that the
-    answer is not worked out again. If rbiom's behaviour looks like a
-    mistake, describe it for Daniel; rbiom is not changed from here.
-- Compact plot controls:
-  - A dropdown that is not open, with its label, takes one line: label
-    on the left, current value on the right. The same for numbers,
-    short text and switches. A control grows past one line only while
-    it is open or when it holds several values (layers, a list of taxa,
-    color assignments).
-  - The marks a control carries today must survive in the smaller
-    form: the dot for "changed from the default", reset, the help text
-    (now a small icon beside the label), the reason a control is greyed
-    out by a `when` rule, and messages for a rejected value.
-  - Today's styles are in `inst/www/css/` (`.controls`, `.control`,
-    `.control-head`, `.control-body`, `.control-pair`, `.toggles`), and
-    the controls are built in one renderer from the schema, so this is
-    mostly a change to that renderer's markup and the style sheet, with
-    no change to what is sent to the server.
-  - Long labels and long values (a metadata field's name comes from the
-    user's file) are cut with an ellipsis and shown whole on hover and
-    to screen readers; they never push a row onto two lines.
-- A wide range of screens: decide the sizes to support and check each
-  one, from a small laptop (about 1280 x 720, and narrower when the
-  browser is not full screen) to a large desktop monitor, and at
-  browser zoom of 125 and 150 percent. On a large screen the figure
-  gets the space, not the controls. On a narrow one the controls and
-  the navigation must still leave room for the figure: for example a
-  navigation that folds to icons and a controls column that can be
-  collapsed or moves under the figure. Whether phones and tablets are
-  supported at all is Daniel's decision. No horizontal scrolling of the
-  page at any supported size.
-- Navigation labels: two links are much longer than the others,
-  "Import from an older atima" and "Privacy and terms" (`buildNav()` in
-  `inst/www/js/main.js`); the group names come from `areaLabels` in
-  `js/schema.js` and the plot names from `shortLabel()`. Give every
-  link a short label of about the same length (for example "Import"
-  and "Privacy"), keep the longer wording as the page's heading and
-  the link's tooltip, and check the labels step 11 and step 12 added.
-- Keep what step 7 settled: no framework and no build step, one
-  hand-written style sheet, nothing inline (the Content-Security-Policy
-  forbids inline script and style), text from users inserted as text.
-  Keyboard use and visible focus must still work on every control, and
-  labels stay tied to their inputs.
-- Tests and checks: the front-end tests still pass; add what can be
-  tested without a browser (every nav label within a set length; no
-  inline styles). Check in a browser at each supported size, with
-  rbiom's example dataset and with one that has long field names and
-  many fields, in both auth modes. Show Daniel screenshots or a running
-  server of the plot page at the smallest and largest size before
-  finishing, and again after his comments.
-
-Decisions for Daniel: screenshots of the pre-renovation 5.0 plot page if
-he has them, and which of its details to keep; how controls are told
-apart now that the lime and gold labels are optional; which parameters
-share their value between plot types; how a field and the look of its
-values are presented, once rbiom has been checked; the screen sizes to support, and whether
-phones and tablets are among them; what the page does when it is too
-narrow for three columns; the new navigation labels; whether the
-tables, dialogs and other pages get the same pass now or only the plot
-controls and navigation.
-
 ## Step 14: Release
 
-- Version, NEWS, citation, DOI.
+- Version, NEWS, citation, DOI. The release is atima v6: set the
+  version to 6.0.0 (`DESCRIPTION` says 5.0.1), and say in NEWS that
+  atima v5 is the version before this renovation.
 - CRAN or r-universe submission. Remove `Remotes: cmmr/rbiom` from
   `DESCRIPTION` once rbiom 4 is on CRAN (it was 3.1.0 on 2026-11-10), and
   update the install instructions in `README.md` and the comment in the CI
