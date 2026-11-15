@@ -40,7 +40,7 @@ it to that step's list instead of fixing it now.
 | 10 | Deployment, docs, load testing | done (2026-11-14) |
 | 11 | Interface refinement: compact controls, navigation | done (2026-11-14) |
 | 12 | MCP server, shared (sign-in), and tools that change data | done (2026-11-14) |
-| 13 | Usage monitoring | not started |
+| 13 | Usage monitoring | done (2026-11-15) |
 | 14 | Interactive figures (plotly): is it worth it; rendering on request | not started |
 | 15 | Cores given to jobs by what they can use | not started |
 | 16 | The lab's public server | not started |
@@ -814,6 +814,50 @@ it to that step's list instead of fixing it now.
   that guards the fetch). (q) The front end gained a test that every
   script parses (in V8): a stray apostrophe stopped the whole app and
   nothing noticed.
+
+- **Usage monitoring (step 13).** Daniel chose, each as recommended
+  unless said: a local install records nothing and has no page; the
+  documented lookup database is DB-IP Lite (atima reads any `.mmdb`
+  file the administrator supplies and ships none); institutions come
+  from both the network's owner and the sign-in provider, shown as two
+  lists; **raw rows are kept 25 months** (the recommendation was 13;
+  `run(usage_months = 25)`); requests that never start a session are
+  counted on a line of their own by a daily hash, never as people;
+  charts are hand-written SVG; **a public "atima in numbers" page is
+  wanted later** (the recommendation was "not now"), so the roll-ups
+  were laid out for it; and he knows of no Baylor rule on recording use
+  of a public research server ("none that apply"). Administrators were
+  already a notion (`run(admins = )`, the `admin` route level), so that
+  was not asked.
+- **Step 13 choices not put to Daniel.** (a) An "active user" completed
+  at least one plot, statistics table, clustering, rarefaction, export,
+  upload or import that day (`usage_analyses`); opening pages, table
+  views, saving and sharing do not count. (b) The referring page is
+  sent by the browser with the request that starts the session
+  (`document.referrer`), not read from the `Referer` header of the page
+  request, so that it belongs to a person and not to a crawler. (c)
+  Whose use a row is (`class`): load test and crawler by user agent
+  first, then administrator, then person; one person recorded under two
+  classes on a day counts under the one that is left out. (d) Capacity
+  numbers cover every job, load tests included; counts of people leave
+  out administrators, crawlers, load tests and health checks. (e) The
+  rule behind "keeping up": not, if on more than 3 of the last 30 days
+  the 95th-percentile wait passed 5 seconds; "full at times" if
+  requests were refused for a full queue on more than 3. (f) A guest who
+  signs in has their record moved to the account (`usage_adopt()`), so
+  one person is one person. (g) `usage_people` keeps, per user number,
+  the country, network, the provider's organisation and the provider's
+  address; it and the per-person days outlast the user's row, by
+  design, and the privacy text says so. (h) Cache hits are not
+  recorded: there is no cache of whole jobs to hit (rbiom caches inside
+  a job), so a rate would mean nothing. (i) No project is recorded, so
+  "projects analysed" is the count of projects opened. (j) New
+  settings: `usage`, `usage_months`, `geo_db`, `client_ip_header`; the
+  last also corrects the address a session is stored with behind a
+  proxy. (k) The MaxMind DB reader is written in R (`R/geo.R`), about
+  250 lines, instead of a new dependency. (l) CSV files are made in the
+  browser from the data the page already has; there is no download
+  route. (m) Schema version 8.
 
 ## Conventions (apply from step 2 onward)
 
@@ -3347,6 +3391,95 @@ small vendored library, or figures drawn in R); whether a public
 hidden; and whether Baylor has rules on recording use of a public
 research server that this must follow.
 
+**Done. Decisions are in the decision log. Notes for later steps:**
+
+- **What differs from the list above.** The migration is 008. The
+  referrer comes from the browser at session start, not from the page
+  request's header. Capacity samples are not kept one by one: each is
+  added to the row of its hour (`usage_hours`), and the pool keeps its
+  own high marks between samples. Cache hits and a per-project count
+  are not recorded (see the decision log). Sign-in provider, cohort
+  table, days-of-use histogram, heat map, run times per function and
+  disk are all there.
+- Where things are. `inst/sql/008_usage.sql` (the tables, with what
+  each is for). `R/usage.R`: `usage_record()` (called by
+  `request_done()` for every request), `usage_write()`, the daily hash,
+  `usage_rollup()`, `usage_expire()`, `usage_sample()`, `usage_start()`
+  (the timer: a sample a minute, roll-up and expiry every ten).
+  `R/usage-report.R`: `api_usage_data()` and `usage_report()`, with the
+  definitions at the top. `R/geo.R`: the `.mmdb` reader and
+  `geo_lookup()`. `R/router.R`: `route(usage = , usage_fn = )`,
+  `request_address()`, and `REQ$FAILED` and `REQ$TIMING`, which say how
+  a request ended. `R/mcp-tools.R`: `tool_call()` calls `usage_tool()`.
+  Front end: `js/charts.js` (SVG line, stacked bar, ranked bar, heat
+  map, CSV), `js/pages/usage.js`, the "Usage" link under "About" in
+  `main.js`, "How use of this server is counted" in
+  `js/pages/privacy.js`, and the end of `css/app.css`. Tests:
+  `test-usage.R`, `test-geo.R`, `helper-usage.R` (which can write a
+  small `.mmdb` file).
+- To record a new kind of action: give its route `usage = "<kind>"`
+  (one of `usage_kinds`; add `usage_fn` if an argument names an rbiom
+  function), or add the tool to `usage_tool_kinds`. A test fails if a
+  tool has no kind. Nothing else: handlers never record. If the kind
+  should make a person "active", add it to `usage_analyses` and to the
+  definitions printed on the page, in the server article and in the
+  privacy text.
+- The privacy text has a section of its own for this, shown when
+  `conf.usage` is true. It states every column that is written. If a
+  column is added to a usage table, the section changes with it.
+- The public "atima in numbers" page Daniel wants later needs no
+  migration: `usage_person_days`, `usage_daily_actions` and
+  `usage_daily_arrivals` hold everything by day and by `class`, so a
+  public route reads `class = 'user'` rows and hides small counts (a
+  country or institution with fewer than, say, 5 people) at query time.
+  It must not show `usage_people` rows or anything per person.
+- The numbers of atima 2 (visits per year, active registered users per
+  year, visits by email domain: step 16 saves them) have no place on
+  the page yet. The simplest is a small table of earlier years, typed
+  into a setting or a file, shown under "Reach".
+- **Verified in a browser** (2026-11-15, Windows, a server installed in
+  a scratch library with `auth = "oidc"` and 13,000 made-up actions
+  over 14 months): every card of the page draws; the cohort table
+  scrolls inside its card; no sideways scrolling at 1280, 850 and 375
+  px; the link shows for an administrator only; no console errors
+  under the Content-Security-Policy. CSV and copy buttons were not
+  clicked (downloads were not tried in the built-in browser).
+- **Verified with real lookup files** (2026-11-15): DB-IP's "IP to
+  Country Lite" and "IP to ASN Lite" of November 2026, downloaded to a
+  scratch directory (not into the repository). Both open (IPv6 trees,
+  24-bit records, 8.5 and 9.6 MB in memory); known addresses give the
+  expected country and owner in IPv4 and IPv6 (an address of Baylor
+  College of Medicine gives `US` and its name); private and loopback
+  addresses give nothing; a lookup in both files takes about 1.4 ms.
+  On the scratch server with `client_ip_header = "X-Forwarded-For"`, a
+  session started with the header `8.8.8.8, 128.249.1.1` was stored
+  and counted under the last address, with its referrer, and a request
+  with a crawler's user agent was counted as one. IPinfo's and
+  MaxMind's files were not tried; their field names are covered by
+  tests that write such files.
+- **Verified with the load test** (2026-11-15, the scratch server with
+  2 workers on this laptop, `loadtest/loadtest.R --users 8 --minutes 1
+  --flood 30 --signins 0 --agents 0`, while `R CMD check` ran beside
+  it, so the times mean nothing): its 178 requests were classed
+  `loadtest`; the waits recorded agree with the generator's own (the
+  flood of exports waited 12.04 s by both); its four 503s were counted
+  as `busy` and its fourteen 429s as `limited`; the hour's longest
+  queue was 20, the queue's limit; the day's 95th-percentile wait was
+  12 s; and the number of active people did not change. `run-series.sh`
+  (the container stack at several worker counts) was not run.
+- **Not verified:**
+  - The address behind a real proxy chain, and `deploy/compose.yaml`
+    beyond `docker compose config`: the image was not rebuilt or run.
+  - Real numbers at size: the report's queries were run on 13,000 rows.
+    `usage_person_days` is indexed by day and by user; if the page
+    becomes slow after a few years, the per-month distinct counts are
+    the ones to store.
+- `devtools::test()`: 11,988 tests pass. `R CMD check`: 0 errors, 0
+  warnings, and 1 note that the commit this step started from has too
+  on this machine: curl prints "Initiating curl with CURL_SSL_BACKEND:
+  openssl" when it is loaded, during "checking dependencies in R code".
+  It comes from an environment variable here, not from the package.
+
 ## Step 14: Interactive figures (plotly): is it worth it; rendering on request
 
 Added by Daniel on 2026-11-15. Two parts. Part A is an investigation that
@@ -3463,6 +3596,16 @@ where the render control lives when nothing is rendering, its wording,
 and how a stale figure is shown.
 
 ## Step 15: Cores given to jobs by what they can use
+
+- From step 13: the pool now keeps `pool$peak_busy` and
+  `pool$peak_queue` for usage monitoring (`usage_sample()` reads and
+  resets them), and `usage_hours` records workers busy out of
+  `pool$workers`. If the pool comes to count cores instead of workers,
+  record cores in use against the budget in the same columns, and say so
+  on the Usage page ("Workers in use" card) and in the server article.
+  Queue wait per job is `data$timing`, recorded for every job; the
+  page's "keeping up" sentence is the measure to watch when the cap is
+  chosen.
 
 Added by Daniel on 2026-11-14. Not every plot can use several cores, and
 today the pool does not know the difference: each worker owns a fixed
@@ -3656,6 +3799,35 @@ To do:
   repository. Anything in it that every administrator needs goes into
   the server article.
 
+- From step 13: usage monitoring on the real server.
+  - `deploy/compose.yaml` now sets `ATIMA_CLIENT_IP_HEADER: X-Real-IP`,
+    which Caddy fills from `{client_ip}`. Behind Baylor IT's proxy that
+    is only the visitor's address if Caddy is told to trust that proxy
+    (`ATIMA_TRUSTED_PROXIES`) **and reads `X-Forwarded-For` from the
+    right**: by default Caddy takes the leftmost entry, which a visitor
+    can send themselves when the proxy in front appends rather than
+    replaces (as IT's does). Add `trusted_proxies_strict` to the
+    `servers` block of `deploy/caddy/Caddyfile` and check, with a
+    request that carries a made-up `X-Forwarded-For`, that the session's
+    stored address (`sessions.ip_address`) is the real one. This matters
+    for the rate limits as much as for the Usage page. Not changed in
+    step 13 because it could not be tested without the proxy.
+  - Lookup files: download DB-IP's "IP to Country Lite" and "IP to ASN
+    Lite" in MMDB format (`https://download.db-ip.com/free/
+    dbip-country-lite-<year>-<month>.mmdb.gz` and `dbip-asn-lite-...`;
+    step 13 read both), unpack them into a directory on the host, and
+    set `ATIMA_GEO_DIR` and `ATIMA_GEO_DB`. Decide who replaces them
+    each month, or how.
+  - Set the administrators (`ATIMA_ADMINS`), sign in, and look at
+    "Usage" under "About". Run the load test and see it on the capacity
+    charts, as `loadtest` under "Left out of the counts".
+  - The privacy text now has "How use of this server is counted". It
+    goes into the same review as the rest of that page, and into the
+    email to Baylor's compliance or privacy office (Daniel knows of no
+    rule, 2026-11-15, but the email was planned anyway).
+  - atima 2's yearly numbers, once saved: see the note under step 13 on
+    where they could be shown.
+
 - From step 12: connecting AI apps to the public address. What a hosted
   app needs, from Claude's connector documentation as read on
   2026-11-14 (read it again then):
@@ -3731,6 +3903,13 @@ server; how long the old installations' data is kept after the
 tear-down.
 
 ## Step 17: Release
+
+- From step 13: the Usage page credits DB-IP by a link, which its
+  licence asks for where its files are used; atima ships no lookup
+  file. `NEWS` should say that a shared server records its use (and
+  what), that a local install records nothing, and name the four new
+  settings. The article list should lead to "Usage" in the server
+  article.
 
 - Version, NEWS, citation, DOI. The release is atima v6: set the
   version to 6.0.0 (`DESCRIPTION` says 5.0.1), and say in NEWS that
