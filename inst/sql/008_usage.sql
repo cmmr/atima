@@ -94,8 +94,7 @@ CREATE TABLE usage_people (
   is_account  BOOLEAN  NOT NULL DEFAULT 0,
   country     TEXT         NULL DEFAULT NULL,
   network     TEXT         NULL DEFAULT NULL,
-  affiliation TEXT         NULL DEFAULT NULL,
-  provider    TEXT         NULL DEFAULT NULL
+  affiliation TEXT         NULL DEFAULT NULL
 );
 
 

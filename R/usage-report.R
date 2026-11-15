@@ -181,7 +181,7 @@ usage_report <- function (DB, from, to) {
     "  SELECT user_id FROM usage_person_days WHERE", active_in, "AND day BETWEEN ? AND ?)" )
 
   ranked <- function (column) {
-    stopifnot(column %in% c("country", "network", "affiliation", "provider"))
+    stopifnot(column %in% c("country", "network", "affiliation"))
     q(sprintf("SELECT %s AS name, COUNT(*) AS users %s AND %s IS NOT NULL GROUP BY %s ORDER BY users DESC, name",
       column, people, column, column), from, to)
   }
@@ -189,15 +189,6 @@ usage_report <- function (DB, from, to) {
   countries    <- ranked("country")
   networks     <- ranked("network")
   affiliations <- ranked("affiliation")
-  providers    <- ranked("provider")
-
-  # A provider is shown by its host name.
-  if (nrow(providers) > 0) {
-    providers[['name']] <- sub("/.*$", "", sub("^https?://", "", providers[['name']]))
-    providers <- stats::aggregate(users ~ name, data = providers, FUN = sum)
-    providers <- providers[order(-providers[['users']], providers[['name']]),, drop = FALSE]
-    rownames(providers) <- NULL
-  }
 
   arrivals <- paste("FROM usage_daily_arrivals WHERE class = 'user' AND day BETWEEN ? AND ?")
 
@@ -208,7 +199,6 @@ usage_report <- function (DB, from, to) {
     n_networks     = unbox(nrow(networks)),
     affiliations   = utils::head(affiliations, usage_top),
     n_affiliations = unbox(nrow(affiliations)),
-    providers      = providers,
     placed         = unbox(one(paste("SELECT COUNT(*)", people, "AND country IS NOT NULL"), from, to)),
     people         = unbox(one(paste("SELECT COUNT(*)", people), from, to)),
     visits         = unbox(one(paste("SELECT SUM(n)", arrivals), from, to)),

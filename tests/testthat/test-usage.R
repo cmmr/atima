@@ -629,7 +629,7 @@ test_that("the roll-ups match the raw rows", {
 })
 
 
-test_that("someone with an account is counted with their institution and provider", {
+test_that("someone with an account is counted with their institution, not their provider", {
 
   REQ <- local_test_req()
   DB  <- REQ$DB
@@ -643,7 +643,8 @@ test_that("someone with an account is counted with their institution and provide
 
   people <- usage_rows(DB, "usage_people")
   expect_identical(people$affiliation[people$user_id == ada], "Analytical Engines")
-  expect_identical(people$provider[people$user_id == ada], "https://auth.globus.org")
+  expect_false("provider" %in% names(people))
+  expect_no_match(usage_dump(DB), "globus", fixed = TRUE)
   expect_true(is.na(people$affiliation[people$user_id == gus]))
 
   # Neither a name nor an email address is copied.

@@ -846,9 +846,11 @@ it to that step's list instead of fixing it now.
   requests were refused for a full queue on more than 3. (f) A guest who
   signs in has their record moved to the account (`usage_adopt()`), so
   one person is one person. (g) `usage_people` keeps, per user number,
-  the country, network, the provider's organisation and the provider's
-  address; it and the per-person days outlast the user's row, by
-  design, and the privacy text says so. (h) Cache hits are not
+  the country, network and the organisation the sign-in provider names;
+  it and the per-person days outlast the user's row, by design, and the
+  privacy text says so. Which provider someone signed in through is not
+  recorded: Daniel had the "Sign-in providers" card removed after the
+  step (2026-11-15) and, with it, the column. (h) Cache hits are not
   recorded: there is no cache of whole jobs to hit (rbiom caches inside
   a job), so a rate would mean nothing. (i) No project is recorded, so
   "projects analysed" is the count of projects opened. (j) New
@@ -3398,9 +3400,9 @@ research server that this must follow.
   request's header. Capacity samples are not kept one by one: each is
   added to the row of its hour (`usage_hours`), and the pool keeps its
   own high marks between samples. Cache hits and a per-project count
-  are not recorded (see the decision log). Sign-in provider, cohort
-  table, days-of-use histogram, heat map, run times per function and
-  disk are all there.
+  are not recorded (see the decision log), nor is the sign-in provider
+  (Daniel had its card removed). Cohort table, days-of-use histogram,
+  heat map, run times per function and disk are all there.
 - Where things are. `inst/sql/008_usage.sql` (the tables, with what
   each is for). `R/usage.R`: `usage_record()` (called by
   `request_done()` for every request), `usage_write()`, the daily hash,

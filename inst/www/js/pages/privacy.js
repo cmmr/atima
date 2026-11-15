@@ -123,7 +123,7 @@ export function show(container) {
         ['Where you came from. When you open the site: the country and the organisation that owns the network you connected from (such as a university or an internet provider), ',
          'looked up from your network address in a file on this server, and the address of the page that linked you here if you followed a link from another site. ',
          'The network address itself is not kept with these counts.'],
-        ['If you have signed in, the organisation your sign-in provider names for you and the name of the provider are counted with the number that stands for you.'],
+        ['If you have signed in, the organisation your sign-in provider names for you is counted with the number that stands for you.'],
         ['Requests without a cookie, such as a download by link from a script, are counted by a code made from the network address, the name of the program and a secret that is replaced every day and never stored. ',
          'The code cannot be turned back into an address, and is deleted after two days.'],
         [`How long. The record of single actions and visits is deleted after ${count(conf.usage_months, 'month')}. Daily counts made from it are kept: `,

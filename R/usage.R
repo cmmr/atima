@@ -470,9 +470,9 @@ usage_rollup_day <- function (DB, day) {
     " WHERE usage_people.user_id = a.user_id" )
   db_query(DB, sql, "URDay8", span)
 
-  # For someone with an account: the institution and the provider they signed in through.
+  # For someone with an account: the institution their sign-in provider names.
   sql <- paste0(
-    "UPDATE usage_people SET affiliation = u.affiliation, provider = u.issuer",
+    "UPDATE usage_people SET affiliation = u.affiliation",
     " FROM users u",
     " WHERE u.user_id = usage_people.user_id AND u.is_guest = 0",
     "   AND usage_people.user_id IN (SELECT user_id FROM usage_person_days WHERE day = ?)" )
