@@ -430,6 +430,8 @@ export function show(container, fn) {
     hide.hidden = true;
     show.hidden = v.button === null;
     renderBtn.disabled = !v.canRender;
+    renderBtn.title = v.canRender ? 'Draw the figure for the current settings'
+      : v.box === 'held' ? 'The figure is up to date' : 'Complete the settings first';
     if (held && !show.hidden && !show.disabled) show.focus();
 
     figureBox.classList.toggle('busy', isBusy);

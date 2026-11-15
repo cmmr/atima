@@ -493,10 +493,12 @@ test_that("unticked, a figure is drawn on request and an older one is marked", {
   expect_false(v$download)
   expect_true(v$note)
 
-  # The figure matches its settings: the box goes, Download is back.
+  # The figure matches its settings: the box goes, Download is back, and
+  # there is nothing to render.
   v <- js$get("V({ auto: false })")
   expect_identical(v$box, "hidden")
   expect_identical(v$button, "render")
+  expect_false(v$canRender)
   expect_false(v$dim)
   expect_true(v$download)
   expect_false(v$note)
@@ -532,10 +534,12 @@ test_that("the render box stays while the user is at it, and is never anywhere b
   expect_false(v$dim)
   expect_true(v$download)
 
-  # Drawing on request, it keeps its Render button meanwhile.
+  # Drawing on request, it keeps its Render button meanwhile, switched
+  # off: the figure is up to date.
   v <- js$get("V({ auto: false, held: true })")
   expect_identical(v$box, "held")
   expect_identical(v$button, "render")
+  expect_false(v$canRender)
 
   # Being at the box changes nothing while it has something to say.
   expect_identical(js$get("V({ busy: true, held: true })"), js$get("V({ busy: true })"))

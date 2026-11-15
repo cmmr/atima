@@ -85,9 +85,9 @@ function rest({ auto, busy, drawn, stale, complete, message = false }) {
     hint: complete ? 'The figure shown is older than its settings. Press Render to update it.' : '',
     dim: true, download: false, note: true };
 
-  // The figure matches its settings: nothing to say. The box comes back
-  // with the next change of a control.
+  // The figure matches its settings: nothing to say, and nothing to
+  // render. The box comes back with the next change of a control.
   return {
-    box: 'hidden', heading: '', hint: '', button: 'render', canRender: complete,
+    box: 'hidden', heading: '', hint: '', button: 'render', canRender: false,
     dim: false, download: complete, note: false };
 }
