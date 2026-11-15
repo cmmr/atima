@@ -424,3 +424,144 @@ test_that("a number box's arrows move by an amount that suits the number", {
   expect_equal(step("adiv_corrplot", "mu"), 1)
   expect_equal(step("taxa_boxplot", "p.top"), 1)
 })
+
+
+# `js/render.js` is pure too: it decides what the plot page shows while a
+# figure is drawn, waits to be drawn, or is older than its settings.
+local_render_js <- function () {
+
+  testthat::skip_if_not_installed("V8")
+
+  js  <- V8::v8()
+  src <- read_text(www("js", "render.js"))
+  expect_no_match(src, "(^|\n)import ")
+  js$eval(gsub("(^|\n)export ", "\\1", src))
+  js$eval("const V = (o) => view({ auto: true, busy: false, drawn: true, stale: false, complete: true, message: false, ...o });")
+  js
+}
+
+
+test_that("with 're-render automatically' ticked the plot page behaves as before", {
+
+  js <- local_render_js()
+
+  # A change of a control draws the figure again.
+  expect_identical(js$get("onChange(true)"), "draw")
+
+  # Nothing in progress: no box, the figure as it is, Download allowed.
+  v <- js$get("V({})")
+  expect_identical(v$box, "hidden")
+  expect_null(v$button)
+  expect_false(v$dim)
+  expect_true(v$download)
+  expect_false(v$note)
+
+  # While a figure is drawn: the box in the middle, with Stop.
+  v <- js$get("V({ busy: true })")
+  expect_identical(v$box, "center")
+  expect_identical(v$button, "stop")
+  expect_true(v$dim)
+  expect_true(v$download)
+
+  # Settings to complete: no Download.
+  expect_false(js$get("V({ complete: false, drawn: false, message: true })")$download)
+})
+
+
+test_that("unticked, a figure is drawn on request and an older one is marked", {
+
+  js <- local_render_js()
+
+  # A change of a control does not draw.
+  expect_identical(js$get("onChange(false)"), "mark")
+
+  # A page just opened waits for Render.
+  v <- js$get("V({ auto: false, drawn: false })")
+  expect_identical(v$box, "center")
+  expect_identical(v$heading, "Not drawn yet")
+  expect_identical(v$button, "render")
+  expect_true(v$canRender)
+  expect_false(v$download)
+
+  # The figure is older than its settings: said so, greyed, no Download,
+  # and the statistics and the code say so too.
+  v <- js$get("V({ auto: false, stale: true })")
+  expect_identical(v$box, "center")
+  expect_identical(v$heading, "Settings changed")
+  expect_identical(v$button, "render")
+  expect_true(v$dim)
+  expect_false(v$download)
+  expect_true(v$note)
+
+  # The figure matches its settings: the box steps aside, Download is back.
+  v <- js$get("V({ auto: false })")
+  expect_identical(v$box, "corner")
+  expect_identical(v$button, "render")
+  expect_false(v$dim)
+  expect_true(v$download)
+  expect_false(v$note)
+
+  # While it is drawn the button is Stop, and the old figure cannot be
+  # downloaded as if it were the new one.
+  v <- js$get("V({ auto: false, busy: true, stale: true })")
+  expect_identical(v$button, "stop")
+  expect_false(v$download)
+
+  # Settings to complete, or an error on screen: the box leaves the message
+  # readable, and Render is only there for settings that can be drawn.
+  v <- js$get("V({ auto: false, complete: false, message: true })")
+  expect_identical(v$box, "corner")
+  expect_false(v$canRender)
+  expect_false(v$download)
+  v <- js$get("V({ auto: false, drawn: false, message: true })")
+  expect_identical(v$box, "corner")
+  expect_true(v$canRender)
+})
+
+
+test_that("a figure is older than its settings only while they differ", {
+
+  js <- local_render_js()
+
+  expect_false(js$get("isStale(null, 'a')"))     # nothing drawn yet
+  expect_false(js$get("isStale('a', 'a')"))
+  expect_true(js$get("isStale('a', 'b')"))       # a control changed ...
+  expect_false(js$get("isStale('a', 'a')"))      # ... and was put back
+})
+
+
+test_that("the choice to draw on request is remembered, and survives a browser without storage", {
+
+  js <- local_render_js()
+
+  js$eval("
+    const box = {}; const storage = { getItem: k => (k in box ? box[k] : null), setItem: (k, v) => { box[k] = v; } };
+    const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };")
+
+  # Ticked unless the user said otherwise.
+  expect_true(js$get("readAuto(storage)"))
+  js$eval("writeAuto(storage, false);")
+  expect_false(js$get("readAuto(storage)"))
+  js$eval("writeAuto(storage, true);")
+  expect_true(js$get("readAuto(storage)"))
+
+  # No storage: ticked, and nothing throws.
+  expect_true(js$get("readAuto(broken)"))
+  expect_silent(js$eval("writeAuto(broken, false);"))
+})
+
+
+test_that("the plot page keeps its render control reachable and labelled", {
+
+  src <- read_text(www("js", "pages", "plot.js"))
+
+  # The checkbox has a label, the box a name, and what it says is announced.
+  expect_match(src, "label.render-auto', { for: autoId", fixed = TRUE)
+  expect_match(src, "'Re-render automatically'", fixed = TRUE)
+  expect_match(src, "role: 'group', 'aria-label': 'Drawing the figure'", fixed = TRUE)
+  expect_match(src, "div.render-status', { role: 'status' }", fixed = TRUE)
+
+  # Every change of a control goes through the one place that decides
+  # between drawing and marking: only it and draw() touch the timer.
+  expect_length(all_matches(src, "(?<![.\\w])schedule\\(\\)"), 1L)
+})

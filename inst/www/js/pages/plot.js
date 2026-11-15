@@ -4,11 +4,12 @@
 
 import { h, fill, icon, button, debounce, download, serverHtml, newId } from '../dom.js';
 import { call, abortJobs } from '../api.js';
-import { tabs, section, spinner, picker, notify, showError } from '../widgets.js';
+import { tabs, section, picker, notify, showError } from '../widgets.js';
 import { controlPanel, controlRow, stepping } from '../controls.js';
 import { localTable } from '../tables.js';
 import { copyText, busy } from '../actions.js';
 import * as S from '../schema.js';
+import * as R from '../render.js';
 import * as store from '../store.js';
 
 // What the columns of rbiom's statistics tables mean.
@@ -248,17 +249,47 @@ export function show(container, fn) {
   let controller = null;    // to stop the request in flight
   let last = null;          // the newest figure's response
   let lastSize = '';
+  let drawnKey = null;      // the settings of the figure on screen, as text
+  let isBusy = false;       // is a figure being drawn?
+
+  // Draw after every change, or only on request? One choice per browser,
+  // for every figure type.
+  const storage = {
+    getItem: key => window.localStorage.getItem(key),
+    setItem: (key, value) => window.localStorage.setItem(key, value) };
+  let auto = R.readAuto(storage);
 
   //___________________________________________________________________________
   // Middle: figure, statistics, code
 
   const img       = h('img.figure', { alt: def.label, hidden: true });
-  const overlay   = h('div.figure-overlay', { hidden: true });
+  // The render box: what is going on, the choice to draw after every
+  // change, and one button that is "Render" or "Stop". It is over the
+  // middle of the figure while there is something to say, and in a corner
+  // when the figure is up to date. Its parts are made once, so that the
+  // keyboard's place in it survives a change of state.
+  const autoId    = newId('auto');
+  const autoCheck = h('input', { id: autoId, type: 'checkbox', checked: auto, onchange: e => setAuto(e.target.checked) });
+  const spin      = h('i.spin', { hidden: true });
+  const heading   = h('span.render-heading');
+  const hint      = h('p.hint', { hidden: true });
+  const renderBtn = button('Render', () => draw(), { icon: 'play', kind: 'primary', title: 'Draw the figure for the current settings' });
+  const stopBtn   = button('Stop', stop, { icon: 'stop', kind: 'danger', title: 'Stop drawing this figure' });
+  const renderBox = h('div.render-box', { role: 'group', 'aria-label': 'Drawing the figure' },
+    h('div.render-status', { role: 'status' }, spin, heading), hint,
+    h('div.render-actions',
+      h('label.render-auto', { for: autoId, title: 'Draw the figure again after every change of a setting. Untick it to change several settings and then press Render, which helps when a figure is slow to draw.' },
+        autoCheck, 'Re-render automatically'),
+      renderBtn, stopBtn));
+  const overlay   = h('div.figure-overlay', { hidden: true }, renderBox);
+  const staleNote = () => h('p.stale-note', { hidden: true, role: 'status' }, icon('clock-rotate-left'), 'Settings changed since this was made. Press Render on the Figure tab to update it.');
+  const statsNote = staleNote(), codeNote = staleNote();
+  const statsBody = h('div'), codeBody = h('div');
   const message   = h('div.figure-message', { hidden: true, role: 'alert' });
   const figureBox = h('div.figure-box', img, message, overlay);
   const caption   = h('p.figure-caption');
-  const statsPane = h('div.pane');
-  const codePane  = h('div.pane');
+  const statsPane = h('div.pane', statsNote, statsBody);
+  const codePane  = h('div.pane', codeNote, codeBody);
 
   const device = h('select', { 'aria-label': 'File format', title: 'File format' },
     schema.save.params.find(p => p.name === 'device').choices.map(c => h('option', { value: c }, c.toUpperCase())));
@@ -277,7 +308,8 @@ export function show(container, fn) {
   };
   showDepth();
 
-  const tools = h('div.plot-tools', h('label.depth', { for: 'depth' }, 'Depth'), depth, device, button('Download', downloadFigure, { icon: 'download', title: 'Download the figure in this format' }));
+  const downloadBtn = button('Download', downloadFigure, { icon: 'download', title: 'Download the figure in this format' });
+  const tools = h('div.plot-tools', h('label.depth', { for: 'depth' }, 'Depth'), depth, device, downloadBtn);
 
   const panes = tabs([
     { id: 'figure', label: 'Figure',     icon: 'chart-column', panel: h('div.pane.figure-pane', figureBox, caption) },
@@ -293,9 +325,9 @@ export function show(container, fn) {
   const args     = () => store.fnArgs(def);
 
   // The table of colors and shapes lists only the groups the filter keeps.
-  const filter      = subsetEditor(() => { badge.textContent = filter.count() || ''; if (panel) panel.refresh(); schedule(); });
+  const filter      = subsetEditor(() => { badge.textContent = filter.count() || ''; if (panel) panel.refresh(); changed(); });
   const badge       = h('span.badge', filter.count() || '');
-  const image       = imageEditor(() => schedule());
+  const image       = imageEditor(() => changed());
   let   panel       = null;
   const basicBox    = h('div');
   const advancedBox = h('div');
@@ -307,7 +339,7 @@ export function show(container, fn) {
       // A change can leave another setting pointing at nothing, such as
       // colors chosen for the groups of a field that is no longer used:
       // `args()` then no longer has it, and the panel shows its default.
-      set: (name, value) => { store.setArg(def, name, value); schedule(); },
+      set: (name, value) => { store.setArg(def, name, value); changed(); },
       kept: field => store.get('subset').cat[field] || null });
     fill(basicBox, panel.groups.basic);
     fill(advancedBox, panel.groups.advanced);
@@ -316,7 +348,7 @@ export function show(container, fn) {
   const aside = h('aside.plot-controls',
     h('div.plot-controls-head',
       h('h2', { title: def.label }, def.label),
-      button('', () => { store.resetArgs(def); buildControls(); schedule(); }, { icon: 'rotate-left',
+      button('', () => { store.resetArgs(def); buildControls(); changed(); }, { icon: 'rotate-left',
         title: 'Put every control of this plot back to its default. Other plots that share a setting follow.' })),
     problems, basicBox,
     section('Advanced', advancedBox),
@@ -350,10 +382,68 @@ export function show(container, fn) {
     return body;
   }
 
-  function setBusy(on, text = `Drawing: ${def.label}`) {
-    overlay.hidden = !on;
-    if (on) fill(overlay, spinner(text), button('Stop', stop, { icon: 'stop', kind: 'danger' }));
-    figureBox.classList.toggle('busy', on);
+  /** The settings a figure is made from, as text: the request, and the image settings the user chose. */
+  function settingsKey() {
+    return JSON.stringify([requestBody(), store.get('save'), store.get('fit')]);
+  }
+
+  /** Are the required settings all there? Says which are not, beside the controls. */
+  function complete() {
+    const stopReasons = S.problems(def, args());
+    problems.hidden = stopReasons.length === 0;
+    fill(problems, stopReasons.map(text => h('p', text)));
+    return stopReasons.length === 0;
+  }
+
+  /** Show the render box, the figure and the Download button as the situation asks. */
+  function refresh() {
+    const v = R.view({
+      auto, busy: isBusy, drawn: drawnKey !== null, stale: R.isStale(drawnKey, settingsKey()),
+      complete: S.problems(def, args()).length === 0, message: !message.hidden });
+
+    overlay.hidden = v.box === 'hidden';
+    overlay.classList.toggle('corner', v.box === 'corner');
+    spin.hidden = !isBusy;
+    heading.textContent = isBusy ? `Drawing: ${def.label}` : v.heading;
+    heading.hidden = !heading.textContent;
+    hint.textContent = v.hint;
+    hint.hidden = !v.hint;
+
+    // One button, "Render" or "Stop". The keyboard stays on it when it changes.
+    const show = v.button === 'stop' ? stopBtn : renderBtn, hide = show === stopBtn ? renderBtn : stopBtn;
+    const held = document.activeElement === hide;
+    hide.hidden = true;
+    show.hidden = v.button === null;
+    renderBtn.disabled = !v.canRender;
+    if (held && !show.hidden && !show.disabled) show.focus();
+
+    figureBox.classList.toggle('busy', isBusy);
+    figureBox.classList.toggle('old', v.dim);
+    downloadBtn.disabled = !v.download;
+    downloadBtn.title = v.download ? 'Download the figure in this format'
+      : 'The figure is not drawn for the current settings. Press Render first.';
+    statsNote.hidden = codeNote.hidden = !v.note;
+  }
+
+  function setBusy(on) {
+    isBusy = on;
+    refresh();
+  }
+
+  /** Tick or untick "Re-render automatically". Ticking it brings the figure up to date at once. */
+  function setAuto(on) {
+    auto = on;
+    R.writeAuto(storage, on);
+    if (on && !isBusy && (drawnKey === null || R.isStale(drawnKey, settingsKey()))) draw();
+    else refresh();
+  }
+
+  /** A setting changed: draw again, or say that the figure is now older than its settings. */
+  function changed() {
+    if (R.onChange(auto) === 'draw') { schedule(); return; }
+    schedule.cancel();
+    if (isBusy) return;                     // the figure being drawn is compared when it arrives
+    showMessage(complete() ? null : 'Complete the settings on the right to draw this figure.');
   }
 
   function showMessage(text, { retry = false, id = null } = {}) {
@@ -362,19 +452,19 @@ export function show(container, fn) {
       id ? h('p.hint', `Error id: ${id}`) : null,
       retry ? button('Try again', () => draw(), { icon: 'rotate-right' }) : null);
     img.classList.toggle('stale', !!text);
+    refresh();
   }
 
   async function draw() {
 
-    const stopReasons = S.problems(def, args());
-    problems.hidden = stopReasons.length === 0;
-    fill(problems, stopReasons.map(text => h('p', text)));
-    if (stopReasons.length) { showMessage('Complete the settings on the right to draw this figure.'); return; }
+    schedule.cancel();
+    if (!complete()) { showMessage('Complete the settings on the right to draw this figure.'); return; }
 
     if (controller) controller.abort();
     controller = new AbortController();
     const mine = ++seq;
     const size = saveArgs();
+    const key  = settingsKey();
     lastSize = JSON.stringify(size.css);
 
     showMessage(null);
@@ -384,6 +474,7 @@ export function show(container, fn) {
       const resp = await call('/api/plot', requestBody({ save_args: size.args, attrs: true }), { signal: controller.signal });
       if (mine !== seq) return;
       last = resp;
+      drawnKey = key;
       showFigure(resp, size.css);
       showStats(resp);
       showCode(resp);
@@ -410,7 +501,8 @@ export function show(container, fn) {
     controller = null;
     setBusy(false);
     abortJobs();
-    if (!last) showMessage('Stopped. Change a setting to draw the figure.', { retry: true });
+    // Drawing on request, the render box says what to do next.
+    if (!last && auto) showMessage('Stopped. Change a setting to draw the figure.', { retry: true });
   }
 
   function showFigure(resp, css) {
@@ -431,11 +523,11 @@ export function show(container, fn) {
 
   function showStats(resp) {
     if (!resp.stats_table || resp.stats_table.length === 0) {
-      fill(statsPane, h('p.empty', 'This figure has no statistics. Statistics need groups to compare or a trend to test.'));
+      fill(statsBody, h('p.empty', 'This figure has no statistics. Statistics need groups to compare or a trend to test.'));
       return;
     }
     const direction = foldDirection(resp.stats_table, store.get('biom'));
-    fill(statsPane,
+    fill(statsBody,
       direction ? h('p.stats-note', direction) : null,
       Object.values(resp.stats_title || {}).map(line => h(String(line).includes(' ~ ') ? 'p.stats-model' : 'p.stats-title', String(line))),
       localTable(resp.stats_table, { tooltips: STAT_TOOLTIPS, filename: `${fn}_stats.csv` }),
@@ -445,12 +537,12 @@ export function show(container, fn) {
   }
 
   function showCode(resp) {
-    fill(codePane, resp.code ? codeBlock(figureCode(resp.code)) : h('p.empty', 'No code is available for this figure.'));
+    fill(codeBody, resp.code ? codeBlock(figureCode(resp.code)) : h('p.empty', 'No code is available for this figure.'));
   }
 
   /** Draw the figure again in the chosen format and save that file. */
   async function downloadFigure() {
-    if (S.problems(def, args()).length) return;
+    if (S.problems(def, args()).length || downloadBtn.disabled) return;
     const format = device.value;
     const note = notify(`Preparing the ${format.toUpperCase()} file...`, 'info', { ms: 0 });
     note.classList.add('working');
@@ -466,7 +558,8 @@ export function show(container, fn) {
   // Keeping up with the window and the project
 
   const resized = debounce(() => {
-    if (!store.get('fit') || figureBox.clientWidth === 0) return;
+    // Drawing on request, the figure keeps its size until Render is pressed.
+    if (!auto || !store.get('fit') || figureBox.clientWidth === 0) return;
     if (JSON.stringify(saveArgs().css) !== lastSize) draw();
   }, 400);
   const watcher = new ResizeObserver(resized);
@@ -474,8 +567,9 @@ export function show(container, fn) {
 
   buildControls();
   // The first figure waits a moment: for the page to be laid out, so that
-  // it fits, and for a required field to be chosen for the user.
-  schedule();
+  // it fits, and for a required field to be chosen for the user. Drawing
+  // on request, it waits for Render.
+  changed();
 
   return {
     // The project changed under the page: another depth, a new field, or
@@ -487,7 +581,7 @@ export function show(container, fn) {
       badge.textContent = filter.count() || '';
       const sameData = before && biom.depth === before.depth && biom.node_id === before.node_id &&
         JSON.stringify(biom.fields) === JSON.stringify(before.fields);
-      if (!sameData) schedule();
+      if (!sameData) changed();
     },
     destroy() {
       seq++;

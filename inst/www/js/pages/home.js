@@ -32,7 +32,7 @@ export function show(container) {
           ' at Baylor College of Medicine.'),
         h('ul.features',
           h('li', h('strong', 'Bring your data. '), 'BIOM files with counts, sample metadata, taxonomy and, for UniFrac, a phylogenetic tree.'),
-          h('li', h('strong', 'Explore. '), 'Every figure comes with its statistics table and updates as you change a setting.'),
+          h('li', h('strong', 'Explore. '), 'Every figure comes with its statistics table and updates as you change a setting, or, if you prefer, when you press Render.'),
           h('li', h('strong', 'Reproduce. '), 'Each figure shows the R code that makes it, to run and adapt on your own computer.'),
           local
             ? h('li', h('strong', 'Private. '), 'This copy runs on your computer. Your data stays here.')
