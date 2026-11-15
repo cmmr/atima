@@ -161,8 +161,7 @@ from `.env`:
 | `ATIMA_OIDC_CLIENT_ID`, `ATIMA_OIDC_CLIENT_SECRET` | | From the provider. |
 | `ATIMA_ADMINS` | none | Administrators, by the provider's identifier for them, separated by commas. |
 | `ATIMA_OPERATOR`, `ATIMA_CONTACT` | none | Shown on the "Privacy and terms" page. |
-| `ATIMA_WORKERS` | half the cores, at most 4 | Worker processes. |
-| `ATIMA_MAX_CPUS` | cores divided by workers | CPU cores one job may use. |
+| `ATIMA_CPUS` | every core the container has | CPU cores the server may use, its own process and its jobs together. One fewer than this many jobs run at once. |
 | `ATIMA_TIME_LIMIT` | 60 | Seconds a job may run. |
 | `ATIMA_JOBS_PER_USER` | 16 | Jobs one account may have waiting or running. |
 | `ATIMA_MAX_UPLOAD_MB` | 50 | Largest upload. Caddy enforces the same number. |
@@ -411,7 +410,7 @@ server, from where and for what; and is the server still big enough.
   one job in twenty waited longer than 5 seconds for a worker. Below it:
   the median and 95th-percentile wait per day, requests refused because
   the queue was full (503), because one person had too many jobs (429)
-  or stopped at the time limit (504), workers busy and the longest queue
+  or stopped at the time limit (504), CPU cores in use and the longest queue
   per day and per hour, the time each function takes, and the disk.
 - **A summary for a report**, for the period chosen at the top, with the
   definitions it rests on. Every card has a button that saves its numbers
@@ -607,20 +606,37 @@ docker compose -f compose.yaml -f compose.legacy.yaml up -d
 
 The file is mounted read-only. It is as sensitive as the old database:
 keep it readable only by user id 10001 (`chown 10001`, `chmod 400`). An
-import can keep a worker busy for up to 15 minutes per project, so run at
-least two workers while people are importing.
+import can keep a worker busy for up to 15 minutes per project, so give
+the server at least three cores (two workers) while people are importing.
 
 
 ## How large a server
 
 Memory: each worker is an R process with rbiom loaded. On the development
 machine a worker held 500 to 650 MB after drawing plots of the larger
-example project (1,006 samples), and the main process 400 MB. Allow 1 GB
-per worker, plus 1 GB for the main process and Caddy; datasets near the
-upload limit will need more. CPU: `ATIMA_WORKERS` times
-`ATIMA_MAX_CPUS` should not exceed the cores the container may use. atima
-reads the container's CPU limit, so its defaults (half the cores as
-workers, at most four) follow a limit you set with Docker.
+example project (1,006 samples), and the main process 400 MB. atima starts
+no more workers than one for every 2 GB of the container's memory;
+datasets near the upload limit will need more.
+
+CPU: `ATIMA_CPUS` is the number of cores the server may use, and defaults
+to all the container has (atima reads a CPU limit you set with Docker).
+One core is kept for the process that answers requests, and there is a
+worker for each of the others, so a server with 8 cores runs 7 jobs at
+the same time. Most of what rbiom computes runs on one core. A job that
+computes distances between samples (the beta diversity plots and
+statistics) is told it may use up to half of the cores that are free when
+it starts, or its share of them if other jobs are waiting. atima then
+measures, four times a second, how much of the processor each worker is
+using, and counts that: a job that has finished computing its distances
+counts as one core, and the others are free again. A job never waits for
+more than one core.
+
+R in the container uses OpenBLAS for linear algebra, which starts a
+thread for every core, whatever a job was told it may use. atima counts
+those threads, as it counts everything a worker uses, so the server
+stays within `ATIMA_CPUS`; but they make the ordinations slower, not
+faster. Until rbiom limits them itself, start the server with
+`OPENBLAS_NUM_THREADS=1` in its environment.
 
 What happens when the server is too small: requests that need a worker
 wait in a queue of ten per worker. A plot that would take one second takes
@@ -633,20 +649,20 @@ The repository has a load test (`loadtest/`) that simulates people
 browsing, one account starting many jobs at once, many people signing in
 together through a slow provider, and AI apps calling tools. On the
 development machine (a six-core desktop from 2018, everything in
-containers on that one machine, one core per job):
+containers on that one machine, so five workers):
 
-- Loading the page took under 0.4 seconds for 19 of 20 visitors in every
-  run, including runs in which most jobs were being turned away. Requests
-  that need no worker were answered within 0.3 seconds.
+- Loading the page took 0.6 seconds or less for 19 of 20 visitors in every
+  run, including runs in which jobs waited most of a minute.
 - Most plots ran for one or two seconds. A permutation test (PERMANOVA,
-  999 permutations) on a project of 1,006 samples ran for 30 to 48
-  seconds on one core, and holds its worker for that long. Jobs like that
-  decide how many workers a server needs.
-- One worker was too few for ten people working at once: half of their
-  requests waited five seconds or more.
-- Four workers served 30 people who each did something every 20 seconds,
-  with a median wait of 3 seconds and nobody turned away. Two workers
-  turned away one job in six under the same load.
+  999 permutations) on a project of 1,006 samples ran for 30 to 46
+  seconds, on one core, and holds its worker for that long. Jobs like
+  that decide how many cores a server needs.
+- Ten people who each did something every 5 seconds were served without
+  waiting: half of their jobs started at once, 19 in 20 within 5 seconds.
+- Thirty such people were more than this machine could serve promptly:
+  half of their jobs waited 11 seconds or more. Nobody was turned away.
+  With OpenBLAS left at its defaults, ten of the long permutation tests
+  were stopped at the time limit; with one thread, none was.
 - Ten sign-ins at once through a provider that took two seconds to answer
   did not slow the server for anyone else.
 
@@ -654,7 +670,8 @@ containers on that one machine, one core per job):
 tables, and says how to run the test against your own server before you
 open it. If people will bring projects of more than a thousand samples,
 consider a longer time limit (`ATIMA_TIME_LIMIT`): on this hardware the
-largest jobs came within 12 seconds of the default limit of 60.
+largest jobs came within 14 seconds of the default limit of 60 when the
+server was quiet, and passed it when five of them ran at once.
 
 
 ## What is not protected

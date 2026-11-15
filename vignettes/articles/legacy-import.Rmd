@@ -110,12 +110,14 @@ installed, and says which.
 When the server runs in a container, mount the file read-only. The article
 [Running a shared server](server.html) shows how.
 
-### Give the server at least two workers
+### Give the server at least three cores
 
 An import runs in a worker process, one project at a time per person, and
-one large project may hold that worker for up to 15 minutes. With
-`workers = 1`, everyone's figures wait behind it. Start a server that
-people import to with `workers = 2` or more.
+one large project may hold that worker for up to 15 minutes. One core is
+the web server's own, so with `cpus = 1` or `2` there is one worker and
+everyone's figures wait behind the import. Start a server that people
+import to with `cpus = 3` or more, which is the default on any computer
+with that many cores.
 
 
 ## Step 3: what each person does

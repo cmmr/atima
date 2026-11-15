@@ -61,7 +61,7 @@ Initializing Atima Server...
  - Data Directory: <your data directory>
  - Temp Directory: <a temporary directory>
  - Sign-in: none (single local user)
- - Starting 4 worker processes (2 CPUs each)
+ - CPU cores: 8 (1 for this process). Starting 7 worker processes
  - Loading example projects
 Server listening on 127.0.0.1 port 8080. Open http://127.0.0.1:8080
 AI apps can connect to http://127.0.0.1:8080/mcp
@@ -150,18 +150,29 @@ them all.
 | `port` | `ATIMA_PORT` | `8080` | The port in the address, `http://127.0.0.1:<port>`. Change it if another program uses 8080. |
 | `data_dir` | `ATIMA_DATA_DIR` | see above | Where the database, stored files and cache are kept. |
 | `temp_dir` | `ATIMA_TEMP_DIR` | a new directory in R's temporary directory | Figures, exports and uploads in progress. It must not be `data_dir`, or inside it, or contain it: atima deletes old files here. |
-| `workers` | `ATIMA_WORKERS` | half the CPU cores, at least 1, at most 4 | The number of worker processes. A worker is a separate R process that runs one job (a figure, an upload, an export) at a time. Each uses memory for its own copy of R and rbiom. |
-| `max_cpus` | `ATIMA_MAX_CPUS` | CPU cores divided by `workers` | CPU cores one job may use. |
+| `cpus` | `ATIMA_CPUS` | every CPU core | The most CPU cores atima may use, for answering the browser and for its jobs (figures, uploads, exports) together. |
 | `time_limit` | `ATIMA_TIME_LIMIT` | no limit | The longest a job may run, in seconds. On your own computer there is no limit unless you set one: a figure or test may take as long as it needs. (A shared server stops a job after 60 seconds, so that one person's long analysis does not hold up everyone else.) |
 | `max_upload_mb` | `ATIMA_MAX_UPLOAD_MB` | `50` | The largest file accepted, in megabytes. |
 | `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `100` | Upper limit for `cache/`, in megabytes. |
 | `session_hours` | `ATIMA_SESSION_HOURS` | `24` | Unsaved changes in a browser tab, and that tab's figures and exports, are deleted when the tab has not been heard from for this many hours. |
 | `open` | `ATIMA_OPEN` | `TRUE` when R is interactive | Whether to open the browser when the server is up. |
 
-With `workers = 1` jobs run one after another. That is enough for one
-person, and uses the least memory. With more workers the page stays quicker
-while a slow figure is drawn, because lists and tables do not wait behind
-it.
+Jobs are run by worker processes: separate R processes, each with its own
+copy of R and rbiom in memory. One core is kept for the process that
+answers the browser, and atima starts a worker for each of the others, but
+no more than one for every 2 GB of your computer's memory. So the page
+stays quick while a slow figure is drawn: lists and tables do not wait
+behind it.
+
+Most of what rbiom computes runs on one core however many there are. The
+exception is the table of distances between samples behind the beta
+diversity figures, which is computed at the start of the job, on all the
+cores that are free at that moment. atima measures what each worker is
+really using, four times a second, so once the distances are done the
+cores are free for the next job while the figure is finished on one.
+
+With `cpus = 1` or `2` jobs run one after another. That is enough for one
+person who is in no hurry, and uses the least memory.
 
 A figure is drawn again after every change of a setting. With a large
 dataset that can mean waiting several times on the way to the figure you
@@ -180,7 +191,7 @@ every kind of figure.
 An example for a laptop with little memory and a large dataset:
 
 ```{r}
-atima::run(workers = 1, max_upload_mb = 200)
+atima::run(cpus = 4, max_upload_mb = 200)
 ```
 
 

@@ -76,8 +76,7 @@ default is used if none is set.
 | `contact` | `ATIMA_CONTACT` | none | With `auth = "oidc"`: an email address or `https://` page for reaching whoever runs the server. |
 | `data_dir` | `ATIMA_DATA_DIR` | `tools::R_user_dir("atima", "data")` | Database, stored BIOM files and cache. |
 | `temp_dir` | `ATIMA_TEMP_DIR` | a new directory under `tempdir()` | Temporary files, figures and exports. Must be outside `data_dir`; old files here are deleted. |
-| `workers` | `ATIMA_WORKERS` | half the CPU cores, 1 to 4 | Worker processes. Each runs one job (a plot, an upload, an export) at a time. |
-| `max_cpus` | `ATIMA_MAX_CPUS` | CPU cores divided by `workers` | CPU cores one job may use. |
+| `cpus` | `ATIMA_CPUS` | every CPU core | The most CPU cores the server may use: the process that answers requests and the worker processes that run jobs (plots, uploads, exports) together. |
 | `time_limit` | `ATIMA_TIME_LIMIT` | none with `auth = "none"`, `60` with `auth = "oidc"` | Longest a job may run, in seconds. |
 | `jobs_per_user` | `ATIMA_JOBS_PER_USER` | `16` | With `auth = "oidc"`: the most jobs one person or guest may have waiting or running at once. |
 | `cache_size_mb` | `ATIMA_CACHE_SIZE_MB` | `100` | Upper limit for the cache of computed results, in MB. |
@@ -99,9 +98,15 @@ The R option for a setting is `atima.<argument>`, for example
 
 The R session that calls `run()` answers requests and owns the database.
 Everything that reads a BIOM file or calls rbiom runs in the worker
-processes, so the server keeps answering while a plot is drawn. With
-`workers = 1`, jobs run one after another, which suits a single user on a
-laptop. A job that runs past `time_limit` is stopped; a local install has
+processes, so the server keeps answering while a plot is drawn. One of
+the `cpus` cores is kept for the process that answers requests, and there
+is a worker process for each of the others (but no more than one for
+every 2 GB of memory), so with `cpus = 8` seven jobs run at the same time.
+Most of rbiom runs on one core. A job that computes distances between
+samples (the beta diversity functions) is told it may use the cores that
+are free when it starts; atima then measures what each worker really
+uses, four times a second, and gives the cores a job has stopped using to
+the next one. A job that runs past `time_limit` is stopped; a local install has
 no time limit unless you set one, so an analysis that a shared server stops
 can be run to its end on your own computer. When the server is
 interrupted it cancels running jobs, stops the workers and closes the
