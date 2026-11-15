@@ -181,5 +181,6 @@ api_export <- function (REQ, what, sample_set = "full", format = "json", method 
       title       = project[['title']],
       description = project[['description']],
       rare        = if (what == "xlsx") biom_path(REQ, rare_file_id) ),
+    cpus   = export_cpus(what),
     finish = function (result) resp )
 }

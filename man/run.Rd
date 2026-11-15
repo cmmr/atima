@@ -20,8 +20,7 @@ run(
   contact = NULL,
   data_dir = tools::R_user_dir("atima", "data"),
   temp_dir = tempfile(pattern = "atima_"),
-  workers = max(1, min(4, parallelly::availableCores()\%/\%2)),
-  max_cpus = NULL,
+  cpus = parallelly::availableCores(),
   time_limit = NULL,
   jobs_per_user = 16,
   cache_size_mb = 100,
@@ -110,14 +109,12 @@ first time the server starts.}
 and exports that browsers download. It must not be
 \code{data_dir}, or inside it: old files here are deleted.}
 
-\item{workers}{Number of worker processes, each of which runs one job
-(a plot, an upload, an export, ...) at a time. The
-default is half the available CPU cores, at least 1
-and at most 4. With \code{workers = 1}, jobs run one after
-another, which suits a single user.}
-
-\item{max_cpus}{CPU cores one job may use. The default, \code{NULL},
-divides the available cores among the workers.}
+\item{cpus}{The most CPU cores the server may use: the process
+that answers requests and the worker processes that
+run jobs (plots, uploads, exports, ...) together. The
+default is every core available. With \code{cpus = 1} or
+\code{2}, jobs run one after another. See the section on
+jobs.}
 
 \item{time_limit}{The longest a job may run, in seconds. A job that
 takes longer is stopped and the user is told so. The
@@ -196,6 +193,7 @@ database and a set of files under \code{data_dir}.
 The R session that calls \code{run()} answers requests and owns the database.
 Everything that reads a BIOM file or calls 'rbiom' is done by a pool of
 worker processes, so the server keeps answering while a plot is drawn.
+See the section on jobs for how many there are.
 
 Every argument can also be set with an environment variable or an R
 option. The first of these that is set is used:
@@ -334,7 +332,29 @@ database in place.
 
 \section{Jobs}{
 
-A request that needs a worker waits in a queue if all workers are busy.
+A plot, an upload, an export and anything else that reads a project's
+data is a job, run by a worker process. \code{cpus} is the number of CPU
+cores the whole server may use. One of them is kept for the process that
+answers requests (unless \code{cpus} is 1), and there is a worker process for
+each of the others, but no more than one for every 2 GB of the
+computer's memory, since each is an R session with 'rbiom' loaded. So
+with \code{cpus = 8}, seven jobs can run at the same time.
+
+Most of what 'rbiom' does runs on one core however many it is given; a
+few steps, such as computing the distances between samples, use several
+for a moment at the start of a job. A job that calls an 'rbiom' function
+with a \code{cpus} argument is therefore told it may use the cores that are
+free when it starts: all of them with \code{auth = "none"}, half of them on a
+shared server so that the next job finds some free, and its share of
+them when other jobs are waiting too. After that, atima does not assume
+the job is using what it was given: four times a second it measures how
+much of the processor each worker is using, and counts that. A job that
+has finished its parallel step is counted as the one core it uses, and
+the rest are free for others. A new job starts as soon as a worker and
+one core are free, in the order the jobs arrived, so a large job cannot
+hold up small ones for long, nor they it.
+
+A request that needs a worker waits in a queue if none is free.
 The queue holds ten jobs per worker; when it is full, further requests
 are answered 503 ("the server is busy") until there is room. On a shared
 server one person may have \code{jobs_per_user} jobs waiting or running; the

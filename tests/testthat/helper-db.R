@@ -27,7 +27,6 @@ local_test_req <- function (env = parent.frame(), auth = "oidc") {
       data_dir    = normalizePath(data_dir, winslash = "/"),
       temp_dir    = normalizePath(temp_dir, winslash = "/"),
       cache_size  = 1e8,
-      max_cpus    = 1L,
       session_ttl = 24 * 3600,
       guest_ttl   = 30 * 86400,
       signin_ttl  = 30 * 86400,

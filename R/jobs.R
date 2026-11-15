@@ -14,6 +14,19 @@
 # queued job can be dropped without ever starting, and the queue has a
 # length limit.
 #
+# The pool also keeps to a budget of CPU cores (`pool$cores`), which covers
+# the web server's own process as well as the workers. A job says how many
+# cores it could use (`cpus`: `Inf` if it calls an rbiom function that
+# takes `cpus`, else 1) and the pool tells the worker how many it may use
+# when the job starts (`pool_grant()`). What the pool counts as in use
+# after that is not the grant but what it measures: every quarter of a
+# second it reads how much processor time each busy worker has used
+# (`pool_sample()`, with the 'ps' package). Most of rbiom runs on one core
+# whatever it is given, and what does run in parallel is often over in a
+# moment, so a job that was told it may use eight cores is soon counted as
+# the one it is using, and the other seven are there for the next job
+# (`job_cores()`).
+#
 # Stopping a job (because it was superseded, cancelled or ran out of time)
 # first interrupts it. Compiled code may ignore an interrupt, so each job
 # keeps a marker file holding its process id for as long as it runs. If the
@@ -36,11 +49,15 @@
 #'                returns the response to send instead. Without one the
 #'                router answers as it does for any error. For callers that
 #'                report errors in a form of their own (`R/mcp.R`).
+#' @param cpus    The most CPU cores the work can use: 1, or `Inf` for as
+#'                many as there are (see `rbiom_cpus()`). The pool tells the
+#'                worker to use that many or fewer.
 #' @return An object of class `job`, for a handler to return.
 #' @noRd
-job <- function (fn, args = list(), finish = function (result) result, failed = NULL) {
+job <- function (fn, args = list(), finish = function (result) result, failed = NULL, cpus = 1L) {
   stopifnot(is_scalar_character(fn), is.list(args), is.function(finish), is.null(failed) || is.function(failed))
-  structure(list(fn = fn, args = args, finish = finish, failed = failed), class = "job")
+  stopifnot(is.numeric(cpus), length(cpus) == 1, !is.na(cpus), cpus >= 1)
+  structure(list(fn = fn, args = args, finish = finish, failed = failed, cpus = cpus), class = "job")
 }
 
 
@@ -66,14 +83,51 @@ waiting <- function (start, finish) {
 
 
 #______________________________________________________________________________
+#' The most cores a job that calls these rbiom functions can use.
+#'
+#' rbiom says which of its functions run something in parallel: they take a
+#' `cpus` argument. Of those, the ones worth more than one core are the
+#' ones that compute distances between samples, which also take `bdiv`;
+#' the others (alpha diversity, rarefying, the rarefaction plots, the Excel
+#' export) were measured to take the same time on one core as on many, or
+#' within a second of it. Both are read from the installed rbiom each time,
+#' never from a list kept here.
+#'
+#' @param ...  Names of exported rbiom functions.
+#' @return `Inf` if any of them takes `cpus` and `bdiv` (the job can use as
+#'         many cores as there are), else `1L`.
+#' @noRd
+rbiom_cpus <- function (...) {
+  for (fn in c(...)) {
+    args <- tryCatch(names(formals(base::getExportedValue("rbiom", fn))), error = function (e) NULL)
+    if (all(c("cpus", "bdiv") %in% args)) return (Inf)
+  }
+  1L
+}
+
+
+#' The most cores an export can use: those of the rbiom function that
+#' computes what is exported (`work_export()`).
+#' @param what  What is exported; see `api_export()`.
+#' @noRd
+export_cpus <- function (what) {
+  if (identical(what, "beta")) rbiom_cpus("bdiv_distmat") else 1L
+}
+
+
+#______________________________________________________________________________
 #' The context every `work_*()` function takes as its first argument.
+#'
+#' `cpus` is the number of cores the job may use. It is 1 here; the pool
+#' puts in what it grants when the job starts (`pool_dispatch()`). A job
+#' that runs without a pool has one core.
 #' @noRd
 worker_ctx <- function (config) {
   list(
     files_dir  = file.path(config[['data_dir']], "files"),
     cache_dir  = file.path(config[['data_dir']], "cache"),
     cache_size = config[['cache_size']],
-    cpus       = as.integer(config[['max_cpus']] %||% 1L) )
+    cpus       = 1L )
 }
 
 
@@ -120,7 +174,16 @@ worker_job_expr <- quote({
 #______________________________________________________________________________
 #' Start the worker pool.
 #'
-#' @param workers     Number of worker processes.
+#' @param workers     Number of worker processes: the most jobs that run at
+#'                    the same time.
+#' @param cores       The budget: CPU cores the server may use, its own
+#'                    process included.
+#' @param server      Cores of the budget kept for the web server's process.
+#' @param most        The largest part of the free cores that one job is
+#'                    given when nothing else is waiting: 1 where the
+#'                    computer has one user, 0.5 on a shared server, so
+#'                    that the next job to arrive finds cores free.
+#' @param interval    Seconds between two readings of the workers' CPU use.
 #' @param time_limit  Longest a job may run, in seconds.
 #' @param grace       Seconds an interrupted job gets to stop before its
 #'                    process is ended.
@@ -135,14 +198,20 @@ worker_job_expr <- quote({
 #' @noRd
 pool_start <- function (
     workers, time_limit = 60, grace = 5, max_queue = 10L * workers,
-    max_user = Inf, init = NULL, profile = "atima", timeout_note = NULL ) {
+    max_user = Inf, init = NULL, profile = "atima", timeout_note = NULL,
+    cores = workers, server = 0L, most = 1, interval = 0.25 ) {
 
-  stopifnot(workers >= 1, time_limit > 0, grace >= 0, max_user >= 1)
+  stopifnot(workers >= 1, cores >= 1, server >= 0, cores > server, most > 0, most <= 1, interval > 0)
+  stopifnot(time_limit > 0, grace >= 0, max_user >= 1)
 
   pool <- new.env(parent = emptyenv())
 
   pool$profile    <- profile
   pool$workers    <- as.integer(workers)
+  pool$cores      <- as.integer(cores)
+  pool$server     <- as.integer(server)
+  pool$most       <- most
+  pool$interval   <- interval
   pool$time_limit <- time_limit
   pool$timeout_note <- timeout_note
   pool$grace      <- grace
@@ -152,13 +221,21 @@ pool_start <- function (
   pool$jobs       <- list()          # every queued or running job, by id
   pool$queue      <- character(0)    # ids waiting for a worker, oldest first
   pool$busy       <- 0L              # workers that may be running something
-  pool$waiting    <- 0L              # of those, interrupted and not yet seen to stop
+  pool$held       <- list()          # the jobs those workers have, by id
+  pool$job_cores  <- 0L              # cores those jobs count for (`job_cores()`)
+  pool$main_rate  <- 0               # cores the web server's process was using when last measured
+  pool$used       <- 0L              # cores in use: the jobs' and the web server's
+  pool$watching   <- FALSE           # is the timer that measures them running?
+  pool$waiting    <- 0L              # of those workers, interrupted and not yet seen to stop
   pool$next_id    <- 0L
-  # The most workers busy and jobs waiting since usage monitoring last
+  # The most cores in use and jobs waiting since usage monitoring last
   # looked (`usage_sample()`), which resets them.
-  pool$peak_busy  <- 0L
+  pool$peak_used  <- 0L
   pool$peak_queue <- 0L
   pool$stopped    <- FALSE
+  # How much processor time a process has used so far, in seconds.
+  pool$cpu_time   <- process_cpu_time
+  pool$main       <- list(pid = Sys.getpid())
   pool$marker_dir <- tempfile("atima_jobs_")
   pool$tempdirs   <- character(0)
 
@@ -183,7 +260,7 @@ pool_start <- function (
   # worker that is ended rather than asked to quit cannot do it itself.
   pool$tempdirs <- unique(unlist(loaded))
 
-  log_event("info", "pool_start", workers = pool$workers, time_limit = time_limit)
+  log_event("info", "pool_start", workers = pool$workers, cores = pool$cores, time_limit = time_limit)
 
   return (pool)
 }
@@ -234,13 +311,14 @@ pool_stop <- function (pool) {
 #'                    submitting one cancels any other that is queued or
 #'                    running.
 #' @param time_limit  Longest the job may run, in seconds.
+#' @param cpus        The most CPU cores the job can use; see `job()`.
 #' @return A promise. It is fulfilled with what `worker_run()` returned. It
 #'         is rejected with an `atima_http_error` if the job was superseded
 #'         or cancelled (409), ran out of time (504), found the queue full
 #'         (503) or is one too many for its user (429), and with an ordinary
 #'         error if the worker failed.
 #' @noRd
-pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_limit = pool$time_limit, user_id = NULL) {
+pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_limit = pool$time_limit, user_id = NULL, cpus = 1L) {
 
   if (isTRUE(pool$stopped))
     return (promises::promise_reject(http_condition(503L, "The server is shutting down.")))
@@ -271,6 +349,8 @@ pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_lim
   j$session_id <- session_id
   j$user_id    <- user_id
   j$time_limit <- time_limit
+  j$need       <- cpus
+  j$cpus       <- 0L                 # cores granted; none until it starts
   j$state      <- "queued"
   j$queued_at  <- Sys.time()
   j$marker     <- file.path(pool$marker_dir, j$id)
@@ -343,18 +423,53 @@ pool_cancel <- function (pool, j, reason) {
 
 
 #______________________________________________________________________________
-#' Start queued jobs while there are free workers.
+#' How many cores the job at the head of the queue is told it may use.
+#'
+#' The cores that are free are shared out among that job and the jobs
+#' waiting behind it. The job gets its share, but no more than it can use
+#' (`need`), no more than `pool$most` of what is free, and never less than
+#' one. So on a quiet server a job that can use many cores gets many, and
+#' under load every new job gets one.
+#'
+#' @param need  The most cores the job can use.
+#' @return A whole number, at least 1.
+#' @noRd
+pool_grant <- function (pool, need) {
+  free  <- pool_free(pool)
+  share <- min(free %/% (length(pool$queue) + 1L), ceiling(free * pool$most))
+  as.integer(max(1, min(need, share)))
+}
+
+
+#' Cores of the budget that nothing is using: not the web server, which has
+#' `pool$server` cores kept for it and counts for more if it is using more,
+#' and not a job.
+#' @noRd
+pool_free <- function (pool) {
+  pool$cores - max(pool$server, round(pool$main_rate)) - pool$job_cores
+}
+
+
+#______________________________________________________________________________
+#' Start queued jobs, oldest first, while a worker and a core are free.
 #' @noRd
 pool_dispatch <- function (pool) {
 
-  while (!pool$stopped && pool$busy < pool$workers && length(pool$queue) > 0) {
+  while (!pool$stopped && pool$busy < pool$workers && pool_free(pool) >= 1 && length(pool$queue) > 0) {
 
     j          <- pool$jobs[[pool$queue[[1]]]]
     pool$queue <- pool$queue[-1]
-    pool$busy  <- pool$busy + 1L
-    pool$peak_busy <- max(pool$peak_busy, pool$busy)
+    j$cpus     <- pool_grant(pool, j$need)
     j$state    <- "running"
     j$started_at <- Sys.time()
+
+    pool$busy  <- pool$busy + 1L
+    pool$held[[j$id]] <- j
+    pool_account(pool)
+
+    # Tell the worker what it was given.
+    if (is.list(j$args[['ctx']]))
+      j$args[['ctx']][['cpus']] <- j$cpus
 
     j$mirai <- mirai::mirai(
       .expr    = worker_job_expr,
@@ -370,6 +485,130 @@ pool_dispatch <- function (pool) {
         onRejected  = function (error) interruptible(job_done(pool, j)) )
     })
   }
+
+  pool_watch(pool)
+
+  invisible(NULL)
+}
+
+
+#______________________________________________________________________________
+#' How many cores a job that has a worker counts for.
+#'
+#' A job that can use several cores does so once, soon after it starts:
+#' it reads its data and checks its arguments on one core, computes in
+#' parallel, and does the rest on one core. So for its first `grant_hold`
+#' seconds the job counts for what it was granted, or for more if it is
+#' seen to use more. After that it counts for what it was measured to use
+#' in the last two intervals, in whole cores, and never less than one: a
+#' job that is waiting for a disk uses no processor now, but will.
+#' @noRd
+job_cores <- function (j) {
+
+  if (length(j$rates) == 0) return (j$cpus)
+
+  # Rounded up, but for the quarter of a core that a busy single thread's
+  # reading may be over.
+  measured <- as.integer(max(1, ceiling(max(utils::tail(j$rates, 2L)) - 0.25)))
+
+  if (as.numeric(difftime(j$read_at, j$started_at, units = "secs")) < grant_hold)
+    return (max(j$cpus, measured))
+
+  measured
+}
+
+# Seconds for which a job counts for the cores it was told it may use,
+# whatever it is seen to use.
+grant_hold <- 1
+
+
+#' Add up the cores in use, and note the highest total since usage
+#' monitoring last looked.
+#' @noRd
+pool_account <- function (pool) {
+  pool$job_cores <- sum(vapply(pool$held, job_cores, integer(1)))
+  pool$used      <- as.integer(pool$job_cores + round(pool$main_rate))
+  pool$peak_used <- max(pool$peak_used, pool$used)
+  invisible(NULL)
+}
+
+
+#______________________________________________________________________________
+#' Measure how much of the processor the web server and each busy worker
+#' are using.
+#'
+#' The operating system keeps, for every process, the processor time all
+#' its threads have used. Two readings a moment apart give the number of
+#' cores the process kept busy in between: 1 for R code, more while rbiom's
+#' threads (or a linear algebra library's) are running, less while it waits
+#' for a disk. A job's worker is found by the process id in its marker
+#' file.
+#' @noRd
+pool_sample <- function (pool, now = Sys.time()) {
+
+  measure <- function (state, pid) {
+
+    seconds <- pool$cpu_time(pid)
+    if (length(seconds) != 1 || is.na(seconds)) return (state)
+
+    if (!is.null(state$at)) {
+      elapsed <- as.numeric(difftime(now, state$at, units = "secs"))
+      if (elapsed <= 0) return (state)
+      state$rate <- max(0, seconds - state$seconds) / elapsed
+    }
+
+    state$at      <- now
+    state$seconds <- seconds
+    state
+  }
+
+  pool$main <- measure(pool$main, pool$main$pid)
+  pool$main_rate <- pool$main$rate %||% 0
+
+  for (j in pool$held) {
+
+    if (is.null(j$pid) && file.exists(j$marker))
+      j$pid <- suppressWarnings(as.integer(readLines(j$marker, n = 1L, warn = FALSE)))
+
+    if (length(j$pid) != 1 || is.na(j$pid)) next
+
+    reading  <- measure(list(at = j$read_at, seconds = j$cpu_seconds), j$pid)
+    measured <- !is.null(j$read_at) && !identical(reading$at, j$read_at)
+
+    j$read_at     <- reading$at
+    j$cpu_seconds <- reading$seconds
+    if (measured) j$rates <- c(utils::tail(j$rates, 1L), reading$rate)
+  }
+
+  pool_account(pool)
+}
+
+
+#' The processor time a process has used so far, all its threads together.
+#' @return Seconds, or `NA` if the process is gone or cannot be read.
+#' @noRd
+process_cpu_time <- function (pid) {
+  tryCatch(
+    expr  = sum(ps::ps_cpu_times(ps::ps_handle(as.integer(pid)))[c("user", "system")]),
+    error = function (e) NA_real_ )
+}
+
+
+#' Keep measuring for as long as a worker is busy, and start waiting jobs
+#' when the measurements show that cores have come free.
+#' @noRd
+pool_watch <- function (pool) {
+
+  if (isTRUE(pool$watching) || isTRUE(pool$stopped) || pool$busy == 0L) return (invisible(NULL))
+  pool$watching <- TRUE
+
+  later::later(delay = pool$interval, function () interruptible({
+    pool$watching <- FALSE
+    if (!isTRUE(pool$stopped)) {
+      pool_sample(pool)
+      pool_dispatch(pool)
+    }
+  }))
 
   invisible(NULL)
 }
@@ -394,7 +633,7 @@ job_done <- function (pool, j) {
       queue = as.numeric(difftime(j$started_at, j$queued_at, units = "secs")) * 1000,
       job   = as.numeric(difftime(Sys.time(), j$started_at, units = "secs")) * 1000 )
     job_settle(pool, j, value = data)
-    worker_released(pool)
+    worker_released(pool, j)
 
   } else if (mirai::is_mirai_error(data)) {
     # An R error in the worker that was not meant for the user.
@@ -405,7 +644,7 @@ job_done <- function (pool, j) {
         call    = NULL,
         detail  = paste(as.character(data), collapse = " "),
         stack   = data$stack.trace )))
-    worker_released(pool)
+    worker_released(pool, j)
 
   } else if (code == 5L) {
     log_event("warn", "job_timeout", fn = j$fn, seconds = j$time_limit)
@@ -451,10 +690,15 @@ job_settle <- function (pool, j, value = NULL, error = NULL) {
 
 
 #______________________________________________________________________________
-#' A worker is free again: start the next queued job.
+#' The worker that ran a job is free again: stop counting the job's cores
+#' and start the next queued job. Until then they count as in use, also for
+#' a job that was told to stop and has not stopped yet.
 #' @noRd
-worker_released <- function (pool) {
+worker_released <- function (pool, j) {
   pool$busy <- max(0L, pool$busy - 1L)
+  pool$held[[j$id]] <- NULL
+  j$cpus    <- 0L
+  pool_account(pool)
   pool_dispatch(pool)
 }
 
@@ -475,7 +719,7 @@ worker_await <- function (pool, j) {
 
   release <- function () {
     pool$waiting <- pool$waiting - 1L
-    worker_released(pool)
+    worker_released(pool, j)
   }
 
   check <- function () {
@@ -540,7 +784,7 @@ worker_gone <- function (pool, j) {
   }
 
   worker_replace(pool)
-  worker_released(pool)
+  worker_released(pool, j)
 }
 
 
@@ -553,6 +797,45 @@ worker_replace <- function (pool) {
     expr  = mirai::launch_local(1L, .compute = pool$profile),
     error = function (e) log_event("error", "worker_replace_failed", message = conditionMessage(e)) )
   invisible(NULL)
+}
+
+
+#______________________________________________________________________________
+#' How many worker processes to start for the cores that jobs may use.
+#'
+#' One per core, so that every core can run a job, but no more than the
+#' memory allows: each worker is an R session with rbiom loaded, which
+#' holds 500 to 650 MB after it has drawn plots of a thousand samples.
+#'
+#' @param cores   The cores jobs may use.
+#' @param memory  The memory of the computer or container in bytes, or `NA`.
+#' @return A whole number, at least 1 and at most `cores`.
+#' @noRd
+pool_workers <- function (cores, memory = system_memory()) {
+  by_memory <- if (is.na(memory)) 4 else memory %/% worker_memory
+  as.integer(max(1, min(cores, by_memory)))
+}
+
+# Memory to have for each worker process, in bytes.
+worker_memory <- 2 * 1024^3
+
+
+#______________________________________________________________________________
+#' The memory this process may count on: the computer's, or the limit of
+#' the container it runs in.
+#' @return Bytes, or `NA` if it cannot be found out.
+#' @noRd
+system_memory <- function () {
+
+  bytes <- tryCatch(as.numeric(ps::ps_system_memory()[['total']]), error = function (e) NA_real_)
+
+  # A container's limit (cgroup v2, then v1). "max" means there is none.
+  for (file in c("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")) {
+    limit <- tryCatch(suppressWarnings(as.numeric(readLines(file, n = 1L, warn = FALSE))), error = function (e) NA_real_)
+    if (length(limit) == 1 && !is.na(limit) && limit > 0) bytes <- min(bytes, limit, na.rm = TRUE)
+  }
+
+  if (length(bytes) != 1 || is.na(bytes) || bytes <= 0) NA_real_ else bytes
 }
 
 
@@ -582,9 +865,10 @@ timeout_note_shared <- paste(
 #' why it has a time limit of its own instead of the one set for users.
 #'
 #' @param pool  The pool, or `NULL` to run the job in this process.
+#' @param cpus  The most CPU cores the job can use; see `job()`.
 #' @return The job's value. Stops if the job failed.
 #' @noRd
-pool_call <- function (pool, fn, args, time_limit = NULL) {
+pool_call <- function (pool, fn, args, time_limit = NULL, cpus = 1L) {
 
   if (is.null(pool))
     return (job_value(run_inline(fn, args)))
@@ -598,7 +882,7 @@ pool_call <- function (pool, fn, args, time_limit = NULL) {
   failure <- NULL
 
   promises::then(
-    promise     = pool_submit(pool, fn, args, time_limit = time_limit),
+    promise     = pool_submit(pool, fn, args, time_limit = time_limit, cpus = cpus),
     onFulfilled = function (value) { outcome <<- value; done <<- TRUE },
     onRejected  = function (error) { failure <<- error; done <<- TRUE } )
 

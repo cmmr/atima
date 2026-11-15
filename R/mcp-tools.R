@@ -498,6 +498,7 @@ tool_call <- function (REQ, tool, args) {
   job(
     fn     = out[['fn']],
     args   = out[['args']],
+    cpus   = out[['cpus']],
     finish = function (result) record(out[['finish']](result)) )
 }
 
@@ -789,6 +790,7 @@ tool_run_stats <- function (REQ, project, fn, args = list(), depth = NULL, sampl
       depth       = depth,
       max_rows    = max_rows,
       checked     = !is.null(summary) ),
+    cpus   = rbiom_cpus(fn),
     finish = function (result) {
 
       # The worker looked the summary up to check the arguments. It is the
@@ -841,6 +843,7 @@ tool_make_plot <- function (REQ, project, fn, args = list(), depth = NULL, sampl
       attrs       = TRUE,
       checked     = !is.null(summary),
       keys        = c("args", "samples") ),
+    cpus   = rbiom_cpus(fn),
     finish = function (result) {
 
       if (is.null(result[['rare']]) && !is.null(result[['data']]))
@@ -904,6 +907,7 @@ tool_export <- function (REQ, project, what, rarefied = FALSE, format = "json", 
       title       = session[['title']],
       description = session[['description']],
       rare        = if (what == "xlsx") biom_path(REQ, session[['rare_bf_id']]) ),
+    cpus   = export_cpus(what),
     finish = function (result) list(data = list(
       project      = session[['project_key']],
       what         = what,

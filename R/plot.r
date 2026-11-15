@@ -33,6 +33,7 @@ api_plot <- function (
       depth       = depth,
       attrs       = isTRUE(attrs),
       checked     = !is.null(known_summary(REQ)) ),
+    cpus   = rbiom_cpus(plot_fn),
     finish = function (result) {
 
       resp <- list()

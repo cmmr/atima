@@ -531,6 +531,7 @@ mcp_call_tool <- function (REQ, msg) {
         job(
           fn     = out[['fn']],
           args   = out[['args']],
+          cpus   = out[['cpus']],
           finish = function (result) tryCatch(
             expr  = db_transaction(REQ[['DB']], mcp_tool_result(msg, out[['finish']](result))),
             error = failed ),

@@ -8,6 +8,7 @@
 #' The R session that calls `run()` answers requests and owns the database.
 #' Everything that reads a BIOM file or calls 'rbiom' is done by a pool of
 #' worker processes, so the server keeps answering while a plot is drawn.
+#' See the section on jobs for how many there are.
 #'
 #' Every argument can also be set with an environment variable or an R
 #' option. The first of these that is set is used:
@@ -74,13 +75,12 @@
 #' @param temp_dir    Directory for temporary files, including the figures
 #'                    and exports that browsers download. It must not be
 #'                    `data_dir`, or inside it: old files here are deleted.
-#' @param workers     Number of worker processes, each of which runs one job
-#'                    (a plot, an upload, an export, ...) at a time. The
-#'                    default is half the available CPU cores, at least 1
-#'                    and at most 4. With `workers = 1`, jobs run one after
-#'                    another, which suits a single user.
-#' @param max_cpus    CPU cores one job may use. The default, `NULL`,
-#'                    divides the available cores among the workers.
+#' @param cpus        The most CPU cores the server may use: the process
+#'                    that answers requests and the worker processes that
+#'                    run jobs (plots, uploads, exports, ...) together. The
+#'                    default is every core available. With `cpus = 1` or
+#'                    `2`, jobs run one after another. See the section on
+#'                    jobs.
 #' @param time_limit  The longest a job may run, in seconds. A job that
 #'                    takes longer is stopped and the user is told so. The
 #'                    default, `NULL`, is no limit with `auth = "none"`,
@@ -245,7 +245,29 @@
 #' database in place.
 #'
 #' @section Jobs:
-#' A request that needs a worker waits in a queue if all workers are busy.
+#' A plot, an upload, an export and anything else that reads a project's
+#' data is a job, run by a worker process. `cpus` is the number of CPU
+#' cores the whole server may use. One of them is kept for the process that
+#' answers requests (unless `cpus` is 1), and there is a worker process for
+#' each of the others, but no more than one for every 2 GB of the
+#' computer's memory, since each is an R session with 'rbiom' loaded. So
+#' with `cpus = 8`, seven jobs can run at the same time.
+#'
+#' Most of what 'rbiom' does runs on one core however many it is given; a
+#' few steps, such as computing the distances between samples, use several
+#' for a moment at the start of a job. A job that calls an 'rbiom' function
+#' with a `cpus` argument is therefore told it may use the cores that are
+#' free when it starts: all of them with `auth = "none"`, half of them on a
+#' shared server so that the next job finds some free, and its share of
+#' them when other jobs are waiting too. After that, atima does not assume
+#' the job is using what it was given: four times a second it measures how
+#' much of the processor each worker is using, and counts that. A job that
+#' has finished its parallel step is counted as the one core it uses, and
+#' the rest are free for others. A new job starts as soon as a worker and
+#' one core are free, in the order the jobs arrived, so a large job cannot
+#' hold up small ones for long, nor they it.
+#'
+#' A request that needs a worker waits in a queue if none is free.
 #' The queue holds ten jobs per worker; when it is full, further requests
 #' are answered 503 ("the server is busy") until there is room. On a shared
 #' server one person may have `jobs_per_user` jobs waiting or running; the
@@ -303,8 +325,7 @@ run <- function(
     contact       = NULL,
     data_dir     = tools::R_user_dir('atima', 'data'),
     temp_dir      = tempfile(pattern = 'atima_'),
-    workers       = max(1, min(4, parallelly::availableCores() %/% 2)),
-    max_cpus      = NULL,
+    cpus          = parallelly::availableCores(),
     time_limit    = NULL,
     jobs_per_user = 16,
     cache_size_mb = 100,
@@ -332,7 +353,7 @@ run <- function(
   explicits <- if (nargs() > 0) mget(names(match.call())[-1]) else list()
 
   optional <- c(
-    'max_cpus', 'time_limit', 'public_url', 'oidc_client_id', 'oidc_client_secret',
+    'time_limit', 'public_url', 'oidc_client_id', 'oidc_client_secret',
     'admins', 'forwarded_proto_header', 'client_ip_header', 'operator', 'contact' )
 
   find_arg <- function(param, cls) {
@@ -368,8 +389,7 @@ run <- function(
   jobs_per_user <- find_arg('jobs_per_user', 'int')
   cache_size_mb <- find_arg('cache_size_mb', 'int')
   max_upload_mb <- find_arg('max_upload_mb', 'int')
-  workers       <- find_arg('workers',       'int')
-  max_cpus      <- find_arg('max_cpus',      'int')
+  cpus          <- find_arg('cpus',          'int')
   session_hours <- find_arg('session_hours', 'int')
   guest_days    <- find_arg('guest_days',    'int')
   open          <- find_arg('open',          'bool')
@@ -407,14 +427,11 @@ run <- function(
     admins        = find_arg('admins', 'chr'),
     forwarded_proto_header = find_arg('forwarded_proto_header', 'chr') )
 
-  if (is.null(max_cpus))
-    max_cpus <- max(1L, as.integer(availableCores()) %/% workers)
-
   if (is.null(time_limit))
     time_limit <- default_time_limit(auth_cfg[['auth']])
 
   for (param in c(
-      'workers', 'max_cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days',
+      'cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days',
       'trash_days', 'app_days', 'app_changes_per_hour', 'usage_months' ))
     if (get(param) < 1) stop(param, ' must be at least 1.')
 
@@ -423,6 +440,15 @@ run <- function(
 
   if (!is.null(client_ip_header) && !grepl("^[A-Za-z0-9-]+$", client_ip_header))
     stop('client_ip_header must be the name of a request header, such as "X-Real-IP".', call. = FALSE)
+
+  # Settings of earlier versions that `cpus` replaced.
+  for (old in c('workers', 'max_cpus'))
+    if (nzchar(Sys.getenv(paste0('ATIMA_', toupper(old)))) || !is.null(getOption(paste0('atima.', old))))
+      message(' - Note: the setting `', old, '` is no longer used. Set `cpus` (ATIMA_CPUS) instead.')
+
+  # One core is the web server's own, where there is more than one.
+  server  <- if (cpus > 1) 1L else 0L
+  workers <- pool_workers(cpus - server)
 
   cache_size_bytes <- cache_size_mb * 1024 * 1024
   max_upload_bytes <- max_upload_mb * 1024 * 1024
@@ -449,8 +475,8 @@ run <- function(
     temp_dir    = temp_dir,
     cache_size  = cache_size_bytes,
     time_limit  = time_limit,
+    cpus        = cpus,
     workers     = workers,
-    max_cpus    = max_cpus,
     session_ttl = session_hours * 3600,
     guest_ttl   = guest_days * 86400,
     signin_ttl  = signin_days * 86400,
@@ -501,11 +527,17 @@ run <- function(
 
   storage_adopt_legacy(db, file.path(data_dir, 'files'))
 
-  message(' - Starting ', workers, ' worker process', if (workers > 1) 'es', ' (', max_cpus, ' CPU', if (max_cpus > 1) 's', ' each)')
+  message(
+    ' - CPU cores: ', cpus, ' (', server, ' for this process). Starting ', workers, ' worker process', if (workers > 1) 'es',
+    if (workers < cpus - server) ' (limited by memory)' )
   # A local install has one user, who may fill the queue if they like.
   message(' - Time limit for one job: ', if (is.finite(time_limit)) paste(time_limit, 'seconds') else 'none')
   pool <- pool_start(
     workers    = workers,
+    cores      = cpus,
+    server     = server,
+    # A local install has one user, whose job may take every free core.
+    most       = if (config[['auth']] == 'none') 1 else 0.5,
     time_limit = time_limit,
     timeout_note = if (config[['auth']] != 'none') timeout_note_shared,
     max_user   = if (config[['auth']] == 'none') Inf else jobs_per_user )

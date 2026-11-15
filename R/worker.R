@@ -9,7 +9,8 @@
 # ends.
 #
 # The context (`ctx`, from `worker_ctx()`) is
-# `list(files_dir, cache_dir, cache_size, cpus)`.
+# `list(files_dir, cache_dir, cache_size, cpus)`; `cpus` is the number of
+# cores the pool granted this job.
 #
 # An error raised with `stop_user()` here reaches the browser as a 400, as it
 # would from a handler.
@@ -486,7 +487,7 @@ work_export <- function (ctx, src, dest, what, format, method, rank, title, desc
     alpha    = write.csv(with_cpus(ctx, adiv_matrix, list(biom)), tmp),
     beta     = write.csv(as.matrix(with_cpus(ctx, bdiv_distmat, list(biom, method))), tmp),
     taxa     = write.csv(taxa_matrix(biom, rank), tmp),
-    xlsx     = export_xlsx(annotate_biom(biom, title, description), tmp, read_biom(ctx, rare)$depth) )))
+    xlsx     = export_xlsx(annotate_biom(biom, title, description), tmp, read_biom(ctx, rare)$depth, ctx[['cpus']]) )))
 
   NULL
 }
@@ -496,14 +497,15 @@ work_export <- function (ctx, src, dest, what, format, method, rank, title, desc
 #' alpha diversity, taxonomy, and abundances at each rank.
 #' @param file   The file to write. It need not end in `.xlsx`.
 #' @param depth  The rarefaction depth for the rarefied sheets.
+#' @param cpus   CPU cores to use.
 #' @noRd
-export_xlsx <- function (biom, file, depth) {
+export_xlsx <- function (biom, file, depth, cpus = 1L) {
 
   # openxlsx picks the format from the file's extension.
   xlsx <- tempfile(fileext = ".xlsx")
   on.exit(unlink(xlsx), add = TRUE)
 
-  write_xlsx(biom, xlsx, depth = depth)
+  write_xlsx(biom, xlsx, depth = depth, cpus = cpus)
   file.copy(xlsx, file, overwrite = TRUE)
 }
 

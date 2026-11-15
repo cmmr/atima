@@ -374,6 +374,8 @@ edit_job <- function (REQ, what, args, finish) {
       rare = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
       what = what,
       args = args ),
+    # Clustering on beta diversity computes distances first.
+    cpus   = if (identical(what, "clusters")) rbiom_cpus(args[['cluster_fn']]) else 1L,
     finish = function (result) {
       project_set_files(REQ, result)
       finish(result)

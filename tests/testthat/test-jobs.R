@@ -17,7 +17,11 @@ quiet <- function (promise) {
   promise
 }
 
-submit <- function (expr, ...) quiet(pool_submit(pool, "eval", list(expr = expr), ...))
+# Jobs here get a minute, not the pool's three seconds, unless a test is
+# about the time limit: on a busy machine a job that does nothing can take
+# longer than three seconds to come back from a worker that has only just
+# been interrupted.
+submit <- function (expr, ..., time_limit = 60) quiet(pool_submit(pool, "eval", list(expr = expr), ..., time_limit = time_limit))
 
 # What a settled promise's job returned.
 value_of <- function (promise, ...) {
@@ -33,8 +37,9 @@ error_of <- function (promise, ...) {
   result$error
 }
 
-# Wait until every worker is free and nothing is queued.
-pool_idle <- function () wait_until(function () pool$busy == 0L && length(pool$jobs) == 0L)
+# Wait until every worker is free, every core is back in the budget and
+# nothing is queued.
+pool_idle <- function () wait_until(function () pool$busy == 0L && pool$job_cores == 0L && length(pool$jobs) == 0L)
 
 # The process ids of the pool's workers. A worker that has only just
 # connected, or is still unwinding a job that was stopped, may not answer a
@@ -275,7 +280,7 @@ test_that("a job that runs past the time limit is stopped", {
   before  <- worker_pids()
   started <- Sys.time()
 
-  err     <- error_of(submit(sleep_30))
+  err     <- error_of(submit(sleep_30, time_limit = pool$time_limit))
   elapsed <- as.numeric(difftime(Sys.time(), started, units = "secs"))
 
   expect_s3_class(err, "atima_http_error")
@@ -296,16 +301,16 @@ test_that("the time limit counts running time, not time spent in the queue", {
   withr::defer(pool$time_limit <- 3)
   pool$time_limit <- 60
 
-  # Both workers are busy for three seconds. A third job, allowed only two
+  # Both workers are busy for eight seconds. A third job, allowed only six
   # seconds, waits longer than that for a worker and still succeeds, because
   # its own run is short.
-  busy   <- lapply(1:2, function (i) submit(quote({ Sys.sleep(3); "done" })))
-  queued <- quiet(pool_submit(pool, "eval", list(expr = quote("quick")), time_limit = 2))
+  busy   <- lapply(1:2, function (i) submit(quote({ Sys.sleep(8); "done" })))
+  queued <- quiet(pool_submit(pool, "eval", list(expr = quote("quick")), time_limit = 6))
   expect_length(pool$queue, 1L)
 
   started <- Sys.time()
   expect_identical(value_of(queued), "quick")
-  expect_gte(as.numeric(difftime(Sys.time(), started, units = "secs")), 2.5)
+  expect_gte(as.numeric(difftime(Sys.time(), started, units = "secs")), 6.5)
 
   expect_identical(vapply(busy, value_of, ""), rep("done", 2))
   expect_true(pool_idle())
@@ -343,7 +348,7 @@ test_that("a job that ignores the interrupt has its worker ended and replaced", 
   expect_true("worker_killed" %in% events)
 
   # The same for a job that ignores its time limit.
-  err <- error_of(submit(deaf_30))
+  err <- error_of(submit(deaf_30, time_limit = pool$time_limit))
   expect_identical(err$status, 504L)
   expect_true(pool_idle())
   expect_true(wait_until(function () connections() == 2L))

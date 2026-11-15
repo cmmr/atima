@@ -111,6 +111,7 @@ api_add_clusters <- function (REQ, cluster_fn, name, cluster_args = list()) {
       cluster_args = cluster_args,
       name         = name,
       checked      = !is.null(known_summary(REQ)) ),
+    cpus   = rbiom_cpus(cluster_fn),
     finish = function (result) {
       update_draft(REQ, full = result[['full']], rare = result[['rare']])
       list(BIOM = biom_reply(REQ, result[['data']]))
