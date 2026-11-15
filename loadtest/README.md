@@ -9,7 +9,7 @@ purpose.
 | File | What it is |
 |---|---|
 | `loadtest.R` | The load generator. One R process (packages curl and jsonlite) that plays many clients at once and times every request. |
-| `run-series.sh` | Runs the load test against the container stack on this machine at several worker counts. |
+| `run-series.sh` | Runs the load test against the container stack on this machine at several numbers of CPU cores. |
 | `mock-issuer.R`, `compose.mock.yaml` | A stand-in sign-in provider that signs anyone in under any name, and can be made slow. |
 | `compose.loadtest.yaml`, `loadtest.env` | The load generator as a service of the test stack, and that stack's settings (plain HTTP, no rate limits). |
 | `compose.local.yaml` | A server without accounts in a container, with the load generator beside it, for the AI-app part. |
@@ -78,8 +78,9 @@ repository root:
 sh loadtest/run-series.sh "1 2 4" "10 30"
 ```
 
-This tries 1, 2 and 4 workers with 10 and with 30 people, three minutes
-each, and takes about 40 minutes. Each run writes
+This tries `ATIMA_CPUS` of 1, 2 and 4 with 10 and with 30 people, three
+minutes each, and takes about 40 minutes. (One of the cores is the web
+server's, so 4 cores are three jobs at a time.) Each run writes
 `results/<time>-<label>.json` (the settings and the summary table) and
 `results/<time>-<label>.requests.csv.gz` (one row per request).
 
@@ -88,7 +89,7 @@ To run one test by hand against the test stack:
 ```sh
 cd deploy
 stack="docker compose -p atima-loadtest --env-file ../loadtest/loadtest.env -f compose.yaml -f ../loadtest/compose.mock.yaml -f ../loadtest/compose.loadtest.yaml"
-ATIMA_WORKERS=2 ATIMA_MAX_CPUS=1 MOCK_DELAY=2 $stack up -d
+ATIMA_CPUS=3 MOCK_DELAY=2 $stack up -d
 $stack run --rm loadtest --users 20 --minutes 3 --label my-test
 $stack down --volumes
 ```
@@ -101,6 +102,11 @@ settings for the test, as `loadtest.env` does.
 
 
 ## Results, November 2026
+
+These runs were made before atima counted CPU cores (see "Results after
+the change to measured cores" below). The server then had two settings,
+a number of worker processes and a number of cores for each; they are
+what "workers" and `ATIMA_MAX_CPUS` mean in this section.
 
 **Hardware and software.** One desktop computer: Intel Core i5-9600K
 (6 cores at 3.7 GHz, no hyper-threading), 64 GB of memory, Windows 11.
@@ -232,3 +238,85 @@ The browsing runs above were made before that change. One run was
 repeated after it (`...-after-fix` in `results/`: two workers, ten people)
 and gave the same page-load and probe times; its job times differ from
 the first run's only as two runs of a random mix do.
+
+
+## Results after the change to measured cores, 15 November 2026
+
+atima now has one setting, `cpus`: the cores the whole server may use.
+One is kept for the process that answers requests, there is a worker for
+each of the others, and what counts as in use is what the server
+measures each worker to be using (`R/jobs.R`). The same test was run
+before and after that change, on the same day and the same machine as
+above, both times with the settings left at their defaults. Before, the
+defaults on six cores were 3 workers of 2 cores each; after, `cpus = 6`,
+which is 5 workers. Both images had rbiom at commit f51c971. The mix of
+plots is the one in the table at the top: of the plots, 26% compute
+distances (`bdiv_ord_plot`, `bdiv_boxplot`) and may be given more than
+one core; on the 1,006-sample project those are also the permutation
+tests that run for half a minute.
+
+Files: `results/*-step15-*`. Times in seconds.
+
+| Run | People | Jobs | Done | Busy (503) | Time limit (504) | Response: median | 95th pct. | Wait: median | 95th pct. | Page load: 95th pct. | Probe: 99th pct. |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Before | 10 | 103 | 103 |  0 |  0 |  5.0 | 41.1 |  2.7 | 24.3 | 0.25 | 0.17 |
+| After  | 10 | 153 | 153 |  0 |  0 |  1.3 | 41.7 |  0.0 |  4.5 | 0.21 | 0.17 |
+| Before | 30 | 182 | 151 | 31 |  0 | 36.8 | 67.2 | 32.4 | 60.4 | 0.50 | 0.27 |
+| After  | 30 | 198 | 188 |  0 | 10 | 12.9 | 55.8 | 11.1 | 54.6 | 0.60 | 0.79 |
+| After, one BLAS thread | 30 | 207 | 207 | 0 | 0 | 14.4 | 52.2 | 12.2 | 39.5 | 0.37 | 0.19 |
+
+AI apps (two apps, six `make_plot` calls at once, five rounds, a server
+without accounts): median response 2.5 s before, 1.5 s after; 95th
+percentile 6.6 s and 6.2 s. All 60 calls succeeded both times.
+
+What the numbers say:
+
+- **Ten people no longer wait.** Half of their jobs started at once, and
+  19 in 20 within 4.5 seconds, where before one in twenty waited 24
+  seconds behind somebody's permutation test. They got half as many jobs
+  again done in the same three minutes.
+- **Thirty people clicking every five seconds are still more than six
+  cores can serve**, but nobody was turned away, where 31 jobs were
+  before, and the median wait fell from 32 to 11 seconds.
+- **Five long jobs side by side are slower than three.** In the run
+  after the change, ten permutation tests were stopped at the 60-second
+  limit; none was before. Each ran slower because five of them now run
+  at the same time on a machine that also runs the load generator, and
+  because of the next point.
+- **The linear algebra library's threads matter.** In the container, R
+  uses OpenBLAS, which starts a thread for every core whatever `cpus` a
+  job was given; rbiom does not limit it. For the last row the server
+  was started with `OPENBLAS_NUM_THREADS=1` and `OMP_NUM_THREADS=1` in
+  its environment and nothing else changed: every job finished, none
+  reached the time limit, and the probe was answered as fast as before
+  the change. (Measured on its own: one ordination of 1,006 samples
+  takes 3.8 seconds and 16 seconds of processor time with OpenBLAS's
+  threads, 1.1 seconds with one.)
+
+How rbiom's functions respond to more cores, timed one at a time on the
+same machine under Windows (R 4.6.1, rbiom at f51c971, which has six
+cores, so 8 and 16 threads share them), in seconds:
+
+| Call | Samples | 1 core | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|---|
+| Weighted UniFrac distances | 980 | 0.95 | 0.50 | 0.28 | 0.22 | 0.28 |
+| Weighted UniFrac distances | 3,920 | 16.0 | 8.7 | 5.6 | 3.9 | 4.0 |
+| Bray-Curtis distances | 1,005 | 0.07 | 0.03 | 0.01 | 0.02 | 0.02 |
+| Bray-Curtis distances | 4,020 | 1.20 | 0.62 | 0.34 | 0.26 | 0.31 |
+| `bdiv_ord_plot`, no statistics | 1,005 | 2.2 | 2.2 | 2.1 | 2.4 | 2.2 |
+| `bdiv_ord_plot`, no statistics | 4,020 | 85 | 87 | 89 | 99 | 93 |
+| `bdiv_ord_plot`, PERMANOVA | 1,005 | 34.5 | 34.1 | 33.1 | 33.0 | 33.2 |
+| `bdiv_boxplot`, permutation test | 1,005 | 27.6 | 25.9 | 25.6 | 26.2 | 31.1 |
+| `bdiv_heatmap` | 4,020 | 47.5 | 42.5 | 42.3 | 41.9 | 43.5 |
+| `bdiv_clusters` | 4,020 | 6.9 | 6.1 | 6.1 | 5.9 | 6.2 |
+| `adiv_boxplot` with statistics | 4,020 | 0.88 | 0.89 | 0.87 | 0.89 | 0.90 |
+| `rarefy` | 4,020 | 0.12 | 0.06 | 0.04 | 0.04 | 0.03 |
+| `rare_multiplot` | 4,020 | 3.1 | 2.6 | 2.4 | 2.3 | 2.4 |
+| `write_xlsx` | 4,020 | 35.6 | 33.3 | 33.2 | 34.0 | 34.0 |
+
+With 50 samples every call took under 1.2 seconds at any number of
+cores. Only the distances gain, and they are a small part of most jobs:
+the permutation test and the ordination itself run on one core. That is
+why atima gives more than one core only to the functions that compute
+distances, and counts what a job is measured to use, not what it was
+given.

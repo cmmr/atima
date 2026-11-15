@@ -1,0 +1,43 @@
+{
+  "label": "step15-after-local-agents",
+  "started_utc": "2026-11-15T20:11:07Z",
+  "seconds": 23,
+  "options": {
+    "base": "http://127.0.0.1:8080",
+    "mode": "local",
+    "users": 0,
+    "minutes": 0,
+    "think": 5,
+    "flood": 40,
+    "agents": 2,
+    "calls": 6,
+    "rounds": 5,
+    "signins": 10,
+    "issuer": "",
+    "label": "step15-after-local-agents",
+    "out": "/loadtest/results",
+    "note": "step 15, after: measured cores, default settings (cpus = 6: 1 for the web server, 5 workers); Intel i5-9600K (6 cores), Docker Desktop on WSL2 with 6 CPUs and 31 GB, R 4.6.2, rbiom f51c971",
+    "seed": 1
+  },
+  "static_files": 31,
+  "requests": 60,
+  "summary": [
+    {
+      "phase": "agents",
+      "request": "mcp make_plot",
+      "n": 60,
+      "ok": 60,
+      "other": "",
+      "p50_s": 1.462,
+      "p90_s": 4.778,
+      "p95_s": 6.204,
+      "p99_s": 6.205,
+      "max_s": 6.206,
+      "wait_p50_s": 0.035,
+      "wait_p95_s": 2.573,
+      "wait_max_s": 2.736,
+      "run_p50_s": 1.255,
+      "run_p95_s": 2.635
+    }
+  ]
+}

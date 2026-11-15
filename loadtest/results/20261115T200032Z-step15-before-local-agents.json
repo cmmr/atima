@@ -1,0 +1,43 @@
+{
+  "label": "step15-before-local-agents",
+  "started_utc": "2026-11-15T20:00:32Z",
+  "seconds": 28,
+  "options": {
+    "base": "http://127.0.0.1:8080",
+    "mode": "local",
+    "users": 0,
+    "minutes": 0,
+    "think": 5,
+    "flood": 40,
+    "agents": 2,
+    "calls": 6,
+    "rounds": 5,
+    "signins": 10,
+    "issuer": "",
+    "label": "step15-before-local-agents",
+    "out": "/loadtest/results",
+    "note": "step 15, before: commit b13a5cb, default settings (3 workers of 2 cores); Intel i5-9600K (6 cores), Docker Desktop on WSL2 with 6 CPUs and 31 GB, R 4.6.2, rbiom f51c971",
+    "seed": 1
+  },
+  "static_files": 30,
+  "requests": 60,
+  "summary": [
+    {
+      "phase": "agents",
+      "request": "mcp make_plot",
+      "n": 60,
+      "ok": 60,
+      "other": "",
+      "p50_s": 2.467,
+      "p90_s": 5.514,
+      "p95_s": 6.629,
+      "p99_s": 7.139,
+      "max_s": 7.677,
+      "wait_p50_s": 1.116,
+      "wait_p95_s": 3.481,
+      "wait_max_s": 4.538,
+      "run_p50_s": 1.143,
+      "run_p95_s": 1.531
+    }
+  ]
+}

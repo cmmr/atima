@@ -1,0 +1,43 @@
+{
+  "label": "step15-after-blas1-local-agents",
+  "started_utc": "2026-11-15T20:16:52Z",
+  "seconds": 22,
+  "options": {
+    "base": "http://127.0.0.1:8080",
+    "mode": "local",
+    "users": 0,
+    "minutes": 0,
+    "think": 5,
+    "flood": 40,
+    "agents": 2,
+    "calls": 6,
+    "rounds": 5,
+    "signins": 10,
+    "issuer": "",
+    "label": "step15-after-blas1-local-agents",
+    "out": "/loadtest/results",
+    "note": "step 15, after, with OPENBLAS_NUM_THREADS=1 and OMP_NUM_THREADS=1 in the server's environment: measured cores, cpus = 6 (1 for the web server, 5 workers); Intel i5-9600K (6 cores), Docker Desktop on WSL2 with 6 CPUs and 31 GB, R 4.6.2, rbiom f51c971",
+    "seed": 1
+  },
+  "static_files": 31,
+  "requests": 60,
+  "summary": [
+    {
+      "phase": "agents",
+      "request": "mcp make_plot",
+      "n": 60,
+      "ok": 60,
+      "other": "",
+      "p50_s": 1.425,
+      "p90_s": 4.542,
+      "p95_s": 5.831,
+      "p99_s": 5.867,
+      "max_s": 5.867,
+      "wait_p50_s": 0.044,
+      "wait_p95_s": 2.424,
+      "wait_max_s": 2.648,
+      "run_p50_s": 1.2,
+      "run_p95_s": 2.452
+    }
+  ]
+}
