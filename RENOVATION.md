@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 16).
+at release (step 17).
 
 ## How each step runs
 
@@ -41,9 +41,10 @@ it to that step's list instead of fixing it now.
 | 11 | Interface refinement: compact controls, navigation | done (2026-11-14) |
 | 12 | MCP server, shared (sign-in), and tools that change data | done (2026-11-14) |
 | 13 | Usage monitoring | not started |
-| 14 | Cores given to jobs by what they can use | not started |
-| 15 | The lab's public server | not started |
-| 16 | Release | not started |
+| 14 | Interactive figures (plotly): is it worth it; rendering on request | not started |
+| 15 | Cores given to jobs by what they can use | not started |
+| 16 | The lab's public server | not started |
+| 17 | Release | not started |
 
 ## Decision log
 
@@ -77,7 +78,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 16 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 17 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -534,7 +535,7 @@ it to that step's list instead of fixing it now.
   wide range of screen sizes. Two navigation links are much longer than
   the rest and are to be renamed. First added as step 13; later the
   same day Daniel moved it to step 11, before the remaining steps that
-  add pages, and release is step 16.
+  add pages, and release is step 17.
 - **Names of the versions (2026-11-14).** To avoid confusion Daniel
   settled: **atima v5** is the old version, the code in
   `cmmr/atima-old` (package version 5.0.x; elsewhere in this file
@@ -544,16 +545,25 @@ it to that step's list instead of fixing it now.
 - **The lab's public server (2026-11-14).** Daniel settled: atima v6
   replaces all earlier versions, which are torn down; it takes over
   `https://atima.research.bcm.edu` and has the lab's server (32 cores,
-  251 GB) to itself. Installing it there is step 15, and release is
-  step 16. Nothing from the v5 installation is migrated (it held only
+  251 GB) to itself. Installing it there is step 16, and release is
+  step 17. Nothing from the v5 installation is migrated (it held only
   guests and seeded examples), and the installation is to use all of
   the server's cores.
 - **Cores by what a job can use (2026-11-14).** Daniel pointed out that
   not all plots can use several cores and asked how to allocate cores
-  better. Recommended and accepted as step 14: the pool keeps one budget
+  better. Recommended and accepted as step 15: the pool keeps one budget
   of cores and grants each job what its rbiom function can use (1
   without a `cpus` argument, up to a cap with one, fewer under load).
-  The lab's server is step 15 and release step 16.
+  The lab's server is step 16 and release step 17.
+- **Interactive figures and rendering on request (2026-11-15).** Daniel
+  asked for a step after usage monitoring that investigates whether
+  showing figures through `ggplotly()` is feasible and worthwhile
+  (patchwork figures, very large figures and the browser's limits, what
+  is gained and lost, some figures interactive and others static), and
+  for a "re-render automatically" checkbox on the box shown during a
+  render, which when unticked turns "Stop" into a "Render"/"Stop"
+  button. Both are step 14; cores are step 15, the lab's server step 16
+  and release step 17.
 - **No time limit on local installs (2026-11-14).** Daniel: the limit
   exists only so that one or two people do not take all the resources of
   the public server; on their own computer people may use what they
@@ -3056,7 +3066,7 @@ and other apps to the lab's server and work with their own projects.
     to get one.
 
 Decisions for Daniel: whether this ships in the first release (if not, it
-moves after step 16 and the status table says so); atima as its own
+moves after step 17 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
 browser also disconnects apps. For the tools that change data: whether
@@ -3337,7 +3347,122 @@ small vendored library, or figures drawn in R); whether a public
 hidden; and whether Baylor has rules on recording use of a public
 research server that this must follow.
 
-## Step 14: Cores given to jobs by what they can use
+## Step 14: Interactive figures (plotly): is it worth it; rendering on request
+
+Added by Daniel on 2026-11-15. Two parts. Part A is an investigation that
+ends in a recommendation for Daniel, and builds the feature only if he
+says so. Part B is built whatever part A finds.
+
+### Part A: showing figures with `ggplotly()`
+
+Daniel's question: is it feasible and worthwhile to show the figures,
+which rbiom makes with ggplot2, through `ggplotly()` (a function of the
+R package `plotly`, drawn in the browser by plotly.js) in place of, or
+beside, the static image atima serves today? "What would we lose vs gain
+by incorporating `ggplotly` as the front-end presentation of the plots
+that atima currently serves?" His two worries: some figures are combined
+with `patchwork`, which may not work with `ggplotly()`; and a very large
+figure may slow the browser down or crash it. Some figures can be
+interactive while others stay static.
+
+- Start from what is there: how a figure reaches the page now (format,
+  size, how downloads and the MCP tools' figure links use the same
+  result), and which figure types atima offers. List every rbiom plot
+  function atima calls and, for each, what it returns: one ggplot, a
+  patchwork, or something else (heat maps, the stacked bars, ordinations
+  with ellipses and biplot arrows, trees if any). Take this from rbiom
+  as installed, not from memory.
+- Feasibility, per figure type. Run `ggplotly()` on each with the
+  example datasets and several settings (facets, statistics brackets
+  and p-value labels, colour, shape and pattern mappings, free scales,
+  flipped axes, captions and subtitles) and compare with the static
+  figure side by side. Record what is kept, what is lost or drawn wrong
+  (known weak points of the conversion to check: patterns, custom geoms
+  and annotations, brackets, legends that are merged or split, theme
+  details, facet strips and spacing, captions), and any error. For
+  patchwork figures: `ggplotly()` does not take a patchwork; see what
+  the pieces give when converted one at a time and joined with
+  `plotly::subplot()`, and whether shared legends, shared axes and the
+  layout's widths and heights survive. Read the current documentation
+  of `plotly` and of `patchwork` for this before judging; do not go by
+  what is remembered.
+- Limits, measured from the user's side. Build figures of growing size
+  (samples, taxa, facets, points, heat-map cells; up to the largest
+  project the server accepts) and for each record: the size of what is
+  sent, time to build it in R, time until the figure is drawn in the
+  browser, how hover, zoom and pan respond, the browser's memory, and
+  where it becomes slow, freezes or the tab crashes. Use a real browser
+  (the load-test tooling of step 10 or the browser pane), at least one
+  ordinary laptop-class setting, and say what was measured on. Try the
+  usual remedies and record what each buys: WebGL traces
+  (`toWebGL()`), `partial_bundle()`, dropping hover on huge layers,
+  sending the widget's JSON without the htmlwidgets wrapper. State the
+  limits as numbers a rule could use ("interactive up to N points, else
+  static").
+- What it costs the package. plotly.js is several megabytes and the
+  front end has no build step, no CDN and a strict Content Security
+  Policy: can plotly.js be vendored and run under that policy (inline
+  styles, `eval`, workers, blobs), in which bundle, with what licence
+  notice? New R dependencies and their weight for a local install. The
+  cache: a second result per figure, or one in place of the other. The
+  server's work per figure, and what step 15's core accounting should
+  know. Accessibility and keyboard use. What the MCP tools return (an
+  app wants an image). Downloads: the publication-quality PDF, SVG and
+  PNG must stay what ggplot2 draws, never plotly's own export.
+- Gain and loss, set out plainly for Daniel: what a researcher gets
+  (hover for sample IDs and values, zoom, hiding a group from the
+  legend, reading a point's metadata) against what is lost (fidelity to
+  the figure they will publish, speed, simplicity, a larger page, a
+  conversion that can break when ggplot2, rbiom or plotly change, more
+  to test). Consider the alternatives that give part of the gain
+  cheaply and say how they compare: the static figure with a hover
+  layer drawn from a small table of point positions; `ggiraph`; an
+  "explore" toggle on a figure that is static by default.
+- End with a recommendation, one of: not worth it; interactive for
+  named figure types within stated limits, static otherwise; or
+  something else the findings support. Put it to Daniel with the
+  evidence (a table by figure type, the measurements, screenshots of
+  the worst mismatches). Build only what he chooses, and if that is
+  more than this step can hold, write it up as a step of its own
+  rather than rushing it.
+
+### Part B: rendering on request
+
+Daniel, 2026-11-15: let the user control whether a figure is drawn
+again after every change of its controls. On the box that is shown
+while a figure is being drawn, add a checkbox, "re-render
+automatically" (other words are allowed), ticked by default. While it
+is ticked nothing changes from today. When it is not ticked, a change
+of a control no longer starts a render, and the box's "Stop" button
+becomes a button that switches between "Render" and "Stop": "Render"
+draws the figure for the current settings, "Stop" stops a render that
+is running.
+
+- This needs the control to stay reachable when nothing is rendering,
+  which a box that appears only during a render cannot do. Decide
+  where it lives then and show Daniel before building (a small bar on
+  the figure that is always there, the box staying open in a resting
+  state, or other).
+- With it unticked, make it plain that the figure shown is older than
+  the settings (for example dimmed, with "settings changed"), so that
+  nobody downloads or reads a figure that does not match its controls;
+  decide what Download does in that state.
+- Where the choice is kept: per browser, across pages and visits, and
+  whether figure types share it (they share control state already).
+- Ticking it again while settings are stale renders at once. Opening a
+  figure page for the first time: say whether it renders or waits.
+- Keyboard and screen-reader use of the checkbox and button; narrow
+  screens; the statistics table and other panels that are drawn with
+  the figure follow the same rule.
+- Tests for the front-end logic where the test set-up allows, and a
+  check in a real browser; the help text and the article that describes
+  the plot pages.
+
+Decisions for Daniel: part A's recommendation and how far to build it;
+where the render control lives when nothing is rendering, its wording,
+and how a stale figure is shown.
+
+## Step 15: Cores given to jobs by what they can use
 
 Added by Daniel on 2026-11-14. Not every plot can use several cores, and
 today the pool does not know the difference: each worker owns a fixed
@@ -3412,7 +3537,7 @@ and `max_cpus` stay as the settings or are replaced; what happens under
 load (shrink every new grant, or keep large grants and let others
 wait); whether the per-account limit counts jobs or cores.
 
-## Step 15: The lab's public server
+## Step 16: The lab's public server
 
 Installing atima v6 on the lab's own server and moving the public
 address to it. This is Daniel's installation only: nothing here may
@@ -3473,10 +3598,10 @@ To do:
   corporate proxy would need belong in `deploy/` and the server
   article; values that are the lab's own belong on the server only.
 - Use every core (Daniel, 2026-11-14): the server is atima's alone, so
-  all 32 cores are atima's to use. Step 14 changes how cores reach
+  all 32 cores are atima's to use. Step 15 changes how cores reach
   jobs (one budget, each job granted what it can use), so set what that
   step's settings turn out to be, and confirm its cap with a load test
-  on this machine. Before step 14 the defaults here would have been 4
+  on this machine. Before step 15 the defaults here would have been 4
   workers of 8 cores each, and the trade-off was this: many workers of one or two
   cores serve more people at once, fewer workers of several cores make
   each large figure faster. The main R process needs a share of a core
@@ -3605,7 +3730,7 @@ users of atima 2 are told; what old links do; the provider (Globus or ORCID) for
 server; how long the old installations' data is kept after the
 tear-down.
 
-## Step 16: Release
+## Step 17: Release
 
 - Version, NEWS, citation, DOI. The release is atima v6: set the
   version to 6.0.0 (`DESCRIPTION` says 5.0.1), and say in NEWS that
