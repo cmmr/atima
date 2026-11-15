@@ -3,3 +3,6 @@
 .env.*
 !.env.example
 backups/
+# Lookup files for the Usage page: not atima's to distribute.
+geo/*
+!geo/README.md

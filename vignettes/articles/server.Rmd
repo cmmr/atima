@@ -172,6 +172,9 @@ from `.env`:
 | `ATIMA_MCP_WRITES` | true | May AI apps change data, for people who let them? `false` offers reading and analysing only. See [AI apps](#ai-apps). |
 | `ATIMA_APP_DAYS` | 30 | An AI app stays connected until it has not been used for this many days. |
 | `ATIMA_APP_CHANGES_PER_HOUR` | 60 | The most changes one connected AI app may make in an hour. |
+| `ATIMA_USAGE` | true | Record how the server is used, for the administrators' [Usage page](#usage). |
+| `ATIMA_USAGE_MONTHS` | 25 | Months the record of single actions and visits is kept. |
+| `ATIMA_GEO_DIR`, `ATIMA_GEO_DB` | none | The directory of lookup files, and the files in it; see [Usage](#usage). |
 | `ATIMA_TRUSTED_PROXIES` | none | Only [behind another proxy](#behind-another-proxy). |
 | `ATIMA_HSTS` | off | `max-age=31536000` once HTTPS works. |
 | `ATIMA_HTTP_PORT`, `ATIMA_HTTPS_PORT` | 80, 443 | The host's ports for Caddy. |
@@ -293,7 +296,12 @@ change it, but if you use a different proxy, this is the list to reproduce.
   under those names. atima is told to believe `X-Forwarded-Proto`
   (`ATIMA_FORWARDED_PROTO_HEADER`, set in `compose.yaml`). A proxy that
   passed a visitor's own `X-Forwarded-Proto` through would let them switch
-  off the cookie's `Secure` flag for their own session.
+  off the cookie's `Secure` flag for their own session. atima takes the
+  visitor's address from `X-Real-IP` (`ATIMA_CLIENT_IP_HEADER`, also set
+  in `compose.yaml`): it is the address a tab's session is stored with,
+  and the one whose country and network the [Usage page](#usage) counts.
+  If the header named there lists several addresses, as `X-Forwarded-For`
+  does, atima reads the last one, which is the one your proxy added.
 - **Does not cache.** atima sends its own files with
   `Cache-Control: no-cache`, so that browsers ask before reusing a script
   and never run old scripts against an upgraded server. A proxy may answer
@@ -378,6 +386,107 @@ to any other host name. That is deliberate. A server that other computers
 can reach needs accounts.
 
 
+## Usage
+
+A shared server keeps count of how it is used. Administrators find
+"Usage" under "About" in the menu. The page answers two questions with
+numbers that can go into a grant report: how many researchers use the
+server, from where and for what; and is the server still big enough.
+
+- **Reach.** People who completed at least one analysis ("active users")
+  in the last 7, 30, 90 and 365 days and ever, beside the number of
+  accounts; active users per day, week or month; new and returning users
+  per month; users so far.
+- **Repeat use.** Of the people first active in a month, the share active
+  again in each later month; and on how many days each person used the
+  server.
+- **Where from.** Countries, the organisations that own the networks
+  people connect from, the institutions the sign-in provider names, and
+  the sites and pages that link to the server.
+- **What for.** Analyses per month by kind of diversity, each rbiom
+  function ranked, browser against AI apps, uploads, exports and
+  published projects per month.
+- **Capacity.** One sentence at the top says whether the server keeps up,
+  by a stated rule: it does not if, on more than 3 of the last 30 days,
+  one job in twenty waited longer than 5 seconds for a worker. Below it:
+  the median and 95th-percentile wait per day, requests refused because
+  the queue was full (503), because one person had too many jobs (429)
+  or stopped at the time limit (504), workers busy and the longest queue
+  per day and per hour, the time each function takes, and the disk.
+- **A summary for a report**, for the period chosen at the top, with the
+  definitions it rests on. Every card has a button that saves its numbers
+  as a CSV file.
+
+The definitions are printed on the page. A person is an account or a
+guest (a browser that has not signed in); a guest who signs in is counted
+once. Administrators, recognised crawlers, load tests (requests whose
+user agent starts with `atima-loadtest`) and the health check are left out
+of the counts of people and listed apart. The waiting times cover every
+job, a load test's too, since they describe the server.
+
+### What is recorded, and what is not
+
+For each action (opening the app, a plot, a statistic, an upload, an
+export and so on): the time, the number of the user's row in the database,
+whether the browser or an AI app was used and the app's name, the kind of
+action, the name of the rbiom function, how it ended, and how long it
+waited and ran. For a visit: the site and page the browser was sent from
+(without the query string), and the country and network owner if lookup
+files are set.
+
+Not recorded: a network address, a name or email address, which project,
+or anything from a request other than the name of an rbiom function. No
+cookie is set and no other site is contacted. Requests that carry no
+cookie (crawlers, scripts that download by link) are counted once a day
+by a hash of address, user agent and a secret that is made new every day
+and exists only in memory; the hashes are deleted after two days.
+
+The rows of single actions and visits are deleted after
+`ATIMA_USAGE_MONTHS` (25). Daily counts made from them are kept, among
+them one row per person per day of use, which is what "active in the last
+year" is counted from. The "Privacy and terms" page says this to the
+people who use the server; if you set `ATIMA_USAGE=false`, nothing is
+recorded, the page's paragraph goes, and so does the Usage page.
+
+### Countries and networks
+
+atima looks an address up in files on the server and nowhere else. The
+files are not part of atima. Any database in MaxMind DB format (`.mmdb`)
+that names a country or a network owner works; the free ones differ in
+their licences:
+
+- [DB-IP Lite](https://db-ip.com/db/lite.php): "IP to Country Lite" and
+  "IP to ASN Lite", updated monthly, no account needed, Creative Commons
+  Attribution 4.0. The licence asks for a link to db-ip.com where the data
+  is used; the Usage page carries one.
+- [IPinfo Lite](https://ipinfo.io/lite): one file with both, Creative
+  Commons Attribution-ShareAlike 4.0, needs a free account.
+- MaxMind GeoLite2: needs an account, and its licence requires that old
+  copies are deleted within 30 days of each new release.
+
+Put the files in one directory on the host and name it and them in `.env`;
+the directory is mounted read-only at `/srv/geo`:
+
+```sh
+ATIMA_GEO_DIR=/srv/atima/geo
+ATIMA_GEO_DB=/srv/geo/dbip-country-lite.mmdb;/srv/geo/dbip-asn-lite.mmdb
+```
+
+The server reads the files when it starts and stops with a message if one
+cannot be read. Replace them with newer ones now and then (addresses change
+hands) and restart. An address is looked up when a visit starts and is not
+kept with the result. Without the files the page still works; it has no
+countries and networks.
+
+### What the page cannot tell you
+
+People who run atima on their own computer are invisible by design: a
+local install records nothing and reports nothing. For a fuller picture,
+set the page's numbers beside the ones that come from elsewhere: papers
+that cite atima and rbiom (a citation index), downloads of the packages
+(CRAN's or r-universe's download counts), and stars and forks of the
+source repository.
+
 ## Looking after the server
 
 ### Logs
@@ -400,6 +509,7 @@ can include values from the failed request. Other events worth knowing:
 | `job_timeout` | A job passed the time limit and was stopped. |
 | `worker_killed`, `worker_lost` | A worker process had to be ended, or died; a new one took its place. |
 | `cleanup` | Old sessions, guests, drafts or files were deleted. |
+| `usage_failed` | An action could not be added to the record of use, or the record could not be counted. The request itself was not affected. |
 | `db_backup`, `db_migration` | A schema upgrade (see below). |
 | `legacy_import_failed` | A project could not be imported from an older atima. |
 | `unhealthy` | The health check failed. |

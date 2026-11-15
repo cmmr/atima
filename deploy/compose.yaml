@@ -33,6 +33,14 @@ services:
       ATIMA_CONTACT: ${ATIMA_CONTACT:-}
       # Caddy sets this header itself on every request (deploy/caddy/Caddyfile).
       ATIMA_FORWARDED_PROTO_HEADER: X-Forwarded-Proto
+      # The visitor's address, which Caddy states in this header by the same
+      # rule. Used for the session's stored address and for the country and
+      # network counts of the Usage page.
+      ATIMA_CLIENT_IP_HEADER: X-Real-IP
+      ATIMA_USAGE: ${ATIMA_USAGE:-}
+      ATIMA_USAGE_MONTHS: ${ATIMA_USAGE_MONTHS:-}
+      # Lookup files for the Usage page, as paths under /srv/geo.
+      ATIMA_GEO_DB: ${ATIMA_GEO_DB:-}
       ATIMA_WORKERS: ${ATIMA_WORKERS:-}
       ATIMA_MAX_CPUS: ${ATIMA_MAX_CPUS:-}
       ATIMA_TIME_LIMIT: ${ATIMA_TIME_LIMIT:-}
@@ -49,6 +57,8 @@ services:
     volumes:
       - atima_data:/var/lib/atima
       - atima_temp:/var/tmp/atima
+      # Country and network lookup files (.mmdb), if any; see ATIMA_GEO_DB.
+      - ${ATIMA_GEO_DIR:-./geo}:/srv/geo:ro
     # Nothing but the two volumes and /tmp can be written to.
     read_only: true
     tmpfs:

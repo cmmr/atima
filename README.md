@@ -70,6 +70,7 @@ default is used if none is set.
 | `oidc_client_secret` | `ATIMA_OIDC_CLIENT_SECRET` | none | The client secret the provider gave you. Set it in the environment, not in a script. |
 | `admins` | `ATIMA_ADMINS` | none | The provider's identifiers (`sub`) of the administrators, separated by commas. |
 | `forwarded_proto_header` | `ATIMA_FORWARDED_PROTO_HEADER` | none | A header in which your reverse proxy says whether the visitor used HTTPS. Not needed when `public_url` starts with `https://`. |
+| `client_ip_header` | `ATIMA_CLIENT_IP_HEADER` | none | A header in which your reverse proxy states the visitor's network address, such as `X-Real-IP`. Without it, every visitor behind a proxy has the proxy's address. |
 | `signin_days` | `ATIMA_SIGNIN_DAYS` | `30` | How long a sign-in lasts, in days. |
 | `operator` | `ATIMA_OPERATOR` | none | With `auth = "oidc"`: who runs the server, shown on the app's "Privacy and terms" page. |
 | `contact` | `ATIMA_CONTACT` | none | With `auth = "oidc"`: an email address or `https://` page for reaching whoever runs the server. |
@@ -87,6 +88,9 @@ default is used if none is set.
 | `mcp_writes` | `ATIMA_MCP_WRITES` | `TRUE` | May AI apps change data (upload, edit, copy, share, publish, delete)? `FALSE` offers them reading and analysing only. |
 | `app_days` | `ATIMA_APP_DAYS` | `30` | With `auth = "oidc"`: a connected AI app stays connected until it has not been used for this long. |
 | `app_changes_per_hour` | `ATIMA_APP_CHANGES_PER_HOUR` | `60` | The most changes one connected AI app may make in an hour. |
+| `usage` | `ATIMA_USAGE` | `TRUE` | With `auth = "oidc"`: record how the server is used, for the administrators' "Usage" page; see "Usage of a shared server". A local install never records anything. |
+| `usage_months` | `ATIMA_USAGE_MONTHS` | `25` | How long the record of single actions and visits is kept, in months. The daily counts made from it are kept. |
+| `geo_db` | `ATIMA_GEO_DB` | none | Files (`.mmdb`, separated by `;`) in which a visitor's country and network owner are looked up for the Usage page. |
 | `legacy` | `ATIMA_LEGACY` | none | Older installations to import from; see "Importing from an older atima". |
 | `open` | `ATIMA_OPEN` | `interactive()` | Open a browser once the server is up. |
 
@@ -135,6 +139,32 @@ explore public projects and upload their own data, which is kept for
 [Setting up sign-in](https://cmmr.github.io/atima/articles/sign-in.html) has the steps for Globus Auth and
 ORCID, and [Running a shared server](https://cmmr.github.io/atima/articles/server.html) covers HTTPS,
 containers and backups. See `?atima::run` for every setting.
+
+### Usage of a shared server
+
+A server with sign-in keeps count of how it is used, so that whoever runs
+it can say how many researchers it serves and can tell when it is outgrown.
+Its administrators find a page, "Usage", under "About": active users per
+day, week and month, new and returning users, the countries and
+institutions they come from and the sites that link to the server, which
+analyses are run, in the browser and through AI apps, and how long jobs
+wait for a worker. Every chart's numbers download as CSV, and the page
+writes a summary of a chosen period for a report.
+
+What is recorded is counts, not content: for each action the time, the
+number that stands for the user, the kind of action, the name of the rbiom
+function, how it ended and how long it took. No network address, name,
+email address, project or setting is recorded, no cookie is set for it, and
+nothing is sent anywhere. The country and the owner of a visitor's network
+are looked up in files on the server itself, which you supply with
+`geo_db`; [DB-IP's free Lite databases](https://db-ip.com/db/lite.php)
+(Creative Commons Attribution 4.0) work. The app's "Privacy and terms" page
+tells the people who use the server all of this. `usage = FALSE` switches
+it off.
+
+A local install (`auth = "none"`) records nothing and reports nothing to
+anyone, so people who run atima on their own computer are not in any
+count.
 
 ### Importing from an older atima
 
