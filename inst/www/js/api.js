@@ -25,6 +25,15 @@ export function urlKey() {
   return /^[A-Za-z0-9-]{1,40}$/.test(key) ? key : '';
 }
 
+/** The address of the page that linked here, unless it is one of this site's own. */
+function externalReferrer() {
+  try {
+    const ref = document.referrer;
+    if (!ref || new URL(ref).origin === window.location.origin) return null;
+    return ref.slice(0, 2000);
+  } catch { return null; }
+}
+
 /** Put what a response says about the session into the store. */
 function absorb(data) {
   if (!data || typeof data !== 'object') return;
@@ -79,8 +88,13 @@ async function send(path, { body = {}, form = null, signal = null, keepalive = f
 export function startSession() {
   if (!starting) {
     store.set('sessionKey', null);
-    const key = urlKey();
-    starting = send('/api/session/init', { body: key ? { access_key: key } : {} })
+    const key  = urlKey();
+    const body = key ? { access_key: key } : {};
+    // The page on another site that sent the browser here, if one did. A
+    // shared server counts where its visitors come from; nothing else uses it.
+    const from = externalReferrer();
+    if (from) body.referrer = from;
+    starting = send('/api/session/init', { body })
       .then(data => { absorb(data); return data; })
       .finally(() => { starting = null; });
   }

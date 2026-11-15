@@ -148,7 +148,13 @@ test_that("no page of the app asks another host for anything", {
     "https://cmmr.github.io/atima/",
     "https://cmmr.github.io/atima/articles/ai-apps.html",
     "https://github.com/cmmr/atima",
-    "https://github.com/cmmr/rbiom" )
+    "https://github.com/cmmr/rbiom",
+    # On the administrators' Usage page: its documentation, and the credit
+    # the licence of DB-IP's lookup files asks for.
+    "https://cmmr.github.io/atima/articles/server.html#usage",
+    "https://db-ip.com",
+    # The name of the SVG namespace (js/charts.js). Nothing is fetched from it.
+    "http://www.w3.org/2000/svg" )
 
   for (file in own_files("\\.(html|js|css)$")) {
     text  <- read_text(www(file))

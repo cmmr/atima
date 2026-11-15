@@ -22,6 +22,7 @@ import * as legacy    from './pages/legacy.js';
 import * as privacy   from './pages/privacy.js';
 import * as cite      from './pages/cite.js';
 import * as apps      from './pages/apps.js';
+import * as usage     from './pages/usage.js';
 
 const pages = {
   home:     { show: home.show },
@@ -36,6 +37,7 @@ const pages = {
   privacy:  { show: privacy.show },
   cite:     { show: cite.show },
   apps:     { show: apps.show },
+  usage:    { show: usage.show },
 };
 
 // Where the documentation and the source code are.
@@ -66,6 +68,7 @@ function navOutside(url, label, title) {
 function buildNav() {
 
   const schema = store.get('schema');
+  const conf   = store.get('conf');
   const groups = [];
 
   for (const [area, label] of Object.entries(S.areaLabels)) {
@@ -97,7 +100,9 @@ function buildNav() {
       navOutside(DOCS_URL, 'Docs', 'Documentation and tutorials (opens in a new tab)'),
       navLink('#/cite', 'Cite', null, 'How to cite ATIMA and rbiom'),
       navOutside(SOURCE_URL, 'GitHub', 'Source code and issue tracker (opens in a new tab)'),
-      navLink('#/privacy', 'Privacy', null, 'Privacy and terms')));
+      navLink('#/privacy', 'Privacy', null, 'Privacy and terms'),
+      // For the administrators of a server that records its use.
+      conf.is_admin && conf.usage ? navLink('#/usage', 'Usage', null, 'Usage of this server (administrators only)') : null));
 
   // One group is open at a time: opening one closes the others.
   const all = [...nav.querySelectorAll('details.nav-group')];

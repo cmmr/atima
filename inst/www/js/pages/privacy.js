@@ -14,8 +14,9 @@
 // behaviour changes, change the sentence: R/cleanup.R (what is deleted and
 // when), R/access.R (who can see what), R/permissions.r (what other users
 // are shown), R/auth-oidc.R (what comes from the provider), R/router.R
-// `request_done()` and R/errors.R `error_report()` (what is logged), and
-// for AI apps the files named above that section.
+// `request_done()` and R/errors.R `error_report()` (what is logged),
+// R/usage.R and inst/sql/008_usage.sql (what use is recorded), and for AI
+// apps the files named above that section.
 
 import { h, fill } from '../dom.js';
 import * as store from '../store.js';
@@ -107,10 +108,27 @@ export function show(container) {
       h('p', 'The server writes a line to its log for every request: what kind of request it was, whether it succeeded, how long it took, and the number that stands for the user. ',
         'It does not log what requests contain: not your files, your settings or your results. ',
         'When a request fails, technical details of the error are logged too, and these can include values from that request. ',
-        'Signing in and signing out are logged, and so are connecting and disconnecting an AI app and each change an app makes.')
-      // Step 13 (usage monitoring) adds its paragraph HERE: what use of the
-      // server is recorded, in what form, and for how long.
-    ),
+        'Signing in and signing out are logged, and so are connecting and disconnecting an AI app and each change an app makes.')),
+
+    // Checked against R/usage.R: `usage_write()` (what is written),
+    // `usage_visitor_hash()` (the daily hash), `usage_expire()` (how long),
+    // and R/usage-report.R (what administrators are shown).
+    conf.usage ? section('How use of this server is counted',
+      h('p', 'This server counts how it is used, so that the people who run it can say how many researchers it serves, for example when they apply for funding, and can tell when it needs more capacity. ',
+        'No cookie is set for this, and nothing is sent to another company or site.'),
+      list(
+        ['What you do. For each action, such as opening the site, drawing a figure, running a statistic, uploading or exporting: the time, the number that stands for you, ',
+         'whether you used the browser or an AI app (and the app\'s name), the kind of action, the name of the analysis function, whether it succeeded and how long it took. ',
+         'Not recorded: which project, your files, your settings, field names, titles, or anything else from your data.'],
+        ['Where you came from. When you open the site: the country and the organisation that owns the network you connected from (such as a university or an internet provider), ',
+         'looked up from your network address in a file on this server, and the address of the page that linked you here if you followed a link from another site. ',
+         'The network address itself is not kept with these counts.'],
+        ['If you have signed in, the organisation your sign-in provider names for you and the name of the provider are counted with the number that stands for you.'],
+        ['Requests without a cookie, such as a download by link from a script, are counted by a code made from the network address, the name of the program and a secret that is replaced every day and never stored. ',
+         'The code cannot be turned back into an address, and is deleted after two days.'],
+        [`How long. The record of single actions and visits is deleted after ${count(conf.usage_months, 'month')}. Daily counts made from it are kept: `,
+         'how many people were active, from which countries and organisations, which analyses were run, and for each number that stands for a person, the days on which it was active.'],
+        ['Who sees it. Only the administrators of this server, as counts and charts. They are not shown names, email addresses or what any one person did.'])) : null,
 
     // Checked against R/oauth.R (what a connection is and how long it
     // lasts), R/mcp-tools.R and R/mcp-write.R (what an app can do),

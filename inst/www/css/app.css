@@ -565,3 +565,67 @@ body.dropping::after {
 table.data.apps td, table.data.changes td { vertical-align: top; }
 table.data.changes td:nth-child(2) { white-space: normal; min-width: 220px; width: 100%; }
 .deleted > .hint { margin: 4px 6px 10px; }
+
+/* The Usage page (js/pages/usage.js), for administrators. Cards sit two
+   abreast where there is room; a chart or table that is wider than its card
+   scrolls inside it. */
+.usage-controls { max-width: 420px; padding-top: 8px; padding-bottom: 8px; }
+.usage-controls [hidden] { display: none; }
+.usage-part { margin: 26px 0 10px; font-size: 16px; }
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; align-items: start; }
+.usage-grid > .card { margin: 0; min-width: 0; }
+.usage .card > .hint { margin: 0 0 8px; }
+.usage-body > .card { margin-top: 14px; }
+.verdict { margin: 14px 0 4px; padding: 10px 14px; border-radius: var(--radius); background: var(--line-soft); font-weight: 600; }
+.verdict.ok { background: #e3f3e8; color: var(--ok); }
+.verdict.warn { background: var(--warn-soft); color: var(--warn); }
+.stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.stat { display: flex; flex-direction: column; min-width: 96px; padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.stat strong { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat span { font-size: 12px; color: var(--text-soft); }
+table.data th.num, table.data td.num { text-align: right; }
+table.data.cohorts td.shade { background: color-mix(in srgb, var(--series-1) calc(var(--share, 0) * 55%), transparent); }
+.link-button { border: 0; background: none; padding: 4px 0; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; }
+.link-button:hover { text-decoration: underline; }
+
+/* Charts (js/charts.js). Series colors are given in this order and never by
+   rank; text is always in the page's own text colors. */
+:root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-muted: #9aa3ad;
+}
+.chart-box { overflow-x: auto; }
+svg.chart { display: block; width: 100%; min-width: 320px; height: auto; }
+svg.chart.heat { max-width: 600px; }
+svg.chart .grid { stroke: var(--line-soft); stroke-width: 1; }
+svg.chart .axis { stroke: var(--line); stroke-width: 1; }
+svg.chart .tick { font-size: 10.5px; fill: var(--text-soft); font-family: var(--font); font-variant-numeric: tabular-nums; }
+svg.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+svg.chart .dot { stroke: var(--card); stroke-width: 1.5; }
+svg.chart .hit { fill: transparent; }
+svg.chart .hit:hover { fill: rgba(0, 30, 64, .06); }
+svg.chart .bar:hover, svg.chart .cell:hover { opacity: .8; }
+svg.chart .cell { fill: var(--series-1); }
+svg.chart .cell.none { fill: var(--line-soft); }
+svg.chart .line.s1, .rank-bar { stroke: var(--series-1); }
+svg.chart .line.s2 { stroke: var(--series-2); }
+svg.chart .line.s3 { stroke: var(--series-3); }
+svg.chart .line.s4 { stroke: var(--series-4); }
+svg.chart .line.muted { stroke: var(--series-muted); stroke-dasharray: 4 3; }
+svg.chart .bar.s1, svg.chart .dot.s1, .swatch.s1 { fill: var(--series-1); background: var(--series-1); }
+svg.chart .bar.s2, svg.chart .dot.s2, .swatch.s2 { fill: var(--series-2); background: var(--series-2); }
+svg.chart .bar.s3, svg.chart .dot.s3, .swatch.s3 { fill: var(--series-3); background: var(--series-3); }
+svg.chart .bar.s4, svg.chart .dot.s4, .swatch.s4 { fill: var(--series-4); background: var(--series-4); }
+svg.chart .dot.muted, .swatch.muted { fill: var(--series-muted); background: var(--series-muted); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 4px; font-size: 12px; color: var(--text-soft); }
+.chart-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.rank { display: flex; flex-direction: column; gap: 3px; }
+.rank-row { display: grid; grid-template-columns: minmax(0, 42%) minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+.rank-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-track { height: 12px; }
+.rank-bar { display: block; height: 100%; min-width: 2px; border-radius: 0 3px 3px 0; background: var(--series-1); }
+.rank-value { font-variant-numeric: tabular-nums; color: var(--text-soft); min-width: 3ch; text-align: right; }
