@@ -233,9 +233,6 @@ function whereCards(data) {
       h('p.hint', 'The organisation the sign-in provider names for each active person who signed in. Guests have none.'),
       rankedBars({ rows: w.affiliations, name: 'name', value: 'users' })),
 
-    card('Sign-in providers', { name: 'providers', rows: w.providers },
-      rankedBars({ rows: w.providers, name: 'name', value: 'users' })),
-
     card('Sites that sent visitors', { name: 'referring-sites', rows: w.sites },
       h('p.hint', `${fmt(w.referred)} of ${plural(w.visits, 'visit')} came from a link on another site. A visit is a browser tab opening the app; most arrive from a bookmark or a typed address, which names no site.`),
       rankedBars({ rows: w.sites, name: 'name', value: 'visits' })),
