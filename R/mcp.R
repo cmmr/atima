@@ -574,6 +574,10 @@ mcp_tool_failed <- function (REQ, msg, e) {
 
   id <- msg[['id']]
 
+  # How the call ended, for the record of the server's use: the answer
+  # itself is a 200 either way.
+  REQ[['FAILED']] <- e
+
   if (inherits(e, "mcp_error")) return (mcp_error_response(e, id))
 
   if (!inherits(e, "atima_http_error")) return (mcp_internal_error(REQ, id, e))

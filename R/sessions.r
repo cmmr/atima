@@ -35,9 +35,11 @@ api_abort <- function (REQ) {
 #'
 #' @param access_key  The project key in the page's URL, if any: a public
 #'                    key, or a private key (a share link).
+#' @param referrer    The page that sent the browser here. Not used here:
+#'                    the router passes it to usage monitoring.
 #' @return <response:session_data>
 #' @noRd
-api_init_session <- function (REQ, access_key = NULL) {
+api_init_session <- function (REQ, access_key = NULL, referrer = NULL) {
 
   DB     <- REQ[['DB']]
   CONFIG <- REQ[['CONFIG']]
@@ -288,7 +290,9 @@ get_session_data <- function (REQ) {
           trash_days = unbox(REQ[['CONFIG']][['trash_ttl']] / 86400),
           # May AI apps change data, and where do they connect?
           mcp_writes = unbox(isTRUE(REQ[['CONFIG']][['mcp_writes']])),
-          mcp_url    = unbox(paste0(REQ[['CONFIG']][['base_url']], "/mcp")) ),
+          mcp_url    = unbox(paste0(REQ[['CONFIG']][['base_url']], "/mcp")),
+          # Is use of this server recorded (`R/usage.R`)?
+          usage      = unbox(usage_on(REQ[['CONFIG']])) ),
         shared_server_conf(REQ[['CONFIG']]) ))
 
     response(body, cookie_hdr, sess_header)
@@ -301,7 +305,7 @@ get_session_data <- function (REQ) {
 #' and terms" page: how long things are kept, and who runs the server.
 #'
 #' @param CONFIG  The server configuration.
-#' @return `list(session_hours, guest_days)`, with `operator` and `contact`
+#' @return `list(session_hours, guest_days, app_days, usage_months)`, with `operator` and `contact`
 #'         when those are set; `NULL` for a server without accounts, which
 #'         has no such page.
 #' @noRd
@@ -312,7 +316,9 @@ shared_server_conf <- function (CONFIG) {
   conf <- list(
     session_hours = unbox(CONFIG[['session_ttl']] / 3600),
     guest_days    = unbox(CONFIG[['guest_ttl']]   / 86400),
-    app_days      = unbox(CONFIG[['app_ttl']]     / 86400) )
+    app_days      = unbox(CONFIG[['app_ttl']]     / 86400),
+    # How long the record of single actions is kept (`R/usage.R`).
+    usage_months  = unbox(as.integer(CONFIG[['usage_months']] %||% 25L)) )
 
   for (key in c("operator", "contact"))
     if (!is.null(CONFIG[[key]])) conf[[key]] <- unbox(CONFIG[[key]])

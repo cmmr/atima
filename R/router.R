@@ -64,6 +64,12 @@ lanes             <- c("fast", "compute")
 #'                    this route that is still queued or running? The
 #'                    earlier request is answered with a 409. Use it where
 #'                    only the latest answer matters, such as a plot.
+#' @param usage       What kind of action a request to this route is, for the
+#'                    record of the server's use (`R/usage.R`): one of
+#'                    `usage_kinds`. `NULL` for a route that is not something
+#'                    a person does (a heartbeat, a list for a menu).
+#' @param usage_fn    The name of the argument that names the rbiom function
+#'                    the request runs, to be recorded with it.
 #' @param args        A named list of argument declarations made with the
 #'                    `arg_*()` functions. Path parameters are declared here
 #'                    too. Arguments that are not declared are refused.
@@ -72,7 +78,7 @@ lanes             <- c("fast", "compute")
 route <- function (
     endpoint, handler, permission, lane = "fast", args = list(), supersede = FALSE,
     account = FALSE, rule = NULL, modes = auth_modes, strict = TRUE, html = FALSE,
-    raw = FALSE ) {
+    raw = FALSE, usage = NULL, usage_fn = NULL ) {
 
   parts <- strsplit(endpoint, " ", fixed = TRUE)[[1]]
 
@@ -93,6 +99,8 @@ route <- function (
     is_bool(html),
     is_bool(raw),
     !raw || identical(names(args), c("body", "headers")),
+    is.null(usage) || is_one_of(usage, usage_kinds),
+    is.null(usage_fn) || (!is.null(usage) && usage_fn %in% names(args)),
     is.list(args),
     length(args) == 0 || (!is.null(names(args)) && all(grepl("^[a-z_]+$", names(args)))),
     all(vapply(args, inherits, logical(1), "arg_spec")) )
@@ -116,6 +124,8 @@ route <- function (
     strict      = strict,
     html        = html,
     raw         = raw,
+    usage       = usage,
+    usage_fn    = usage_fn,
     args        = args ))
 }
 
@@ -557,6 +567,7 @@ handle_request <- function (request, app) {
     MEMO    = app[['memo']],
     LEGACY  = app[['legacy']],
     AUTH    = app[['auth']],
+    GEO     = app[['geo']],
     METHOD  = request[['REQUEST_METHOD']],
     PATH    = request[['PATH_INFO']],
     CLIENT  = request_client(request, app[['config']]),
@@ -576,6 +587,8 @@ handle_request <- function (request, app) {
 
     REQ[['ROUTE']] <- route
 
+    usage_begin(REQ, route)
+
     if (route[['permission']] != "public")
       resume_session(REQ)
 
@@ -583,6 +596,8 @@ handle_request <- function (request, app) {
 
     args <- if (route[['raw']]) request_raw(request) else request_args(request)
     args <- validate_args(route, c(args, matched[['params']]), REQ)
+
+    usage_args(REQ, route, args)
 
     check_rule(REQ, route, args)
 
@@ -619,6 +634,7 @@ handle_request <- function (request, app) {
         expr  = {
           done   <- outcome()
           timing <- done[['timing']]
+          REQ[['TIMING']] <- timing
           list(value = job_value(done))
         },
         error = function (e) {
@@ -707,7 +723,11 @@ request_stage <- function (REQ, code) {
   calls <- NULL
 
   tryCatch(
-    error = function (e) error_response(e, REQ, calls),
+    error = function (e) {
+      # How the request ended, for the record of the server's use.
+      REQ[['FAILED']] <- e
+      error_response(e, REQ, calls)
+    },
     expr  = withCallingHandlers(
       error = function (e) if (is.null(calls)) calls <<- sys.calls(),
       expr  = code ))
@@ -732,13 +752,16 @@ request_done <- function (REQ, started, resp) {
     ms      = round(as.numeric(difftime(Sys.time(), started, units = "secs")) * 1000),
     user_id = REQ[['SESSION']][['user_id']] )
 
+  usage_record(REQ, started, resp)
+
   return (resp)
 }
 
 
 #______________________________________________________________________________
 #' The credentials a request carries: auth cookie, session key and address,
-#' and whether it came over HTTPS.
+#' and whether it came over HTTPS; and its user agent, which is only used to
+#' tell crawlers and load tests from people (`R/usage.R`).
 #' @noRd
 request_client <- function (request, config = list()) {
 
@@ -765,7 +788,54 @@ request_client <- function (request, config = list()) {
     session_key = session_key,
     oidc_login  = oidc_login,
     https       = request_is_https(request, config),
-    ip_address  = request[['REMOTE_ADDR']] %||% "" )
+    ip_address  = request_address(request, config),
+    user_agent  = request_agent(request) )
+}
+
+
+#______________________________________________________________________________
+#' A request's user agent, or `""`.
+#' @noRd
+request_agent <- function (request) {
+
+  agent <- request[['HTTP_USER_AGENT']] %||% unname(request[['HEADERS']]['user-agent'])
+
+  if (!is_scalar_character(agent) || is.na(agent)) return ("")
+
+  substr(agent, 1L, 500L)
+}
+
+
+#______________________________________________________________________________
+#' The address a request came from.
+#'
+#' That is the address of the connection, unless the server is behind a
+#' reverse proxy, when every connection is the proxy's. `client_ip_header`
+#' then names the header in which the proxy states the visitor's address
+#' (`X-Real-IP`, `X-Forwarded-For`). A header that lists several addresses
+#' is read from the end: each proxy appends the address it saw, so the last
+#' one is the one the trusted proxy vouches for, and the ones before it may
+#' have been sent by the visitor.
+#' @noRd
+request_address <- function (request, config = list()) {
+
+  remote <- request[['REMOTE_ADDR']] %||% ""
+  name   <- config[['client_ip_header']]
+
+  if (is.null(name)) return (remote)
+
+  value <- unname(request[['HEADERS']][tolower(name)])
+  if (length(value) != 1 || is.na(value)) return (remote)
+
+  parts <- trimws(strsplit(value, ",", fixed = TRUE)[[1]])
+  parts <- parts[nzchar(parts)]
+  if (length(parts) == 0) return (remote)
+
+  last <- parts[[length(parts)]]
+
+  if (!grepl("^[0-9A-Fa-f:.]{2,45}$", last)) return (remote)
+
+  last
 }
 
 

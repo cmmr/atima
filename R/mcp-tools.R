@@ -456,6 +456,10 @@ mcp_caller <- function (REQ) {
 tool_call <- function (REQ, tool, args) {
 
   DB     <- REQ[['DB']]
+
+  # What kind of action this is, for the record of the server's use.
+  usage_tool(REQ, tool)
+
   caller <- mcp_caller(REQ)
 
   sql  <- "SELECT full_name FROM users WHERE user_id = ?"
@@ -472,6 +476,8 @@ tool_call <- function (REQ, tool, args) {
     check_change_cap(REQ, caller)
 
   args <- validate_args(tool, args, REQ)
+
+  usage_tool(REQ, tool, args[['function']] %||% args[['cluster_fn']])
 
   if (!is.null(tool[['rule']]))
     access_rules[[tool[['rule']]]](REQ, args)

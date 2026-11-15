@@ -154,6 +154,10 @@ pool_start <- function (
   pool$busy       <- 0L              # workers that may be running something
   pool$waiting    <- 0L              # of those, interrupted and not yet seen to stop
   pool$next_id    <- 0L
+  # The most workers busy and jobs waiting since usage monitoring last
+  # looked (`usage_sample()`), which resets them.
+  pool$peak_busy  <- 0L
+  pool$peak_queue <- 0L
   pool$stopped    <- FALSE
   pool$marker_dir <- tempfile("atima_jobs_")
   pool$tempdirs   <- character(0)
@@ -281,6 +285,8 @@ pool_submit <- function (pool, fn, args, session_id = NULL, key = NULL, time_lim
 
   pool_dispatch(pool)
 
+  pool$peak_queue <- max(pool$peak_queue, length(pool$queue))
+
   return (promise)
 }
 
@@ -346,6 +352,7 @@ pool_dispatch <- function (pool) {
     j          <- pool$jobs[[pool$queue[[1]]]]
     pool$queue <- pool$queue[-1]
     pool$busy  <- pool$busy + 1L
+    pool$peak_busy <- max(pool$peak_busy, pool$busy)
     j$state    <- "running"
     j$started_at <- Sys.time()
 

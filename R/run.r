@@ -51,6 +51,13 @@
 #'                    visitor used HTTPS; usually `"X-Forwarded-Proto"`. The
 #'                    default, `NULL`, trusts no such header. Not needed
 #'                    when `public_url` starts with `https://`.
+#' @param client_ip_header  The name of a request header, set by a reverse
+#'                    proxy you control, that holds the visitor's network
+#'                    address; `"X-Real-IP"` or `"X-Forwarded-For"`. If it
+#'                    lists several addresses, the last is used: the one the
+#'                    proxy itself added. The default, `NULL`, uses the
+#'                    address of the connection, which behind a proxy is the
+#'                    proxy's.
 #' @param signin_days  How long a sign-in lasts before the browser has to
 #'                    sign in again.
 #' @param operator    With `auth = "oidc"`: who runs this server, as the
@@ -104,6 +111,17 @@
 #'                    for this many days.
 #' @param app_changes_per_hour  The most changes one connected AI app may
 #'                    make in an hour.
+#' @param usage       With `auth = "oidc"`: record how the server is used,
+#'                    for the administrators' "Usage" page? See the section
+#'                    on usage. A local install never records anything.
+#' @param usage_months  How many months the record of single actions and
+#'                    visits is kept. The daily counts made from it are kept.
+#' @param geo_db      With `usage`: one or more files in MaxMind DB format
+#'                    (`.mmdb`) in which the country and the owner of a
+#'                    visitor's network are looked up, such as DB-IP's free
+#'                    "IP to Country Lite" and "IP to ASN Lite". A character
+#'                    vector, or one string with the paths separated by `;`.
+#'                    The default, `NULL`, records neither.
 #' @param legacy      Older atima installations whose users may import
 #'                    their projects: a named character vector,
 #'                    `c(<label shown to users> = <file>)`, of files made by
@@ -146,6 +164,38 @@
 #' who runs the server and how to reach them. It is a description of the
 #' software, not legal advice: if your institution needs its own terms, link
 #' to them from `contact`.
+#'
+#' @section Usage:
+#' A shared server (`auth = "oidc"`) keeps a record of how it is used, and
+#' its administrators find a page, "Usage", in the menu: how many people
+#' used the server over time and how many came back, the countries and
+#' institutions they came from and the sites that sent them, which analyses
+#' they ran, through the browser or an AI app, and whether jobs had to
+#' wait for a worker. The page's numbers can be downloaded as CSV files and
+#' summed up for a period, for a grant report. `usage = FALSE` switches the
+#' recording and the page off.
+#'
+#' What is recorded is a row per action: the time, the number that stands
+#' for the user, the kind of action, the name of the 'rbiom' function, how
+#' it ended and how long it took. No network address, name or email address
+#' is recorded, and nothing of a project or of a request's settings. For a
+#' visit, the site the browser was sent from is recorded, and, if `geo_db`
+#' names lookup files, the country and the owner of the network it came
+#' from; the address is looked up in those files on this server and is not
+#' kept with the record. Requests that carry no cookie (crawlers, scripts)
+#' are counted by a hash of address and user agent that changes every day
+#' and cannot be turned back into an address. No cookie is set for any of
+#' this. The app's "Privacy and terms" page says all of it to the people
+#' who use the server.
+#'
+#' The lookup files are not part of atima. DB-IP publishes free ones
+#' monthly at <https://db-ip.com/db/lite.php> under the Creative Commons
+#' Attribution 4.0 licence, which asks for a link to db-ip.com where the
+#' data is used; the Usage page carries one. Behind a reverse proxy, set
+#' `client_ip_header`, or every visitor has the proxy's address.
+#'
+#' With `auth = "none"` nothing is recorded, there is no such page, and
+#' atima never reports use to anyone.
 #'
 #' @section Importing from an older atima:
 #' atima 2 kept every project encrypted with keys that only its users'
@@ -217,6 +267,8 @@
 #' ago, private projects that nobody has in their project tree any more,
 #' connections of AI apps that have run out, stored files that nothing
 #' refers to, and old temporary files. See `session_hours` and `guest_days`.
+#' A shared server also deletes its record of single actions and visits
+#' once it is `usage_months` old.
 #' Saved projects that belong to a signed-in user are never erased unless
 #' somebody deleted them.
 #'
@@ -245,6 +297,7 @@ run <- function(
     oidc_client_secret = NULL,
     admins        = NULL,
     forwarded_proto_header = NULL,
+    client_ip_header = NULL,
     signin_days   = 30,
     operator      = NULL,
     contact       = NULL,
@@ -262,6 +315,9 @@ run <- function(
     mcp_writes    = TRUE,
     app_days      = 30,
     app_changes_per_hour = 60,
+    usage         = TRUE,
+    usage_months  = 25,
+    geo_db        = NULL,
     legacy        = NULL,
     open          = interactive() ) {
 
@@ -277,7 +333,7 @@ run <- function(
 
   optional <- c(
     'max_cpus', 'time_limit', 'public_url', 'oidc_client_id', 'oidc_client_secret',
-    'admins', 'forwarded_proto_header', 'operator', 'contact' )
+    'admins', 'forwarded_proto_header', 'client_ip_header', 'operator', 'contact' )
 
   find_arg <- function(param, cls) {
 
@@ -322,6 +378,9 @@ run <- function(
   app_days      <- find_arg('app_days',      'int')
   mcp_writes    <- find_arg('mcp_writes',    'bool')
   app_changes_per_hour <- find_arg('app_changes_per_hour', 'int')
+  usage         <- find_arg('usage',         'bool')
+  usage_months  <- find_arg('usage_months',  'int')
+  client_ip_header <- find_arg('client_ip_header', 'chr')
   operator      <- text_setting(find_arg('operator', 'chr'), 'operator')
   contact       <- text_setting(find_arg('contact',  'chr'), 'contact')
 
@@ -330,6 +389,12 @@ run <- function(
   } else if (nzchar(x <- Sys.getenv('ATIMA_LEGACY'))) { x
   } else { getOption('atima.legacy') }
   legacy <- legacy_register(legacy_setting(legacy))
+
+  # Also a list of files.
+  geo_db <- if (hasName(explicits, 'geo_db')) { explicits[['geo_db']]
+  } else if (nzchar(x <- Sys.getenv('ATIMA_GEO_DB'))) { x
+  } else { getOption('atima.geo_db') }
+  geo_db <- geo_setting(geo_db)
 
   auth_cfg <- auth_settings(
     auth          = find_arg('auth', 'chr'),
@@ -350,10 +415,14 @@ run <- function(
 
   for (param in c(
       'workers', 'max_cpus', 'time_limit', 'jobs_per_user', 'session_hours', 'guest_days', 'signin_days',
-      'trash_days', 'app_days', 'app_changes_per_hour' ))
+      'trash_days', 'app_days', 'app_changes_per_hour', 'usage_months' ))
     if (get(param) < 1) stop(param, ' must be at least 1.')
 
   if (is.na(mcp_writes)) stop('mcp_writes must be TRUE or FALSE.')
+  if (is.na(usage))      stop('usage must be TRUE or FALSE.')
+
+  if (!is.null(client_ip_header) && !grepl("^[A-Za-z0-9-]+$", client_ip_header))
+    stop('client_ip_header must be the name of a request header, such as "X-Real-IP".', call. = FALSE)
 
   cache_size_bytes <- cache_size_mb * 1024 * 1024
   max_upload_bytes <- max_upload_mb * 1024 * 1024
@@ -401,8 +470,17 @@ run <- function(
     # The address to put in front of links that leave the browser, such as
     # those in the results of tools called by AI apps.
     base_url    = auth_cfg[['public_url']] %||% local_url(host, port),
-    forwarded_proto_header = auth_cfg[['forwarded_proto_header']]
+    forwarded_proto_header = auth_cfg[['forwarded_proto_header']],
+    # Usage monitoring (`R/usage.R`): only ever on a server with accounts.
+    client_ip_header = client_ip_header,
+    usage        = usage && auth_cfg[['auth']] == 'oidc',
+    usage_months = usage_months
   )
+
+  # The files in which a visitor's country and network are looked up.
+  geo <- if (usage_on(config)) geo_open(geo_db)
+  for (file in if (!is.null(geo)) geo_db)
+    message(' - Country and network lookup: ', file)
 
   message(' - Sign-in: ', if (config[['auth']] == 'none') 'none (single local user)' else paste('OpenID Connect,', auth_cfg[['oidc']][['issuer']]))
 
@@ -455,10 +533,19 @@ run <- function(
   if (config[['auth']] == 'none')
     db_transaction(db, local_owner(db))
 
-  app_state <- list(db = db, config = config, pool = pool, memo = memo_new(), auth = auth_state, legacy = legacy_state())
+  app_state <- list(
+    db = db, config = config, pool = pool, memo = memo_new(), auth = auth_state, legacy = legacy_state(),
+    geo = geo )
 
   stop_cleanup <- cleanup_start(app_state)
   on.exit(stop_cleanup(), add = TRUE, after = FALSE)
+
+  # A shared server notes how busy it is every minute, and counts its
+  # record of use into daily numbers every ten.
+  if (usage_on(config)) {
+    stop_usage <- usage_start(app_state)
+    on.exit(stop_usage(), add = TRUE, after = FALSE)
+  }
 
 
   #______________________________________________

@@ -324,6 +324,9 @@ sign_in <- function (REQ, issuer, sub, profile, is_admin = NULL) {
 #' @noRd
 adopt_guest <- function (DB, guest_id, user_id) {
 
+  # What the guest did counts as the user's from here on (`R/usage.R`).
+  usage_adopt(DB, guest_id, user_id)
+
   db_query(DB, "UPDATE collections SET user_id = ? WHERE user_id = ?", "AGst1", list(user_id, guest_id))
 
   sql <- paste0(

@@ -33,8 +33,11 @@ route_table <- function () {
     #__________________________________________________________________________
     # Sessions
 
-    route("POST /api/session/init", "api_init_session", "public", "compute", args = list(
-      access_key = arg_string(max = 40L, optional = TRUE) )),
+    # `referrer` is the page that sent the browser here, if another site
+    # did. It is only looked at by usage monitoring, on a shared server.
+    route("POST /api/session/init", "api_init_session", "public", "compute", usage = "visit", args = list(
+      access_key = arg_string(max = 40L, optional = TRUE),
+      referrer   = arg_string(max = 2000L, optional = TRUE) )),
 
     route("POST /api/session/heartbeat", "api_heartbeat", "session", "fast"),
 
@@ -72,33 +75,33 @@ route_table <- function () {
     #__________________________________________________________________________
     # The open project
 
-    route("POST /api/project/upload", "api_upload_biom", "session", "compute", args = list(
+    route("POST /api/project/upload", "api_upload_biom", "session", "compute", usage = "upload", args = list(
       biom_file = arg_file(),
       inflate   = arg_bool(default = FALSE) )),
 
-    route("POST /api/project/upload_component", "api_upload_component", "viewer", "compute", args = list(
+    route("POST /api/project/upload_component", "api_upload_component", "viewer", "compute", usage = "upload", args = list(
       component      = arg_choice(c("metadata", "taxonomy", "tree")),
       component_file = arg_file() )),
 
-    route("POST /api/project/rarefy", "api_rarefy", "viewer", "compute", supersede = TRUE, args = list(
+    route("POST /api/project/rarefy", "api_rarefy", "viewer", "compute", usage = "rarefy", supersede = TRUE, args = list(
       depth = arg_int(min = 1L) )),
 
-    route("POST /api/project/save", "api_save", "editor", "compute", args = list(
+    route("POST /api/project/save", "api_save", "editor", "compute", usage = "save", args = list(
       title       = arg_string(min = 3L, max = 100L),
       description = arg_html(max = 5000L) )),
 
-    route("POST /api/project/save_as", "api_save_as", "viewer", "compute", args = list(
+    route("POST /api/project/save_as", "api_save_as", "viewer", "compute", usage = "save", args = list(
       title       = arg_string(min = 3L, max = 100L),
       description = arg_html(max = 5000L) )),
 
-    route("POST /api/project/new_key", "api_new_key", "editor", "fast"),
+    route("POST /api/project/new_key", "api_new_key", "editor", "fast", usage = "share"),
 
-    route("POST /api/project/publish", "api_publish", "editor", "compute", account = TRUE, args = list(
+    route("POST /api/project/publish", "api_publish", "editor", "compute", usage = "publish", account = TRUE, args = list(
       is_public     = arg_bool(),
       public_key    = arg_string(min = 4L, max = 20L, pattern = public_key_pattern, optional = TRUE),
       collection_id = arg_int(min = 1L, optional = TRUE) )),
 
-    route("POST /api/project/export", "api_export", "viewer", "compute", args = list(
+    route("POST /api/project/export", "api_export", "viewer", "compute", usage = "export", args = list(
       what       = arg_choice(c("original", "metadata", "taxonomy", "tree", "biom", "alpha", "beta", "taxa", "xlsx")),
       sample_set = arg_choice(c("full", "rare"), default = "full"),
       format     = arg_choice(c("json", "hdf5", "tab"), default = "json"),
@@ -111,30 +114,30 @@ route_table <- function () {
     # rule checks that each node belongs to the caller; `tree_edit` also
     # asks for editing rights on a project node.
 
-    route("POST /api/tree/select", "api_tree_select", "session", "compute", rule = "tree", args = list(
+    route("POST /api/tree/select", "api_tree_select", "session", "compute", usage = "open", rule = "tree", args = list(
       node_id = arg_node("PG") )),
 
-    route("POST /api/tree/create", "api_tree_create", "session", "fast", rule = "tree", args = list(
+    route("POST /api/tree/create", "api_tree_create", "session", "fast", usage = "manage", rule = "tree", args = list(
       node_id = arg_node("CP", root = TRUE) )),
 
-    route("POST /api/tree/rename", "api_tree_rename", "session", "fast", rule = "tree_edit", args = list(
+    route("POST /api/tree/rename", "api_tree_rename", "session", "fast", usage = "manage", rule = "tree_edit", args = list(
       node_id = arg_node("CP"),
       text    = arg_string(min = 3L, max = 100L) )),
 
-    route("POST /api/tree/leave", "api_tree_leave", "session", "fast", rule = "tree", args = list(
+    route("POST /api/tree/leave", "api_tree_leave", "session", "fast", usage = "manage", rule = "tree", args = list(
       node_id = arg_node("P") )),
 
-    route("POST /api/tree/delete", "api_tree_delete", "session", "fast", rule = "tree_edit", args = list(
+    route("POST /api/tree/delete", "api_tree_delete", "session", "fast", usage = "manage", rule = "tree_edit", args = list(
       node_id = arg_node("CP") )),
 
     # A deleted project is kept for `trash_days`; until then its editors
     # can list and restore it.
     route("POST /api/tree/deleted", "api_tree_deleted", "session", "fast"),
 
-    route("POST /api/tree/restore", "api_tree_restore", "session", "fast", rule = "tree_restore", args = list(
+    route("POST /api/tree/restore", "api_tree_restore", "session", "fast", usage = "manage", rule = "tree_restore", args = list(
       node_id = arg_node("P") )),
 
-    route("POST /api/tree/move", "api_tree_move", "session", "fast", rule = "tree", args = list(
+    route("POST /api/tree/move", "api_tree_move", "session", "fast", usage = "manage", rule = "tree", args = list(
       node_id        = arg_node("CP"),
       parent_node_id = arg_node("C", root = TRUE) )),
 
@@ -175,7 +178,7 @@ route_table <- function () {
 
     route("POST /api/sharing/list", "api_sharing_with", "viewer", "fast", account = TRUE, modes = "oidc"),
 
-    route("POST /api/sharing/update", "api_update_permissions", "viewer", "fast", account = TRUE, modes = "oidc", rule = "grant", args = list(
+    route("POST /api/sharing/update", "api_update_permissions", "viewer", "fast", usage = "share", account = TRUE, modes = "oidc", rule = "grant", args = list(
       user_id     = arg_int(min = 1L),
       permissions = arg_choice(c("none", "view", "edit", "any")) )),
 
@@ -196,7 +199,7 @@ route_table <- function () {
 
     # An import runs in the background: `start` hands the server a list
     # of projects and returns, `status` says how far it has come.
-    route("POST /api/legacy/start", "api_legacy_start", "session", "compute", account = TRUE, args = list(
+    route("POST /api/legacy/start", "api_legacy_start", "session", "compute", usage = "import", account = TRUE, args = list(
       source   = arg_string(min = 1L, max = 40L, pattern = "^[a-z0-9]+$"),
       email    = arg_string(min = 3L, max = 255L),
       password = arg_secret(min = 1L, max = 200L),
@@ -212,19 +215,19 @@ route_table <- function () {
     #__________________________________________________________________________
     # Metadata and taxonomy of the open project
 
-    route("POST /api/metadata/table", "api_metadata_dt", "viewer", "compute", supersede = TRUE, args = dt_args),
+    route("POST /api/metadata/table", "api_metadata_dt", "viewer", "compute", usage = "table", supersede = TRUE, args = dt_args),
 
     route("POST /api/metadata/thead", "api_metadata_thead", "viewer", "compute"),
 
-    route("POST /api/metadata/change_class", "api_metadata_change_class", "viewer", "compute", args = list(
+    route("POST /api/metadata/change_class", "api_metadata_change_class", "viewer", "compute", usage = "manage", args = list(
       col_num = arg_int(min = 2L) )),
 
-    route("POST /api/metadata/add_clusters", "api_add_clusters", "viewer", "compute", args = list(
+    route("POST /api/metadata/add_clusters", "api_add_clusters", "viewer", "compute", usage = "clusters", usage_fn = "cluster_fn", args = list(
       cluster_fn   = arg_choice(schema_fns("clusters")),
       cluster_args = arg_fn_args("cluster_fn", optional = TRUE),
       name         = arg_string(min = 1L, max = 50L, pattern = "^[A-Za-z][A-Za-z0-9 _\\-]*$") )),
 
-    route("POST /api/taxonomy/table", "api_taxonomy_dt", "viewer", "compute", supersede = TRUE, args = dt_args),
+    route("POST /api/taxonomy/table", "api_taxonomy_dt", "viewer", "compute", usage = "table", supersede = TRUE, args = dt_args),
 
     route("POST /api/taxonomy/thead", "api_taxonomy_thead", "viewer", "compute"),
 
@@ -236,7 +239,7 @@ route_table <- function () {
 
     route("POST /api/schema", "api_schema", "public", "fast"),
 
-    route("POST /api/plot", "api_plot", "viewer", "compute", supersede = TRUE, args = list(
+    route("POST /api/plot", "api_plot", "viewer", "compute", usage = "plot", usage_fn = "plot_fn", supersede = TRUE, args = list(
       plot_fn     = arg_choice(schema_fns("plot")),
       plot_args   = arg_fn_args("plot_fn"),
       depth       = arg_int(min = 1L),
@@ -322,13 +325,24 @@ route_table <- function () {
 
 
     #__________________________________________________________________________
+    # What use of the server has been recorded (`R/usage.R`), for its
+    # administrators: the numbers behind the "Usage" page, for a range of
+    # days. Only a server with accounts records its use, so the route does
+    # not exist on a local install.
+
+    route("POST /api/usage/data", "api_usage_data", "admin", "fast", modes = "oidc", args = list(
+      from = arg_string(pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", optional = TRUE),
+      to   = arg_string(pattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", optional = TRUE) )),
+
+
+    #__________________________________________________________________________
     # A file sent for a tool call (`R/mcp-upload.R`). An AI app that is
     # allowed to change data asks for a ticket with the `upload_file` tool
     # and is given a command that sends the file here. The ticket is the
     # permission: it works once, for a quarter of an hour, for the person
     # and the purpose it was made for (the `upload_ticket` rule).
 
-    route("POST /api/upload", "api_upload_ticket", "public", "compute", rule = "upload_ticket", args = list(
+    route("POST /api/upload", "api_upload_ticket", "public", "compute", usage = "upload", rule = "upload_ticket", args = list(
       ticket = arg_secret(min = 20L, max = 100L),
       file   = arg_file() )),
 
@@ -339,11 +353,11 @@ route_table <- function () {
     # the session key of an unsaved draft. The rules check that the key
     # exists.
 
-    route("GET /unsaved/:session_key/:file", "download_draft_biom", "public", "compute", rule = "draft_key", args = list(
+    route("GET /unsaved/:session_key/:file", "download_draft_biom", "public", "compute", usage = "download", rule = "draft_key", args = list(
       session_key = arg_string(min = 1L, max = 40L, pattern = "^[A-Za-z0-9]+$"),
       file        = arg_string(pattern = biom_file_pattern) )),
 
-    route("GET /:access_key/:file", "download_project_biom", "public", "compute", rule = "project_key", args = list(
+    route("GET /:access_key/:file", "download_project_biom", "public", "compute", usage = "download", rule = "project_key", args = list(
       access_key = arg_string(min = 4L, max = 40L, pattern = access_key_pattern),
       file       = arg_string(pattern = biom_file_pattern) )),
 
@@ -353,10 +367,10 @@ route_table <- function () {
     # Links to a page pick up parameters on their way round the web
     # ("?utm_source=..."), so these two routes ignore what they do not know.
 
-    route("GET /", "serve_index", "public", "fast", html = TRUE, strict = FALSE, args = list(
+    route("GET /", "serve_index", "public", "fast", usage = "page", html = TRUE, strict = FALSE, args = list(
       access_key = arg_string(max = 100L, optional = TRUE) )),
 
-    route("GET /:access_key", "serve_index", "public", "fast", html = TRUE, strict = FALSE, args = list(
+    route("GET /:access_key", "serve_index", "public", "fast", usage = "page", html = TRUE, strict = FALSE, args = list(
       access_key = arg_string(max = 100L) ))
   )
 }

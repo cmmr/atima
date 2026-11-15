@@ -14,6 +14,7 @@ run(
   oidc_client_secret = NULL,
   admins = NULL,
   forwarded_proto_header = NULL,
+  client_ip_header = NULL,
   signin_days = 30,
   operator = NULL,
   contact = NULL,
@@ -31,6 +32,9 @@ run(
   mcp_writes = TRUE,
   app_days = 30,
   app_changes_per_hour = 60,
+  usage = TRUE,
+  usage_months = 25,
+  geo_db = NULL,
   legacy = NULL,
   open = interactive()
 )
@@ -76,6 +80,14 @@ reverse proxy you control, that says whether the
 visitor used HTTPS; usually \code{"X-Forwarded-Proto"}. The
 default, \code{NULL}, trusts no such header. Not needed
 when \code{public_url} starts with \verb{https://}.}
+
+\item{client_ip_header}{The name of a request header, set by a reverse
+proxy you control, that holds the visitor's network
+address; \code{"X-Real-IP"} or \code{"X-Forwarded-For"}. If it
+lists several addresses, the last is used: the one the
+proxy itself added. The default, \code{NULL}, uses the
+address of the connection, which behind a proxy is the
+proxy's.}
 
 \item{signin_days}{How long a sign-in lasts before the browser has to
 sign in again.}
@@ -147,6 +159,20 @@ for this many days.}
 \item{app_changes_per_hour}{The most changes one connected AI app may
 make in an hour.}
 
+\item{usage}{With \code{auth = "oidc"}: record how the server is used,
+for the administrators' "Usage" page? See the section
+on usage. A local install never records anything.}
+
+\item{usage_months}{How many months the record of single actions and
+visits is kept. The daily counts made from it are kept.}
+
+\item{geo_db}{With \code{usage}: one or more files in MaxMind DB format
+(\code{.mmdb}) in which the country and the owner of a
+visitor's network are looked up, such as DB-IP's free
+"IP to Country Lite" and "IP to ASN Lite". A character
+vector, or one string with the paths separated by \verb{;}.
+The default, \code{NULL}, records neither.}
+
 \item{legacy}{Older atima installations whose users may import
 their projects: a named character vector,
 \verb{c(<label shown to users> = <file>)}, of files made by
@@ -217,6 +243,40 @@ comes without warranty. Set \code{operator} and \code{contact} so that it also s
 who runs the server and how to reach them. It is a description of the
 software, not legal advice: if your institution needs its own terms, link
 to them from \code{contact}.
+}
+
+\section{Usage}{
+
+A shared server (\code{auth = "oidc"}) keeps a record of how it is used, and
+its administrators find a page, "Usage", in the menu: how many people
+used the server over time and how many came back, the countries and
+institutions they came from and the sites that sent them, which analyses
+they ran, through the browser or an AI app, and whether jobs had to
+wait for a worker. The page's numbers can be downloaded as CSV files and
+summed up for a period, for a grant report. \code{usage = FALSE} switches the
+recording and the page off.
+
+What is recorded is a row per action: the time, the number that stands
+for the user, the kind of action, the name of the 'rbiom' function, how
+it ended and how long it took. No network address, name or email address
+is recorded, and nothing of a project or of a request's settings. For a
+visit, the site the browser was sent from is recorded, and, if \code{geo_db}
+names lookup files, the country and the owner of the network it came
+from; the address is looked up in those files on this server and is not
+kept with the record. Requests that carry no cookie (crawlers, scripts)
+are counted by a hash of address and user agent that changes every day
+and cannot be turned back into an address. No cookie is set for any of
+this. The app's "Privacy and terms" page says all of it to the people
+who use the server.
+
+The lookup files are not part of atima. DB-IP publishes free ones
+monthly at \url{https://db-ip.com/db/lite.php} under the Creative Commons
+Attribution 4.0 licence, which asks for a link to db-ip.com where the
+data is used; the Usage page carries one. Behind a reverse proxy, set
+\code{client_ip_header}, or every visitor has the proxy's address.
+
+With \code{auth = "none"} nothing is recorded, there is no such page, and
+atima never reports use to anyone.
 }
 
 \section{Importing from an older atima}{
@@ -298,6 +358,8 @@ guests who have not returned, projects that were deleted \code{trash_days}
 ago, private projects that nobody has in their project tree any more,
 connections of AI apps that have run out, stored files that nothing
 refers to, and old temporary files. See \code{session_hours} and \code{guest_days}.
+A shared server also deletes its record of single actions and visits
+once it is \code{usage_months} old.
 Saved projects that belong to a signed-in user are never erased unless
 somebody deleted them.
 }
