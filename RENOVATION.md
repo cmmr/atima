@@ -41,7 +41,7 @@ it to that step's list instead of fixing it now.
 | 11 | Interface refinement: compact controls, navigation | done (2026-11-14) |
 | 12 | MCP server, shared (sign-in), and tools that change data | done (2026-11-14) |
 | 13 | Usage monitoring | done (2026-11-15) |
-| 14 | Interactive figures (plotly): is it worth it; rendering on request | part A closed (not for now); part B in progress |
+| 14 | Interactive figures (plotly): is it worth it; rendering on request | done (2026-11-15); part A closed as "not for now" |
 | 15 | Cores given to jobs by what they can use | not started |
 | 16 | The lab's public server | not started |
 | 17 | Release | not started |
@@ -865,6 +865,34 @@ it to that step's list instead of fixing it now.
   part-way through, with that verdict. Figures stay the static images
   ggplot2 draws; nothing was built and no dependency was added. What
   had been found by then is under step 14, with what was not measured.
+- **Drawing a figure on request (step 14).** Daniel chose, 2026-11-15:
+  (a) the render control is the box that is shown while a figure is
+  drawn, which **stays open** while "Re-render automatically" is
+  unticked (the recommendation was the bar above the figure, beside
+  Download); (b) while the figure is older than its settings,
+  **Download is switched off** until Render is pressed (the
+  recommendation was to render and then download); (c) with the box
+  unticked a page that is opened, and a change of project or depth,
+  **wait for Render**, as recommended. The wording is his: "Re-render
+  automatically", "Render", "Stop". (d) After trying the first build,
+  which put a small box in the figure's corner while it was up to date:
+  **no corner box; the user sees only the box in the middle, and it
+  stays, usable, for as long as the mouse is over it, also after the
+  figure has been drawn.** (e) **Render is switched off while the
+  figure is up to date.** (f) **The box always shows its Render/Stop
+  button**, also with the checkbox ticked.
+- **Step 14 choices not put to Daniel.** (a) The box held under the
+  mouse keeps its size, loses the veil over the figure and reads "The
+  figure is up to date"; keyboard focus in it holds it too. (b) With
+  the box unticked and the figure up to date there is no box: it is
+  back with the next change of a control, which is when it is needed.
+  (c) A figure counts as older than its settings only while they
+  differ: putting a control back makes it current again. (d) Unticked,
+  a change of the window's size does not draw; the figure keeps its
+  size until Render. (e) While a message is in the figure's place
+  (settings to complete, an error) the box is not shown. (f) The choice
+  is kept in the browser's `localStorage` under `atima.autoRender`, one
+  for all figure types.
 
 ## Conventions (apply from step 2 onward)
 
@@ -3657,6 +3685,45 @@ is running.
 Decisions for Daniel: part A's recommendation and how far to build it;
 where the render control lives when nothing is rendering, its wording,
 and how a stale figure is shown.
+
+**Done (2026-11-15).** Part A: see its outcome above. Part B:
+
+- `inst/www/js/render.js` is new and pure: `view()` says, for a
+  situation (ticked or not, drawing, drawn, older than its settings,
+  settings complete, a message on screen), where the box is, what it
+  says, which button it has, and whether the figure is greyed and
+  Download allowed. `pages/plot.js` asks it after every event
+  (`refresh()`); every change of a control goes through `changed()`,
+  which draws or marks. The tests run `render.js` in V8.
+- The statistics and R code tabs show "Settings changed since this was
+  made" while the figure is older than its settings.
+- Help: the checkbox's tooltip, the Download button's tooltip while it
+  is off, a sentence on the home page, and a paragraph in the
+  local-install article (no article describes the plot pages on their
+  own).
+- Checked in the desktop app's browser against a scratch install, on
+  the ordination page of `hmp50`, at desktop width and 375 px: waiting
+  for Render on opening; Render; a change marks the figure; putting the
+  control back clears the mark; ticking the box while the figure is old
+  draws at once; Stop returns to "Settings changed"; the keyboard's
+  place moves between Render and Stop; the choice survives a reload;
+  the box stays under the mouse after the figure arrives and goes when
+  the mouse leaves it.
+- Not checked: a screen reader; a figure slow enough to untick the box
+  by hand while it is drawn (it was unticked by script); the Download
+  click itself (only that the button is on and off at the right
+  times); browsers other than Chromium.
+- `devtools::test()`: 12,050 tests pass, and `R CMD check`: 0 errors, 0
+  warnings, the same 1 note as step 13 (curl's start-up line on this
+  machine). Both were run on the first part B commit, unpacked from
+  `git archive` because step 15 had uncommitted work in `R/`; the three
+  later commits changed only `render.js`, `plot.js`, `app.css`, the
+  article and `test-frontend.R`, and that test file was run after each.
+- For later steps: the box appears under a mouse that is already
+  resting where it will be only once the mouse moves (the browser does
+  not report a hover until then). Unticked and with an error on screen,
+  drawing again is the message's "Try again" button, or any change of a
+  control.
 
 ## Step 15: Cores given to jobs by what they can use
 
