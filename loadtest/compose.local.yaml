@@ -13,8 +13,7 @@ services:
     environment:
       ATIMA_AUTH: none
       ATIMA_HOST: 127.0.0.1
-      ATIMA_WORKERS: ${ATIMA_WORKERS:-}
-      ATIMA_MAX_CPUS: ${ATIMA_MAX_CPUS:-}
+      ATIMA_CPUS: ${ATIMA_CPUS:-}
     stop_grace_period: 30s
 
   loadtest:

@@ -27,11 +27,11 @@ export MSYS_NO_PATHCONV=1
 
 while [ "$i" -lt "$rounds" ]; do
   i=$((i + 1))
-  workers=$((1 + (i + 1) % 2))
+  cpus=$((1 + (i + 1) % 2))
 
   docker rm -f atima-stop-server atima-stop-load >/dev/null 2>&1
   docker run -d --name atima-stop-server -e ATIMA_AUTH=none -e ATIMA_HOST=127.0.0.1 \
-    -e ATIMA_WORKERS="$workers" -e ATIMA_MAX_CPUS=1 "$image" >/dev/null
+    -e ATIMA_CPUS="$cpus" "$image" >/dev/null
 
   until [ "$(docker inspect -f '{{.State.Health.Status}}' atima-stop-server 2>/dev/null)" = "healthy" ]; do sleep 1; done
 
@@ -53,10 +53,10 @@ while [ "$i" -lt "$rounds" ]; do
 
   if [ "$status" != "0" ] || [ "$took" -ge 30 ]; then
     failed=$((failed + 1))
-    echo "round $i (workers=$workers): exit status $status after $took s"
+    echo "round $i (cpus=$cpus): exit status $status after $took s"
     docker logs atima-stop-server 2>&1 | tail -5 | sed 's/^/    /'
   else
-    echo "round $i (workers=$workers): clean, $took s, after $served jobs"
+    echo "round $i (cpus=$cpus): clean, $took s, after $served jobs"
   fi
 
   docker rm -f atima-stop-server atima-stop-load >/dev/null 2>&1

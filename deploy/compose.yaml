@@ -41,8 +41,7 @@ services:
       ATIMA_USAGE_MONTHS: ${ATIMA_USAGE_MONTHS:-}
       # Lookup files for the Usage page, as paths under /srv/geo.
       ATIMA_GEO_DB: ${ATIMA_GEO_DB:-}
-      ATIMA_WORKERS: ${ATIMA_WORKERS:-}
-      ATIMA_MAX_CPUS: ${ATIMA_MAX_CPUS:-}
+      ATIMA_CPUS: ${ATIMA_CPUS:-}
       ATIMA_TIME_LIMIT: ${ATIMA_TIME_LIMIT:-}
       ATIMA_JOBS_PER_USER: ${ATIMA_JOBS_PER_USER:-}
       ATIMA_CACHE_SIZE_MB: ${ATIMA_CACHE_SIZE_MB:-}
