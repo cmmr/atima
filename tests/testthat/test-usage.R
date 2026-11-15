@@ -766,22 +766,23 @@ test_that("the count of visitors without a session survives the deletion of thei
 #______________________________________________________________________________
 # Capacity samples
 
-test_that("a sample notes how busy the workers were, peaks included", {
+test_that("a sample notes how many cores were in use, peaks included", {
 
   REQ  <- local_test_req()
   DB   <- REQ$DB
   now  <- as.POSIXct("2026-03-01 10:15:00", tz = "UTC")
   pool <- new.env()
 
-  pool$workers <- 4L; pool$busy <- 1L; pool$queue <- character(0); pool$peak_busy <- 4L; pool$peak_queue <- 6L
+  # Cores granted to running jobs, out of the pool's budget.
+  pool$cores <- 4L; pool$used <- 1L; pool$queue <- character(0); pool$peak_used <- 4L; pool$peak_queue <- 6L
 
   usage_sample(DB, REQ$CONFIG, pool, now)
 
   # The peaks start again from where the pool is now.
-  expect_identical(pool$peak_busy, 1L)
+  expect_identical(pool$peak_used, 1L)
   expect_identical(pool$peak_queue, 0L)
 
-  pool$busy <- 3L; pool$queue <- c("a", "b")
+  pool$used <- 3L; pool$queue <- c("a", "b")
   usage_sample(DB, REQ$CONFIG, pool, now + 60)
   usage_sample(DB, REQ$CONFIG, NULL, now + 3600)
 
@@ -805,8 +806,23 @@ test_that("the pool keeps its high marks between samples", {
   for (job in jobs) await(job)
 
   expect_identical(pool$busy, 0L)
-  expect_identical(pool$peak_busy, 1L)
+  expect_identical(pool$used, 0L)
+  expect_identical(pool$peak_used, 1L)
   expect_identical(pool$peak_queue, 2L)
+})
+
+
+test_that("the high mark counts cores, not jobs", {
+
+  # One job that is told it may use both cores a pool of three has for jobs.
+  pool <- local_test_pool(workers = 2L, cores = 3L, server = 1L)
+  await(pool_submit(pool, "eval", list(expr = quote(Sys.sleep(0.2))), cpus = Inf))
+
+  expect_identical(pool$used, 0L)
+  expect_identical(pool$peak_used, 2L)
+
+  usage_sample(local_test_req()$DB, list(data_dir = tempdir()), pool)
+  expect_identical(pool$peak_used, 0L)
 })
 
 

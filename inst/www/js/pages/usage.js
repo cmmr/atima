@@ -325,22 +325,22 @@ function capacityCards(data) {
         series: [{ key: 'busy', label: 'Queue full' }, { key: 'limited', label: 'Per-person limit', cls: 's2' },
                  { key: 'timed_out', label: 'Time limit', cls: 's3' }, { key: 'failed', label: 'Server error', cls: 's4' }] })),
 
-    card(`Workers in use, per day${workers ? ` (of ${fmt(workers)})` : ''}`, { name: 'workers', rows: c.load },
-      h('p.hint', 'Sampled every minute: the most workers busy at once, the average, and the longest queue of waiting jobs.'),
+    card(`CPU cores in use, per day${workers ? ` (of ${fmt(workers)})` : ''}`, { name: 'workers', rows: c.load },
+      h('p.hint', 'Sampled every minute: the most cores the server had in use at once, the average, and the longest queue of waiting jobs. Cores are counted as the server measures them, four times a second, for its jobs and for the process that answers requests.'),
       lineChart({ rows: c.load, x: 'day', label: dayName, format: v => fmt(v, 1),
-        series: [{ key: 'busy_max', label: 'Most busy at once' }, { key: 'busy', label: 'Average busy', cls: 's3' }, { key: 'queue_max', label: 'Longest queue', cls: 's2' }] })),
+        series: [{ key: 'busy_max', label: 'Most cores in use at once' }, { key: 'busy', label: 'Average in use', cls: 's3' }, { key: 'queue_max', label: 'Longest queue', cls: 's2' }] })),
 
     card('The last two weeks, hour by hour', { name: 'hours', rows: c.hours },
       lineChart({ rows: c.hours, x: 'hour', label: hr => `${dayName(hr.slice(0, 10))} ${hr.slice(11)}h`, format: v => fmt(v, 1),
-        series: [{ key: 'busy_max', label: 'Most busy at once' }, { key: 'queue_max', label: 'Longest queue', cls: 's2' }] }),
+        series: [{ key: 'busy_max', label: 'Most cores in use at once' }, { key: 'queue_max', label: 'Longest queue', cls: 's2' }] }),
       h('p.hint', 'Hours are in UTC.')),
 
     card('When the server is busy', { name: 'busy-by-hour', rows: c.heat },
-      h('p.hint', 'Average number of workers busy, by day of the week and hour of the day in your time zone. Darker is busier.'),
+      h('p.hint', 'Average number of CPU cores in use, by day of the week and hour of the day in your time zone. Darker is busier.'),
       c.heat.length === 0 ? h('p.empty', 'Nothing was recorded in this period.') :
         heatMap({ rowLabels: week, colLabels: Array.from({ length: 24 }, (_, i) => String(i)),
           value: (r, col) => grid.has(`${(r + 1) % 7} ${col}`) ? grid.get(`${(r + 1) % 7} ${col}`) : null,
-          title: (r, col, v) => `${week[r]} ${col}:00\n${v === null || v === undefined ? 'no data' : `${fmt(v, 2)} workers busy on average`}` })),
+          title: (r, col, v) => `${week[r]} ${col}:00\n${v === null || v === undefined ? 'no data' : `${fmt(v, 2)} cores in use on average`}` })),
 
     card('How long things take', { name: 'run-times', rows: c.run_times },
       h('p.hint', 'Time on a worker, by rbiom function or kind of action, slowest first. Only what is still in the record of single actions.'),

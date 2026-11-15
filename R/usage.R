@@ -540,7 +540,13 @@ usage_expire <- function (DB, months, now = Sys.time()) {
 #______________________________________________________________________________
 #' Note how busy the workers are, into the row of the current hour.
 #'
-#' The pool keeps its own high marks between two samples (`pool$peak_busy`,
+#' What is counted is CPU cores: those the pool counts as in use, which it
+#' measures (`pool_sample()` in `R/jobs.R`), for the jobs and for the web
+#' server's own process, out of the cores the server may use (`pool$used`
+#' of `pool$cores`). The columns are older than that and still called
+#' `busy_sum`, `busy_max` and `workers`.
+#'
+#' The pool keeps its own high marks between two samples (`pool$peak_used`,
 #' `pool$peak_queue`), so a queue that formed and cleared within the minute
 #' is still seen. The space used under `data_dir` is measured once an hour.
 #'
@@ -550,13 +556,13 @@ usage_sample <- function (DB, config, pool = NULL, now = Sys.time()) {
 
   hour <- format(now, "%Y-%m-%d %H", tz = "UTC")
 
-  busy    <- as.integer(pool$busy %||% 0L)
-  workers <- as.integer(pool$workers %||% 0L)
-  peak    <- max(busy, as.integer(pool$peak_busy %||% 0L))
+  busy    <- as.integer(pool$used %||% 0L)
+  workers <- as.integer(pool$cores %||% 0L)
+  peak    <- max(busy, as.integer(pool$peak_used %||% 0L))
   queued  <- max(length(pool$queue), as.integer(pool$peak_queue %||% 0L))
 
   if (!is.null(pool)) {
-    pool$peak_busy  <- busy
+    pool$peak_used  <- busy
     pool$peak_queue <- length(pool$queue)
   }
 
