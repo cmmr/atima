@@ -42,7 +42,7 @@ it to that step's list instead of fixing it now.
 | 12 | MCP server, shared (sign-in), and tools that change data | done (2026-11-14) |
 | 13 | Usage monitoring | done (2026-11-15) |
 | 14 | Interactive figures (plotly): is it worth it; rendering on request | done (2026-11-15); part A closed as "not for now" |
-| 15 | Cores given to jobs by what they can use | not started |
+| 15 | Cores given to jobs by what they can use | done (2026-11-15) |
 | 16 | The lab's public server | not started |
 | 17 | Release | not started |
 
@@ -893,6 +893,65 @@ it to that step's list instead of fixing it now.
   (settings to complete, an error) the box is not shown. (f) The choice
   is kept in the browser's `localStorage` under `atima.autoRender`, one
   for all figure types.
+- **One setting for cores, `cpus` (step 15).** Daniel chose, 2026-11-15:
+  `workers` and `max_cpus` are replaced by `cpus`, named as rbiom names
+  it: the most CPU cores atima may use at once across all its jobs, and
+  the most workers, where memory allows. He added during the step that
+  the web server's own process is part of that budget. So one core is
+  kept for the main process (unless `cpus` is 1) and there is a worker
+  for each of the others, but no more than one for every 2 GB of
+  memory (four, if the memory cannot be read). `ATIMA_WORKERS` and
+  `ATIMA_MAX_CPUS` are no longer read; `run()` says so at start-up if
+  either is set.
+- **Cores in use are measured, not assumed (step 15).** Daniel's
+  design, 2026-11-15: instead of counting what jobs were granted, the
+  pool reads from the operating system how much processor time each
+  busy worker has used (package 'ps', a new import), four times a
+  second, and counts that. A job that computes distances uses several
+  cores for a moment at its start and one for the rest, so the cores
+  it was told it may use are free again as soon as it stops using
+  them. He also settled that a job goes parallel once, after its
+  set-up, and never again, and that only the `bdiv_*` functions need
+  more than one core. The rules built on that: a job counts for its
+  grant during its first second (or for more, if it is seen to use
+  more), then for what it was measured to use in the last two readings,
+  rounded up, and never less than one core; the main process counts
+  for its one core, or for more if it is measured to use more.
+- **Under load, new grants shrink (step 15).** Daniel chose, 2026-11-15:
+  jobs start in the order they came, as soon as a worker and one core
+  are free; a job that can use several cores is told it may use the
+  free cores divided by the jobs waiting, itself included, and never
+  less than one. No job waits for more than one core, so a large job
+  cannot be starved by small ones, nor hold them up.
+- **The per-account limit and the queue count jobs (step 15).** Daniel
+  chose, 2026-11-15: 16 jobs per account and ten queued per worker, as
+  before.
+- **Anything in which rbiom does not keep to `cpus` is fixed in rbiom,
+  not worked around in atima (step 15).** Daniel, 2026-11-15. Two
+  things were found and are described for him in the step's notes: in
+  the container, OpenBLAS runs a thread per core behind `cpus = 1`; and
+  the same distance matrix is cached under different keys by different
+  functions.
+- **Step 15 choices not put to Daniel.** (a) On a shared server a job is
+  told it may use at most half of the cores that are free (`most` in
+  `pool_start()`), so that the next job to arrive finds some; a local
+  install gives a job all of them. (b) Which functions may use several
+  cores is read from rbiom at run time: those whose arguments include
+  both `cpus` and `bdiv` (`rbiom_cpus()`). (c) Every other job states a
+  need of one core: uploads, summaries, edits, rarefying, exports other
+  than a distance matrix, downloads, table pages, legacy imports, the
+  server's own seeding. (d) A new job starts only when a core is free
+  by measurement, so a one-core job can wait for another job's parallel
+  step to end (3 seconds, in the check on this machine). (e) The Usage
+  page's "Workers in use" card became "CPU cores in use"; the columns
+  of `usage_hours` keep their names and now hold cores, the main
+  process's included. (f) The two-stage idea Daniel raised (distances
+  first on many cores, left in rbiom's cache, then the plot on one) was
+  built, found to work for ordinations only because of rbiom's cache
+  keys, and taken out again when measuring made it unnecessary. (g)
+  The timing-sensitive pool tests the coordinator flagged
+  (`test-jobs.R`) give trivial jobs a minute unless the test is about
+  the time limit.
 
 ## Conventions (apply from step 2 onward)
 
@@ -3810,6 +3869,138 @@ and `max_cpus` stay as the settings or are replaced; what happens under
 load (shrink every new grant, or keep large grants and let others
 wait); whether the per-account limit counts jobs or cores.
 
+**Done (2026-11-15).** The design above was changed by Daniel while the
+step ran; what was built is in the decision log ("(step 15)") and
+here.
+
+- **What rbiom offers.** In rbiom 4.0.0 at commit f51c971 (installed
+  from GitHub on 2026-11-14, after Daniel added `cpus` wherever a
+  function can use it), 22 exported functions take `cpus`: the alpha
+  and beta diversity plots, tables and statistics, `bdiv_clusters`,
+  `rare_corrplot`, `rare_multiplot`, `rarefy` and its helpers, and
+  `write_xlsx`. All of the parallel work is ecodive's (threads in C);
+  rbiom itself starts no processes or threads.
+- **Measurements.** One call at a time, on this development machine:
+  Intel Core i5-9600K, six cores without hyper-threading, 64 GB,
+  Windows 11, R 4.6.1 with R's own single-threaded BLAS, rbiom's cache
+  off. So 8 and 16 threads shared six cores, and nothing here says how
+  a call scales past six. Other sessions' test runs were going on the
+  same machine for part of the time; timings that disagree by a tenth
+  are noise. Datasets: `hmp50` (49 samples after rarefying, with a
+  tree), `gems` (1,005), and resampled copies of them (980 and 3,920
+  with the tree, 4,020 without). Seconds:
+
+  | Call | Samples | 1 core | 2 | 4 | 8 | 16 |
+  |---|---|---|---|---|---|---|
+  | Weighted UniFrac distances | 980 | 0.95 | 0.50 | 0.28 | 0.22 | 0.28 |
+  | Weighted UniFrac distances | 3,920 | 16.0 | 8.7 | 5.6 | 3.9 | 4.0 |
+  | Bray-Curtis distances | 1,005 | 0.07 | 0.03 | 0.01 | 0.02 | 0.02 |
+  | Bray-Curtis distances | 4,020 | 1.20 | 0.62 | 0.34 | 0.26 | 0.31 |
+  | `bdiv_ord_plot`, no statistics | 1,005 | 2.2 | 2.2 | 2.1 | 2.4 | 2.2 |
+  | `bdiv_ord_plot`, no statistics | 4,020 | 85 | 87 | 89 | 99 | 93 |
+  | `bdiv_ord_plot`, PERMANOVA | 1,005 | 34.5 | 34.1 | 33.1 | 33.0 | 33.2 |
+  | `bdiv_boxplot`, permutation test | 1,005 | 27.6 | 25.9 | 25.6 | 26.2 | 31.1 |
+  | `bdiv_heatmap` | 1,005 | 5.1 | 4.7 | 4.7 | 4.7 | 4.7 |
+  | `bdiv_heatmap` | 4,020 | 47.5 | 42.5 | 42.3 | 41.9 | 43.5 |
+  | `bdiv_clusters` | 4,020 | 6.9 | 6.1 | 6.1 | 5.9 | 6.2 |
+  | `adiv_boxplot` with statistics | 4,020 | 0.88 | 0.89 | 0.87 | 0.89 | 0.90 |
+  | `adiv_stats` | 4,020 | 0.39 | 0.39 | 0.38 | 0.39 | 0.39 |
+  | `rarefy` | 4,020 | 0.12 | 0.06 | 0.04 | 0.04 | 0.03 |
+  | `rare_corrplot` | 4,020 | 1.9 | 1.5 | 1.3 | 1.3 | 1.3 |
+  | `rare_multiplot` | 4,020 | 3.1 | 2.6 | 2.4 | 2.3 | 2.4 |
+  | `write_xlsx` | 4,020 | 35.6 | 33.3 | 33.2 | 34.0 | 34.0 |
+
+  With 49 samples every call took under 1.2 seconds at any number of
+  cores. `bdiv_corrplot` on 1,005 samples took 291 seconds on one core
+  (it fits a trend through half a million pairs) and was not repeated.
+  `bdiv_ord_plot` with weighted UniFrac on 3,920 samples: 91 seconds on
+  one core, 80 on six. What this says: only the distances gain; they
+  are a small part of a job except for UniFrac on thousands of samples;
+  the permutation test and the ordination run on one core whatever
+  they are given; and under about 1,000 samples nothing gains a second.
+  The need does depend on the size of the project, but measuring use
+  makes that take care of itself: a small project's parallel step is
+  over before the first reading.
+- **How the pool works now** (`R/jobs.R`). `pool$cores` is the budget
+  (`cpus`), `pool$server` the core kept for the main process,
+  `pool$workers` the processes. `job(cpus = )` and `pool_submit(cpus =
+  )` state what a job can use (`rbiom_cpus()`: `Inf` or 1).
+  `pool_dispatch()` starts the oldest waiting job when a worker is free
+  and `pool_free()` is at least 1; `pool_grant()` decides what the
+  worker is told, and the grant is put into the job's `ctx$cpus`, which
+  `with_cpus()` passes to rbiom. `pool_watch()` runs a timer while any
+  worker is busy; each tick `pool_sample()` reads the processor time of
+  the main process and of each busy worker (found by the process id in
+  the job's marker file), `pool_account()` adds up `job_cores()`, and
+  `pool_dispatch()` runs again. A job keeps counting until its worker
+  is released, also while it is being stopped. `pool$used` and
+  `pool$peak_used` (what usage monitoring records) are the jobs' cores
+  plus the main process's measured use.
+- **Checked on both systems** (2026-11-15), with a real job that reads
+  3,920 samples, computes weighted UniFrac on the cores it was told
+  and then works on one core for 3 seconds, in a pool of six cores
+  (one the server's): on Windows (R 4.6.1) and in the Linux container
+  (R 4.6.2), 'ps' 1.9.3 on both, the job was told 5 cores, measured at
+  1.0 during its set-up, 4.9 to 5.0 during the distances (about 3
+  seconds) and 1.0 afterwards; the pool counted 5, then 1 within half
+  a second of the step ending. On Linux a second, one-core job sent
+  one second in waited 3.3 seconds, until the cores were free. Reading
+  a process's time takes microseconds.
+- **Threads behind a one-core grant.** rbiom's own threads follow
+  `cpus`. The linear algebra library does not: in the container
+  (OpenBLAS 0.3.32, pthread build) `bdiv_ord_plot(gems, cpus = 1)`
+  used 16.4 seconds of processor time in 3.8 seconds, and took 1.1
+  seconds with `OPENBLAS_NUM_THREADS=1`; on 4,020 samples, 37 seconds
+  (179 of processor time) against 19, timed while the test suite ran
+  beside it. The threads never helped; the library itself does (R's
+  own BLAS on Windows took 85 seconds for the same ordination). The
+  time goes in `stats::cmdscale()`, the PCoA. On Windows, R's BLAS has
+  one thread. Per Daniel this is for rbiom to fix, and atima does not pin
+  anything; the pool counts those threads like any others, so the
+  budget still holds. The server article tells an administrator to set
+  the variable meanwhile.
+- **Load test** (`loadtest/README.md` has the tables; files
+  `loadtest/results/*-step15-*`). Step 10's test, same machine, same
+  day, everything in containers, default settings both times: before
+  (commit b13a5cb) 3 workers of 2 cores, after `cpus = 6`, which is 5
+  workers; both with rbiom at f51c971. The mix of plots is the one
+  the load-test notes state: `adiv_boxplot` 22%, `bdiv_ord_plot` 18%,
+  `taxa_stacked` 12%, `taxa_heatmap` and `taxa_boxplot` 10% each,
+  `adiv_corrplot` and `bdiv_boxplot` 8% each, `taxa_forest` 7%,
+  `rare_corrplot` 5%; half the people on 50 samples, half on 1,006.
+  Ten people: median wait 2.7 seconds before, 0.0 after; 95th
+  percentile 24.3 and 4.5; 103 and 153 jobs done. Thirty people: median
+  wait 32.4 and 11.1 seconds; 31 jobs refused before, none after; but
+  10 permutation tests stopped at the 60-second limit after, none
+  before, because five of them now run side by side. With
+  `OPENBLAS_NUM_THREADS=1` in the server's environment and nothing else
+  changed, all 207 jobs finished, none refused and none stopped. AI
+  apps: median 2.5 seconds before, 1.5 after.
+- **Not verified.**
+  - More than six cores: how the calls scale, and how the scheduler
+    behaves with 31 workers, are for the lab's server (step 16).
+  - macOS: 'ps' supports it; nothing was run there.
+  - Memory per worker was not measured again; the 2 GB per worker rule
+    rests on step 10's 500 to 650 MB.
+  - The image was built for the load test from the existing image plus
+    'ps' and the new code, not from `deploy/Dockerfile` from scratch.
+    'ps' is in `Imports`, which is what that file installs from.
+  - The Usage page with the new card text was not opened in a browser;
+    only its text changed.
+- **What would help from rbiom**, in full in the shared notes folder
+  (`rbiom-cpus-findings.md`): bound BLAS and OpenMP threads by `cpus`;
+  one cache key for one distance matrix (today `bdiv_heatmap`,
+  `bdiv_clusters`, `bdiv_stats`, `bdiv_boxplot` and `bdiv_corrplot`
+  miss the entry that `bdiv_ord_plot` wrote, because they pass a `bdiv`
+  carrying the attribute `validated`); run the permutations in
+  parallel (`vegan::adonis2(parallel = )`), which is the one change
+  that would shorten the job that fills a shared server; and say in
+  the schema which functions compute in parallel.
+- `devtools::test()`: 12,271 tests pass. `R CMD check --no-manual --as-cran`
+  (Windows): 0 errors, 0 warnings, and the 1 note this machine gives every
+  time (curl prints "Initiating curl with CURL_SSL_BACKEND: openssl"
+  into the check of dependencies in R code).
+
 ## Step 16: The lab's public server
 
 Installing atima v6 on the lab's own server and moving the public
@@ -4025,6 +4216,32 @@ session only with his explicit say-so for each change; reading the
 server's state is fine. No secret is ever pasted into a session, a file
 in git or a commit.
 
+- From step 15: cores on the real server.
+  - The settings are now one, `ATIMA_CPUS`. Left unset on the lab's
+    server it is all 32 cores: one for the main process, 31 workers,
+    which 251 GB allows (the rule is one worker per 2 GB).
+    `ATIMA_WORKERS` and `ATIMA_MAX_CPUS` do nothing any more; take them
+    out of any `.env` that has them.
+  - Until rbiom bounds linear algebra threads by `cpus`, start the
+    server with `OPENBLAS_NUM_THREADS=1` (and `OMP_NUM_THREADS=1`).
+    `deploy/compose.yaml` does not pass those through; a compose
+    override file with the two variables under the `atima` service does
+    it (the load test used one). On six cores it was the difference
+    between ten jobs stopped at the time limit and none. With 32 cores
+    the default would start up to 32 threads behind every ordination.
+  - Run the load test there before and after setting it, at 30 and at
+    100 or more people: nothing in step 15 was measured past six cores.
+    Things to look at: whether permutation tests on 1,006 samples stay
+    under the time limit when many run at once; the probe's 99th
+    percentile (the main process has a core of its own now); how often
+    a one-core job waits for a parallel step (`queue` in
+    `Server-Timing`); and the Usage page's "CPU cores in use" card
+    against `top`.
+  - On a shared server a job is told it may use at most half the free
+    cores (`most = 0.5`, set in `run()`); with 31 that is 16, then 8,
+    and so on. If large UniFrac jobs are common and the server is quiet,
+    that is the number to raise.
+
 Decisions for Daniel: whether Caddy stays in front (as step 10 built
 it) or the stack sits behind a host web server as v5 did; the
 temporary name for the trial period; the date of the cut-over and how
@@ -4040,6 +4257,11 @@ tear-down.
   what), that a local install records nothing, and name the four new
   settings. The article list should lead to "Usage" in the server
   article.
+- From step 15: `NEWS` should say that `workers` and `max_cpus` are
+  gone and `cpus` (`ATIMA_CPUS`) replaces them, that one core is the
+  web server's, and that atima now imports 'ps'. If rbiom has learned
+  to bound linear algebra threads by then, take the sentence about
+  `OPENBLAS_NUM_THREADS` out of the server article.
 
 - Version, NEWS, citation, DOI. The release is atima v6: set the
   version to 6.0.0 (`DESCRIPTION` says 5.0.1), and say in NEWS that
