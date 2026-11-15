@@ -493,9 +493,9 @@ test_that("unticked, a figure is drawn on request and an older one is marked", {
   expect_false(v$download)
   expect_true(v$note)
 
-  # The figure matches its settings: the box steps aside, Download is back.
+  # The figure matches its settings: the box goes, Download is back.
   v <- js$get("V({ auto: false })")
-  expect_identical(v$box, "corner")
+  expect_identical(v$box, "hidden")
   expect_identical(v$button, "render")
   expect_false(v$dim)
   expect_true(v$download)
@@ -510,12 +510,45 @@ test_that("unticked, a figure is drawn on request and an older one is marked", {
   # Settings to complete, or an error on screen: the box leaves the message
   # readable, and Render is only there for settings that can be drawn.
   v <- js$get("V({ auto: false, complete: false, message: true })")
-  expect_identical(v$box, "corner")
+  expect_identical(v$box, "hidden")
   expect_false(v$canRender)
   expect_false(v$download)
   v <- js$get("V({ auto: false, drawn: false, message: true })")
-  expect_identical(v$box, "corner")
+  expect_identical(v$box, "hidden")
   expect_true(v$canRender)
+})
+
+
+test_that("the render box stays while the user is at it, and is never anywhere but the middle", {
+
+  js <- local_render_js()
+
+  # The figure has arrived and the mouse is still over the box: it stays,
+  # with the checkbox, and the figure is no longer greyed.
+  v <- js$get("V({ held: true })")
+  expect_identical(v$box, "held")
+  expect_identical(v$heading, "The figure is up to date")
+  expect_null(v$button)
+  expect_false(v$dim)
+  expect_true(v$download)
+
+  # Drawing on request, it keeps its Render button meanwhile.
+  v <- js$get("V({ auto: false, held: true })")
+  expect_identical(v$box, "held")
+  expect_identical(v$button, "render")
+
+  # Being at the box changes nothing while it has something to say.
+  expect_identical(js$get("V({ busy: true, held: true })"), js$get("V({ busy: true })"))
+  expect_identical(js$get("V({ auto: false, stale: true, held: true })"), js$get("V({ auto: false, stale: true })"))
+
+  # No situation puts it in a corner.
+  js$eval("
+    const boxes = new Set();
+    for (let i = 0; i < 128; i++) {
+      const bit = n => Boolean(i >> n & 1);
+      boxes.add(view({ auto: bit(0), busy: bit(1), drawn: bit(2), stale: bit(3), complete: bit(4), message: bit(5), held: bit(6) }).box);
+    }")
+  expect_setequal(js$get("[...boxes]"), c("hidden", "center", "held"))
 })
 
 

@@ -35,9 +35,12 @@ export function isStale(drawn, current) { return drawn !== null && drawn !== cur
  * @param {boolean} stale     is it older than the settings?
  * @param {boolean} complete  can the settings be drawn (nothing required is missing)?
  * @param {boolean} message   is a message shown in place of the figure?
+ * @param {boolean} held      is the mouse over the render box, or the keyboard in it?
  * @return {{box, heading, hint, button, canRender, dim, download, note}}
- *   box       where the render box is: 'hidden', 'center' (over the figure)
- *             or 'corner' (out of the figure's way)
+ *   box       the render box, over the middle of the figure: 'center' while
+ *             there is something to say; 'held' when there no longer is but
+ *             the user is at the box, which then stays, without the veil
+ *             over the figure, until they leave it; else 'hidden'
  *   heading   its first line, or '' for none
  *   hint      a second line, or ''
  *   button    'stop', 'render' or null
@@ -46,7 +49,16 @@ export function isStale(drawn, current) { return drawn !== null && drawn !== cur
  *   download  is the Download button enabled?
  *   note      is "settings changed" shown above the statistics and the code?
  */
-export function view({ auto, busy, drawn, stale, complete, message = false }) {
+export function view({ held = false, ...now }) {
+  const v = rest(now);
+  if (v.box === 'hidden' && held) { v.box = 'held'; if (drawnNow(now)) v.heading = 'The figure is up to date'; }
+  return v;
+}
+
+/** Is the figure on screen the one the settings ask for? */
+function drawnNow({ drawn, stale, message = false }) { return drawn && !stale && !message; }
+
+function rest({ auto, busy, drawn, stale, complete, message = false }) {
 
   if (busy) return {
     box: 'center', heading: '', hint: '', button: 'stop', canRender: false,
@@ -60,7 +72,7 @@ export function view({ auto, busy, drawn, stale, complete, message = false }) {
   // The middle of the figure holds a message (settings to complete, or
   // an error): the box leaves it readable.
   if (message || !complete) return {
-    box: 'corner', heading: '', hint: '', button: 'render', canRender: complete,
+    box: 'hidden', heading: '', hint: '', button: 'render', canRender: complete,
     dim: drawn, download: false, note: drawn };
 
   if (!drawn) return {
@@ -73,8 +85,9 @@ export function view({ auto, busy, drawn, stale, complete, message = false }) {
     hint: complete ? 'The figure shown is older than its settings. Press Render to update it.' : '',
     dim: true, download: false, note: true };
 
-  // The figure matches its settings: the box steps aside.
+  // The figure matches its settings: nothing to say. The box comes back
+  // with the next change of a control.
   return {
-    box: 'corner', heading: '', hint: '', button: 'render', canRender: complete,
+    box: 'hidden', heading: '', hint: '', button: 'render', canRender: complete,
     dim: false, download: complete, note: false };
 }

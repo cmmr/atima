@@ -265,9 +265,11 @@ export function show(container, fn) {
   const img       = h('img.figure', { alt: def.label, hidden: true });
   // The render box: what is going on, the choice to draw after every
   // change, and one button that is "Render" or "Stop". It is over the
-  // middle of the figure while there is something to say, and in a corner
-  // when the figure is up to date. Its parts are made once, so that the
-  // keyboard's place in it survives a change of state.
+  // middle of the figure while there is something to say, and stays
+  // there for as long as the mouse is over it or the keyboard is in it,
+  // so that a quick figure does not take the checkbox away from under
+  // the user's hand. Its parts are made once, so that the keyboard's
+  // place in it survives a change of state.
   const autoId    = newId('auto');
   const autoCheck = h('input', { id: autoId, type: 'checkbox', checked: auto, onchange: e => setAuto(e.target.checked) });
   const spin      = h('i.spin', { hidden: true });
@@ -275,7 +277,10 @@ export function show(container, fn) {
   const hint      = h('p.hint', { hidden: true });
   const renderBtn = button('Render', () => draw(), { icon: 'play', kind: 'primary', title: 'Draw the figure for the current settings' });
   const stopBtn   = button('Stop', stop, { icon: 'stop', kind: 'danger', title: 'Stop drawing this figure' });
-  const renderBox = h('div.render-box', { role: 'group', 'aria-label': 'Drawing the figure' },
+  const renderBox = h('div.render-box', { role: 'group', 'aria-label': 'Drawing the figure',
+      onmouseenter: () => refresh(), onmouseleave: () => refresh(),
+      // After the keyboard has moved on, not before.
+      onfocusout: () => setTimeout(refresh, 0) },
     h('div.render-status', { role: 'status' }, spin, heading), hint,
     h('div.render-actions',
       h('label.render-auto', { for: autoId, title: 'Draw the figure again after every change of a setting. Untick it to change several settings and then press Render, which helps when a figure is slow to draw.' },
@@ -399,10 +404,20 @@ export function show(container, fn) {
   function refresh() {
     const v = R.view({
       auto, busy: isBusy, drawn: drawnKey !== null, stale: R.isStale(drawnKey, settingsKey()),
-      complete: S.problems(def, args()).length === 0, message: !message.hidden });
+      complete: S.problems(def, args()).length === 0, message: !message.hidden,
+      held: !overlay.hidden && (renderBox.matches(':hover') || renderBox.querySelector(':focus-visible') !== null) });
 
+    // Held, the box keeps the size it had, so that it does not shrink
+    // away from under the mouse when the figure arrives.
+    if (v.box === 'held' && !overlay.classList.contains('held')) {
+      const size = renderBox.getBoundingClientRect();
+      renderBox.style.minWidth  = `${size.width}px`;
+      renderBox.style.minHeight = `${size.height}px`;
+    } else if (v.box !== 'held') {
+      renderBox.style.minWidth = renderBox.style.minHeight = '';
+    }
     overlay.hidden = v.box === 'hidden';
-    overlay.classList.toggle('corner', v.box === 'corner');
+    overlay.classList.toggle('held', v.box === 'held');
     spin.hidden = !isBusy;
     heading.textContent = isBusy ? `Drawing: ${def.label}` : v.heading;
     heading.hidden = !heading.textContent;

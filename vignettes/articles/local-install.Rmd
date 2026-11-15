@@ -170,11 +170,12 @@ want. The box that appears while a figure is drawn has a checkbox,
 longer draws anything: the figure on screen is greyed out and marked
 "Settings changed", and the **Download** button is switched off, until
 you press **Render**. The same button reads **Stop** while a figure is
-being drawn. A page you open then waits for **Render** too. With the box
-unticked it stays on the figure page (in the lower right corner when the
-figure is up to date), so the checkbox is always there to tick again;
-ticking it draws the figure at once if it is out of date. The browser
-remembers the choice for every kind of figure.
+being drawn. A page you open then waits for **Render** too. The box goes
+away once the figure is drawn and up to date, but not while the mouse is
+over it, so a quick figure does not take the checkbox away before you
+can click it. It is back with the next change of a setting, and ticking
+it then draws the figure at once. The browser remembers the choice for
+every kind of figure.
 
 An example for a laptop with little memory and a large dataset:
 
