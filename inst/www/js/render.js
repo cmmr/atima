@@ -43,8 +43,10 @@ export function isStale(drawn, current) { return drawn !== null && drawn !== cur
  *             over the figure, until they leave it; else 'hidden'
  *   heading   its first line, or '' for none
  *   hint      a second line, or ''
- *   button    'stop', 'render' or null
- *   canRender is the Render button enabled?
+ *   button    'stop' while a figure is drawn, else 'render': the box
+ *             always has the one or the other
+ *   canRender is the Render button enabled? Not while there is nothing
+ *             to render: the figure is up to date
  *   dim       is the figure greyed out?
  *   download  is the Download button enabled?
  *   note      is "settings changed" shown above the statistics and the code?
@@ -65,8 +67,10 @@ function rest({ auto, busy, drawn, stale, complete, message = false }) {
     dim: true, download: auto, note: !auto && drawn };
 
   // Nothing is in progress, and every change draws: as it always was.
+  // Render is of use only after Stop, when the figure is not the
+  // settings'.
   if (auto) return {
-    box: 'hidden', heading: '', hint: '', button: null, canRender: false,
+    box: 'hidden', heading: '', hint: '', button: 'render', canRender: complete && (!drawn || stale),
     dim: false, download: complete, note: false };
 
   // The middle of the figure holds a message (settings to complete, or

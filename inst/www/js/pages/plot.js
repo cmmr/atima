@@ -402,9 +402,10 @@ export function show(container, fn) {
 
   /** Show the render box, the figure and the Download button as the situation asks. */
   function refresh() {
+    const ready = S.problems(def, args()).length === 0;
     const v = R.view({
       auto, busy: isBusy, drawn: drawnKey !== null, stale: R.isStale(drawnKey, settingsKey()),
-      complete: S.problems(def, args()).length === 0, message: !message.hidden,
+      complete: ready, message: !message.hidden,
       held: !overlay.hidden && (renderBox.matches(':hover') || renderBox.querySelector(':focus-visible') !== null) });
 
     // Held, the box keeps the size it had, so that it does not shrink
@@ -428,10 +429,10 @@ export function show(container, fn) {
     const show = v.button === 'stop' ? stopBtn : renderBtn, hide = show === stopBtn ? renderBtn : stopBtn;
     const held = document.activeElement === hide;
     hide.hidden = true;
-    show.hidden = v.button === null;
+    show.hidden = false;
     renderBtn.disabled = !v.canRender;
     renderBtn.title = v.canRender ? 'Draw the figure for the current settings'
-      : v.box === 'held' ? 'The figure is up to date' : 'Complete the settings first';
+      : ready ? 'The figure is up to date' : 'Complete the settings first';
     if (held && !show.hidden && !show.disabled) show.focus();
 
     figureBox.classList.toggle('busy', isBusy);

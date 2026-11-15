@@ -451,7 +451,8 @@ test_that("with 're-render automatically' ticked the plot page behaves as before
   # Nothing in progress: no box, the figure as it is, Download allowed.
   v <- js$get("V({})")
   expect_identical(v$box, "hidden")
-  expect_null(v$button)
+  expect_identical(v$button, "render")
+  expect_false(v$canRender)
   expect_false(v$dim)
   expect_true(v$download)
   expect_false(v$note)
@@ -530,7 +531,8 @@ test_that("the render box stays while the user is at it, and is never anywhere b
   v <- js$get("V({ held: true })")
   expect_identical(v$box, "held")
   expect_identical(v$heading, "The figure is up to date")
-  expect_null(v$button)
+  expect_identical(v$button, "render")
+  expect_false(v$canRender)
   expect_false(v$dim)
   expect_true(v$download)
 
@@ -545,14 +547,22 @@ test_that("the render box stays while the user is at it, and is never anywhere b
   expect_identical(js$get("V({ busy: true, held: true })"), js$get("V({ busy: true })"))
   expect_identical(js$get("V({ auto: false, stale: true, held: true })"), js$get("V({ auto: false, stale: true })"))
 
-  # No situation puts it in a corner.
+  # No situation puts it in a corner, and it always has its button:
+  # Stop while a figure is drawn, Render otherwise.
   js$eval("
-    const boxes = new Set();
+    const boxes = new Set(); let buttons = true;
     for (let i = 0; i < 128; i++) {
       const bit = n => Boolean(i >> n & 1);
-      boxes.add(view({ auto: bit(0), busy: bit(1), drawn: bit(2), stale: bit(3), complete: bit(4), message: bit(5), held: bit(6) }).box);
+      const v = view({ auto: bit(0), busy: bit(1), drawn: bit(2), stale: bit(3), complete: bit(4), message: bit(5), held: bit(6) });
+      boxes.add(v.box);
+      if (v.button !== (bit(1) ? 'stop' : 'render')) buttons = false;
     }")
   expect_setequal(js$get("[...boxes]"), c("hidden", "center", "held"))
+  expect_true(js$get("buttons"))
+
+  # Ticked, Render is of use after Stop only: the figure is not the settings'.
+  expect_true(js$get("V({ stale: true, held: true })")$canRender)
+  expect_true(js$get("V({ drawn: false, held: true })")$canRender)
 })
 
 
