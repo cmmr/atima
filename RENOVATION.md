@@ -41,7 +41,7 @@ it to that step's list instead of fixing it now.
 | 11 | Interface refinement: compact controls, navigation | done (2026-11-14) |
 | 12 | MCP server, shared (sign-in), and tools that change data | done (2026-11-14) |
 | 13 | Usage monitoring | done (2026-11-15) |
-| 14 | Interactive figures (plotly): is it worth it; rendering on request | not started |
+| 14 | Interactive figures (plotly): is it worth it; rendering on request | part A closed (not for now); part B in progress |
 | 15 | Cores given to jobs by what they can use | not started |
 | 16 | The lab's public server | not started |
 | 17 | Release | not started |
@@ -860,6 +860,11 @@ it to that step's list instead of fixing it now.
   250 lines, instead of a new dependency. (l) CSV files are made in the
   browser from the data the page already has; there is no download
   route. (m) Schema version 8.
+- **`ggplotly()` is not feasible or worthwhile for the time being
+  (step 14).** Daniel stopped part A's investigation on 2026-11-15,
+  part-way through, with that verdict. Figures stay the static images
+  ggplot2 draws; nothing was built and no dependency was added. What
+  had been found by then is under step 14, with what was not measured.
 
 ## Conventions (apply from step 2 onward)
 
@@ -3560,6 +3565,62 @@ interactive while others stay static.
   the worst mismatches). Build only what he chooses, and if that is
   more than this step can hold, write it up as a step of its own
   rather than rushing it.
+
+**Outcome (2026-11-15): stopped by Daniel, "not feasible/worthwhile for
+the time being".** The investigation was not finished. Found before it
+stopped, with rbiom 4.0.0, ggplot2 4.0.3, patchwork 1.3.2 and plotly
+4.12.1 (which ships plotly.js 2.25.2), on `hmp50`, in the desktop app's
+browser (Chromium 156, Windows 11, 6 cores):
+
+- What atima draws. 14 plot functions (`schema_functions`, `use =
+  "plot"`). 13 return one ggplot; only `rare_multiplot` returns a
+  patchwork (two plots, one column). `work_plot()` saves the figure with
+  `ggsave()` (ragg for raster formats) and the page shows it in an
+  `<img>`; a download and the MCP tool `make_plot` run the same job with
+  other image settings.
+- The Content Security Policy stops plotly.js outright. Under
+  `style-src 'self'` the script throws while loading: it writes its
+  rules into a `<style>` element it creates, which the policy blocks.
+  Handing it a same-origin stylesheet under the id it looks for gets
+  one step further, then it fails the same way on a second, per-figure
+  `<style>`, and its inline `style` attributes are blocked too. So it
+  needs `style-src 'unsafe-inline'`. plotly.js's own notes say inline
+  CSS under a strict policy is still to be done, also in its "strict"
+  bundle (which only removes function constructors). Whether
+  `script-src 'self'` is enough was not tested. The file is 3.6 MB
+  minified (the current plotly.js 4.3 is 4.8 MB; its cartesian bundle,
+  1.5 MB, has no WebGL traces), MIT licence.
+- Conversion, 31 settings across the 14 functions, each compared with
+  the static figure side by side. Two fail with an error: anything with
+  `patterns` (the pattern fill is not a colour). The rest convert, with
+  these differences:
+
+  | Figure | `ggplotly()` result |
+  |---|---|
+  | Box plots (alpha, beta, taxa) | Bars, boxes, violins, dots and error bars are drawn. P-value labels on brackets show as raw text, `italic(p) == "0.001"`, unrotated when flipped, and overlap. Background stripes, caption gone. Legend entries doubled or quadrupled ("(Saliva,1)", "(Saliva,1,NA)"); keys blank for error bars. A violin figure of 50 samples was 2.4 MB of JSON. |
+  | Correlation plots (alpha, beta, taxa) | Points, trend lines and bands are drawn. The p-value and comparison labels (`geom_label`) are dropped, with a warning. Caption gone, legend multiplied. |
+  | Ordination | Points, ellipses and spider lines are drawn. Taxa labels of a biplot (`ggrepel`) are dropped; the size legend, the subtitle with the statistics and the caption are gone; with facets the title overlaps the strips. |
+  | Heat maps (beta, taxa) | Without tracks: cells and trees are drawn; labels overlap, the colour bar moves. With `tracks`: **the heat map itself is not drawn** (the second fill scale, from `ggnewscale`, is "not implemented"), nor a categorical track. |
+  | Stacked bars, reads per sample | Close to the static figure. Subtitle and caption gone. |
+  | Rarefaction curves | Close. Legend doubled. |
+  | Forest plot | Close. Legend keys blank, caption gone, strip labels overlap with many panels. |
+  | Rarefaction overview (patchwork) | `ggplotly()` does not take it. The two pieces converted one at a time and joined with `plotly::subplot()` are drawn one above the other, with one merged legend under the wrong title and no subtitles. |
+
+  Captions and subtitles are lost everywhere; they carry the test's
+  name and the statistics. Hover shows the mapped values of a mark, so
+  a sample's name only where the figure maps it.
+- Not measured: the limits as figures grow (payload, time to draw,
+  hover and zoom, memory, WebGL and the other remedies), `ggiraph` and
+  the other alternatives, accessibility, the cache and MCP side. One
+  thing seen on the way: at 200 samples the conversion of a taxa box
+  plot with statistics had not returned after ten minutes, while the
+  ordination, stacked bars and alpha box plot at that size took
+  seconds (57 kB, 318 kB and 32 kB of JSON). The cause was not found.
+- If this is taken up again: the policy, the lost statistics text and
+  the heat maps are the three things to settle first. A hover layer
+  over the static image (a small table of point positions sent with
+  the figure) needs none of plotly and keeps the figure exact; it was
+  the alternative that looked most promising but was not tried.
 
 ### Part B: rendering on request
 
