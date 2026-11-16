@@ -49,8 +49,8 @@ it to that step's list instead of fixing it now.
 | 15D | Captions and NMDS stress from rbiom | done (2026-11-16) |
 | 15E | Job progress: place in the queue | done (2026-11-16) |
 | 15F | "How to choose" notes; template script for the MCP endpoint | done (2026-11-16) |
-| 15G | A colour for each group | waits on rbiom |
-| 15H | "Methods" tab | waits on rbiom |
+| 15G | A colour for each group | done (2026-11-16) |
+| 15H | "Methods" tab | done (2026-11-16) |
 | 15I | Projects stored as HDF5; order of a field's levels | done (2026-11-16) |
 | 16 | The lab's public server | not started |
 | 17 | Documentation site: move to Zensical or Material for MkDocs | not started |
@@ -1006,6 +1006,32 @@ it to that step's list instead of fixing it now.
   categories made from numbers (JSON loses both), so it needs `h5lite`
   on the user's computer. In the level-order route and tool, values
   left out keep their old order after the ones given.
+- **A colour for each group is kept in the project's stored HDF5 files
+  (step 15G, not put to Daniel).** One root attribute, `atima-colors`,
+  holds JSON (`{"field": {"group": "#RRGGBB"}}`) in both the full and
+  the rarefied file, so saving, copying, sharing, reloading, rarefying
+  and "is saved" keep them with no database change; an uncompressed
+  HDF5 download carries them and an upload of it brings them back.
+  `store_biom()` and `store_pair()` require a `colors` argument so no
+  job can drop them. They are keyed by group name, and only groups in
+  the plotted data are passed to rbiom. A figure uses them only when its
+  own `colors` is left at the default; a palette or colours chosen on
+  the figure win entirely. Colours of groups or fields that no longer
+  exist stay in the file and are filtered out where used. Colours are
+  checked on the server (hex or R colour names) and stored as hex.
+  JSON-stored projects (a "/" in a field name) cannot keep them.
+  `POST /api/metadata/colors`; MCP `set_group_colors`.
+- **The methods text describes what atima did (step 15H, not put to
+  Daniel).** Before asking rbiom for `$methods`, the worker gives the
+  result a history of atima's own steps, as code rbiom only reads: the
+  rarefaction with its seed, and a placeholder for the sample filter,
+  whose sentence atima writes (`R/methods-text.R`). This depends on the
+  sentence rbiom writes for a step it does not know; if rbiom rewords
+  it, atima drops what rbiom wrote and puts its own first (tested). The
+  text never names the stored file or the project title. A sentence and
+  reference for ATIMA, in the words of the "How to cite" page (tested),
+  follow rbiom's software sentence. The clusters page has no Methods
+  tab: rbiom's cluster functions return bare factors.
 
 ## Conventions (apply from step 2 onward)
 
@@ -4254,6 +4280,39 @@ curl note.
   for HDF5).
 - **For ecodive.** The help for `sorensen` gives the similarity
   formula, 2J/(A+B), but the function returns the dissimilarity.
+
+### Notes from steps 15G and 15H (done 2026-11-16)
+
+Both need rbiom at `14bd8071` or later (`$methods`, tolerant named
+colours, e3b49e3c). rbiom was installed from the folder beside this one. With both on `main`:
+`devtools::test()` gives 14,133 passes and no failures, and
+`R CMD check --as-cran` gives 0 errors, 0 warnings and the usual curl
+note.
+
+- **Loose ends.** Colours do not survive compressed HDF5 downloads or
+  other formats. There is no per-project shape or pattern. A project
+  scaled up from relative abundances at upload (`biom_inflate`) is not
+  said to be so in the methods text, because atima records it nowhere.
+  The browser's R code still leaves out the sample filter (the methods
+  text includes it). `subset_biom()` changes the object given to it in
+  place: harmless for objects read fresh from the cache, a trap in tests
+  (use `$clone()`).
+- **For rbiom, the methods text.** (1) `bdiv_ord_plot(..., stat.by =)`
+  says "the abundance of each taxon was fitted onto the ordination", but
+  only the `taxa = 4` most abundant at `rank = -1` are; the next
+  sentence, on p-value adjustment, reads as if it applied to the
+  PERMANOVA. (2) `bdiv_clusters()` / `taxa_clusters()` results have no
+  `$methods`. (3) `taxa_da()` names no rank when the rank is the
+  default; `taxa_shared()` says "the lowest taxonomic rank" without
+  naming it. (4) `rare_multiplot()` says "a series of depths" where
+  `rare_corrplot()` gives them. (5) What atima works around: a result
+  from `read_biom(<file>)` says "Data were imported from <basename>"; a
+  biom read back from a rarefied file loses the seed and the exclusion
+  clause; `biom$metadata <- df` drops samples without a word; `subset()`
+  reads as R code, and an expression with "<" falls back to "filtered on
+  their metadata". A public way to add a described step to the history,
+  or to leave out the source, would remove atima's placeholder. (6)
+  rbiom's own reference has no year or URL.
 
 ## Step 16: The lab's public server
 
