@@ -1,4 +1,4 @@
-// The plot page: a figure, its statistics and its R code in the middle,
+// The plot page: a figure, its statistics, its R code and its methods text in the middle,
 // and on the right the controls the schema describes for the chosen rbiom
 // function, the sample filter and the image settings.
 
@@ -86,6 +86,25 @@ export function codeBlock(text) {
   return h('div.code-block',
     button('Copy', () => copyText(text, 'Code copied.'), { icon: 'copy' }),
     h('pre', code));
+}
+
+/**
+ * The methods text beside a result: rbiom's paragraph for a manuscript,
+ * with the references it cites, and a button that copies both as plain
+ * text. Every part is inserted as text.
+ * @param {{text: string, references: string[]}|undefined} methods  From the server.
+ */
+export function methodsBlock(methods) {
+  if (!methods || !methods.text) return h('p.empty', 'No methods text is available for this result.');
+  const refs  = methods.references || [];
+  const plain = [methods.text, ...(refs.length ? ['', 'References', ...refs] : [])].join('\n');
+  return h('div.methods',
+    h('div.methods-head',
+      h('p.hint', 'A paragraph for the methods section of a manuscript: how this was made, with the references it cites. ',
+        'Add how the samples were collected and sequenced.'),
+      button('Copy', () => copyText(plain, 'Methods copied.'), { icon: 'copy' })),
+    h('p.methods-text', methods.text),
+    refs.length ? [h('h3', 'References'), h('ul.methods-refs', refs.map(ref => h('li', ref)))] : null);
 }
 
 
@@ -333,7 +352,7 @@ export function show(container, fn, settings = null) {
   let auto = R.readAuto(storage);
 
   //___________________________________________________________________________
-  // Middle: figure, statistics, code
+  // Middle: figure, statistics, code, methods
 
   const img       = h('img.figure', { alt: def.label, hidden: true });
   // The render box: what is going on, the choice to draw after every
@@ -361,13 +380,14 @@ export function show(container, fn, settings = null) {
       renderBtn, stopBtn));
   const overlay   = h('div.figure-overlay', { hidden: true }, renderBox);
   const staleNote = () => h('p.stale-note', { hidden: true, role: 'status' }, icon('clock-rotate-left'), 'Settings changed since this was made. Press Render on the Figure tab to update it.');
-  const statsNote = staleNote(), codeNote = staleNote();
-  const statsBody = h('div'), codeBody = h('div');
+  const statsNote = staleNote(), codeNote = staleNote(), methodsNote = staleNote();
+  const statsBody = h('div'), codeBody = h('div'), methodsBody = h('div');
   const message   = h('div.figure-message', { hidden: true, role: 'alert' });
   const figureBox = h('div.figure-box', img, message, overlay);
   const caption   = h('p.figure-caption');
   const statsPane = h('div.pane', statsNote, statsBody);
   const codePane  = h('div.pane', codeNote, codeBody);
+  const methodsPane = h('div.pane', methodsNote, methodsBody);
 
   const device = h('select', { 'aria-label': 'File format', title: 'File format' },
     schema.save.params.find(p => p.name === 'device').choices.map(c => h('option', { value: c }, c.toUpperCase())));
@@ -380,6 +400,7 @@ export function show(container, fn, settings = null) {
     { id: 'figure', label: 'Figure',     icon: 'chart-column', panel: h('div.pane.figure-pane', figureBox, caption) },
     { id: 'stats',  label: 'Statistics', icon: 'table',        panel: statsPane },
     { id: 'code',   label: 'R code',     icon: 'code',         panel: codePane },
+    { id: 'methods', label: 'Methods',   icon: 'book-open',    panel: methodsPane },
   ]);
   panes.bar.append(tools);
 
@@ -504,7 +525,7 @@ export function show(container, fn, settings = null) {
     downloadBtn.disabled = !v.download;
     downloadBtn.title = v.download ? 'Download the figure in this format'
       : 'The figure is not drawn for the current settings. Press Render first.';
-    statsNote.hidden = codeNote.hidden = !v.note;
+    statsNote.hidden = codeNote.hidden = methodsNote.hidden = !v.note;
   }
 
   function setBusy(on) {
@@ -592,6 +613,7 @@ export function show(container, fn, settings = null) {
       showFigure(resp, size.css);
       showStats(resp);
       showCode(resp);
+      fill(methodsBody, methodsBlock(resp.methods));
     }
     catch (err) {
       if (mine !== seq) return;       // replaced by a newer request: nothing to say

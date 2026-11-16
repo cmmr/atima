@@ -241,6 +241,109 @@ test_that("every plot atima offers has a caption, and an NMDS states its stress"
 })
 
 
+test_that("a figure and a table come with methods text that says what atima did", {
+
+  s <- local_open_project()
+
+  resp <- s$post("/api/plot", list(
+    plot_fn     = "adiv_boxplot",
+    plot_args   = list(x = "Body Site", adiv = "Shannon"),
+    depth       = 1183,
+    attrs       = TRUE,
+    subset_args = list(cat = list(`Body Site` = c("Saliva", "Stool")), num = list(Age = c(20, 40))) ))
+  expect_identical(resp$status, 200L)
+  methods <- response_json(resp)$methods
+  text    <- methods$text
+
+  # How the counts were rarefied and filtered, in that order, then the data
+  # the figure was made from, the method, and the software.
+  expect_match(text, paste0(
+    "^Samples were rarefied to 1,183 reads per sample \\(random seed 0\\); samples with fewer reads were excluded\\. ",
+    "Samples were restricted to those whose Body Site was Saliva or Stool and whose Age was from 20 to 40\\. ",
+    "The analyzed dataset comprised [0-9]+ samples and [0-9,]+ OTUs\\. ",
+    "Alpha diversity was measured with the Shannon diversity index \\(Shannon 1948\\)\\." ))
+  expect_match(text, "Wilcoxon rank-sum (Mann-Whitney U) tests", fixed = TRUE)
+  expect_match(text, sprintf("Analyses were performed with rbiom %s in R ", utils::packageVersion("rbiom")), fixed = TRUE)
+  expect_match(text, sprintf("The analyses were run through ATIMA %s (Smith ", utils::packageVersion("atima")), fixed = TRUE)
+
+  # Nothing of the stored file: not its name, not a path on the server.
+  expect_no_match(text, "imported|\\.biom|\\.h5|hdf5|atima_sample_filter|[/\\\\]")
+
+  # The references, in order, with ATIMA's as the "How to cite" page has it.
+  refs <- unlist(methods$references)
+  expect_identical(refs, refs[order(tolower(refs), method = "radix")])
+  expect_true(any(startsWith(refs, "Wilcoxon F (1945).")))
+  expect_true(any(startsWith(refs, "Shannon CE (1948).")))
+  expect_true(atima_reference() %in% refs)
+
+  # A figure made from all reads says so, and nothing about rarefying.
+  resp <- s$post("/api/plot", list(plot_fn = "rare_stacked", plot_args = list(), depth = 1183, attrs = TRUE))
+  expect_identical(resp$status, 200L)
+  text <- response_json(resp)$methods$text
+  expect_match(text, "^The analyzed dataset comprised 50 samples and 490 OTUs\\. The abundance table held unrarefied counts")
+  expect_no_match(text, "were rarefied to|restricted")
+
+  # Without `attrs` there is no text, as there is no code.
+  resp <- s$post("/api/plot", list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1183))
+  expect_identical(resp$status, 200L)
+  expect_null(response_json(resp)$methods)
+
+  # A table's page has it too.
+  resp <- s$post("/api/table", list(table_fn = "taxa_top", table_args = list(rank = "Phylum", n = 3), depth = 1183,
+    subset_args = list(cat = list(Sex = "Female"))))
+  expect_identical(resp$status, 200L)
+  text <- response_json(resp)$methods$text
+  expect_match(text, "^Samples were rarefied to 1,183 reads per sample .*Samples were restricted to those whose Sex was Female\\. ")
+  expect_match(text, "Counts were summarized at the Phylum rank", fixed = TRUE)
+  expect_match(text, "the 3 most abundant were listed", fixed = TRUE)
+})
+
+
+test_that("the sentence for the sample filter names what was kept", {
+
+  expect_identical(
+    filter_sentence(list(cat = list(Sex = "Male"))),
+    "Samples were restricted to those whose Sex was Male." )
+  expect_identical(
+    filter_sentence(list(cat = list(`Body Site` = c("Saliva", "Stool", "Anterior nares")), num = list(Age = c(20.5, 1e6)))),
+    "Samples were restricted to those whose Body Site was Saliva, Stool, or Anterior nares and whose Age was from 20.5 to 1000000." )
+  expect_identical(
+    filter_sentence(list(cat = list(.sample = c("A", "B"), Sex = "Female"), num = list(Age = c(1, 2), BMI = c(18, 25)))),
+    "Samples were restricted to those named A or B, whose Sex was Female, whose Age was from 1 to 2, and whose BMI was from 18 to 25." )
+
+  # Long lists are counted, not listed.
+  expect_identical(
+    filter_sentence(list(cat = list(.sample = LETTERS[1:6], Site = letters[1:11]))),
+    "Samples were restricted to those that were among 6 samples chosen by name and whose Site was one of 11 chosen values." )
+})
+
+
+test_that("methods text comes from what rbiom writes, and never stops a result", {
+
+  b <- rbiom::rarefy(rbiom::hmp50)
+
+  # rbiom's sentence for a step it does not know is how the filter's
+  # sentence finds its place. If rbiom words it differently, whatever it
+  # wrote about the placeholder is left out and the filter's sentence goes
+  # first.
+  p <- rbiom::bdiv_heatmap(b)
+  m <- result_methods(p, b$depth, list(cat = list(Sex = "Male")))
+  expect_match(m$text, "per sample (random seed 0); samples with fewer reads were excluded. Samples were restricted to those whose Sex was Male. The analyzed", fixed = TRUE)
+
+  local_mocked_bindings(methods_filter_sentence = "Nothing rbiom writes.")
+  m <- result_methods(p, b$depth, list(cat = list(Sex = "Male")))
+  expect_match(m$text, "^Samples were restricted to those whose Sex was Male\\. Samples were rarefied")
+  expect_no_match(m$text, "atima_sample_filter", fixed = TRUE)
+  expect_match(m$text, "were excluded. The analyzed dataset", fixed = TRUE)
+
+  # Something rbiom has no text for gives none, without an error.
+  expect_null(result_methods(list(a = 1)))
+  expect_null(result_methods(NULL))
+  expect_null(methods_reply(NULL))
+  expect_null(methods_data(NULL))
+})
+
+
 test_that("exports are written once, atomically, under names that say what is inside", {
 
   s <- local_open_project()

@@ -21,8 +21,8 @@ table_rows_max <- 2000L
 #' @param depth        The rarefaction depth the browser is showing.
 #' @param subset_args  The samples to keep, from `check_subset_args()`.
 #'
-#' @return list(table, rows_total, file_url, code, warnings), and BIOM if
-#'         the depth changed. `table` is the first `table_rows_max` rows;
+#' @return list(table, rows_total, file_url, code, warnings, methods), and
+#'         BIOM if the depth changed. `table` is the first `table_rows_max` rows;
 #'         `file_url` is the whole table as a CSV file.
 #' @noRd
 api_table <- function (REQ, table_fn, depth, table_args = list(), subset_args = list()) {
@@ -63,6 +63,7 @@ api_table <- function (REQ, table_fn, depth, table_args = list(), subset_args = 
         'code'       = list(
           'file' = unbox(sprintf("%s/%s.%s", REQ[['SESSION']][['draft_key']], plot_sample_set(table_fn), code_biom_format(known_summary(REQ)))),
           'cmd'  = unbox(result[['cmd']]) ),
-        'warnings'   = as.character(result[['warnings']]) ))
+        'warnings'   = as.character(result[['warnings']]) ),
+        if (!is.null(result[['methods']])) list('methods' = methods_reply(result[['methods']])) )
     })
 }

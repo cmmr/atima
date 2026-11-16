@@ -25,7 +25,8 @@
 #' @return `list(file)`, the image's name inside `out_dir`. If the project
 #'         had to be rarefied to `depth` first, also `rare` and `data` (see
 #'         `work_rarefy()`). With `attrs`, also `stats_table`, `stats_title`,
-#'         `code` and `caption` (the figure's caption as text).
+#'         `code`, `caption` (the figure's caption as text) and `methods`
+#'         (`list(text, references)`, from `result_methods()`).
 #' @noRd
 work_plot <- function (
     ctx, full, rare, out_dir, plot_fn, plot_args, save_args,
@@ -65,6 +66,7 @@ work_plot <- function (
   # The BIOM object, limited to the samples asked for.
   #________________________________________________________
   biom <- read_biom(ctx, if (plot_sample_set(plot_fn) == "full") full else rare)
+  rare_depth <- if (plot_sample_set(plot_fn) == "rare") biom$depth
   biom <- subset_biom(biom, subset_args)
 
   plot_args           <- present_looks(plot_fn, plot_args, biom)
@@ -81,6 +83,7 @@ work_plot <- function (
   # rbiom's caption says what the figure was made from and how. It is
   # returned as text, and in the image its lines are broken to fit.
   caption <- plot_caption(p)
+  methods <- if (isTRUE(attrs)) result_methods(p, rare_depth, subset_args)
   p       <- fit_captions(p, save_args)
 
 
@@ -153,6 +156,9 @@ work_plot <- function (
 
     if (!is.null(caption))
       result[['caption']] <- unbox(caption)
+
+    if (!is.null(methods))
+      result[['methods']] <- methods
   }
 
   return (result)

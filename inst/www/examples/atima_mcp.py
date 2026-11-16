@@ -2,7 +2,8 @@
 """Use ATIMA from a script, through its MCP endpoint.
 
 The script lists the projects you can open, runs a statistical test on one
-of them, and saves a figure with its caption and the R code that makes it.
+of them, and saves a figure with its caption, the R code that makes it and
+a methods paragraph for a manuscript.
 It needs Python 3.8 or later and nothing outside Python's standard library.
 
     python atima_mcp.py
@@ -177,6 +178,10 @@ def main():
         print("Its statistics:")
         print_table(figure["stats"])
     print("\nThe R code that makes it:\n" + figure["code"]["rbiom"])
+    # A paragraph for a manuscript's methods section, and its references.
+    if figure.get("methods"):
+        print("\nMethods:\n" + figure["methods"]["text"])
+        print("\nReferences:\n" + "\n".join(figure["methods"]["references"]))
 
 
 if __name__ == "__main__":

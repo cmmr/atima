@@ -157,6 +157,7 @@ Ask in plain words. Name the project if you have several. For example:
 - "Which genera differ most between body sites? Show the ten with the
   smallest p-values."
 - "Give me the R code for that last figure."
+- "Write a methods paragraph for that figure, with references."
 - "Export the genus-level abundances of hmp50 as a table."
 
 And, with an app that may change things:
@@ -168,8 +169,9 @@ And, with an app that may change things:
 - "Set the saved rarefaction depth of my gut study to 2,000."
 - "Share my gut study with Maria Example so that she can view it."
 
-Each figure comes with its statistics table and the rbiom code that makes
-it, so you can check what was done and repeat it in R.
+Each figure comes with its statistics table, the rbiom code that makes
+it, and a methods paragraph with its references, so you can check what
+was done and repeat it in R.
 
 An AI app can misread a result or choose an unsuitable test. Treat what
 it tells you as you would a colleague's first look: check the statistics
@@ -182,7 +184,8 @@ The endpoint is not only for AI apps: any program that can send a POST
 can call the same tools. An example in Python, with nothing outside
 Python's standard library, lists your projects, compares Shannon
 diversity between the groups of a metadata field (`run_stats`), and
-saves an ordination with its caption and R code (`make_plot`). Download
+saves an ordination with its caption, R code and methods paragraph
+(`make_plot`). Download
 it from the home page of your atima ("An example script"), or from
 [GitHub](https://github.com/cmmr/atima/blob/main/inst/www/examples/atima_mcp.py),
 and run it while atima is running:
@@ -209,8 +212,8 @@ Every connected app has these six.
 | `list_projects` | Lists the projects you can open, with their keys and titles. |
 | `describe_project` | A project's samples, sequencing depths, metadata fields and their values, taxonomic ranks, most abundant taxa, and whether it has a tree. |
 | `describe_function` | The arguments of an rbiom statistics, table, plot or clustering function, as a JSON Schema, so that the app knows what it may ask for. |
-| `run_stats` | Runs `adiv_stats()`, `bdiv_stats()`, `taxa_stats()` or `taxa_da()` and returns the table. Also `taxa_top()` (the most abundant taxa of each group or sample) and `taxa_shared()` (which taxa each group has, and which groups share them), whose table is the result itself. |
-| `make_plot` | Draws any of the plots the web interface offers and returns the image, its statistics table and the R code. |
+| `run_stats` | Runs `adiv_stats()`, `bdiv_stats()`, `taxa_stats()` or `taxa_da()` and returns the table. Also `taxa_top()` (the most abundant taxa of each group or sample) and `taxa_shared()` (which taxa each group has, and which groups share them), whose table is the result itself. With the table come the R code and a methods paragraph with its references. |
+| `make_plot` | Draws any of the plots the web interface offers and returns the image, its caption, its statistics table, the R code, and a methods paragraph with its references. |
 | `export` | Writes a file and returns a link to it: the BIOM file, an Excel workbook, or a table of the metadata, taxonomy, alpha diversity, beta diversity or taxa abundances, or the tree; or the project as files for QIIME 2 or mothur, or as a phyloseq object. |
 
 `run_stats` and `make_plot` can rarefy to another depth, or use only some

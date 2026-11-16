@@ -374,6 +374,14 @@ img.figure.stale, .figure-box.busy img.figure, .figure-box.old img.figure { opac
 .code-block pre { margin: 0; padding: 14px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); overflow: auto; white-space: pre; }
 .code-block code.hljs, .code-block code { background: none; padding: 0; }
 
+.methods { max-width: 820px; }
+.methods-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.methods-head .hint { margin: 0; }
+.methods-text { line-height: 1.55; overflow-wrap: anywhere; }
+.methods h3 { font-size: 13px; margin: 16px 0 6px; }
+.methods-refs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.methods-refs li { padding-left: 2em; text-indent: -2em; overflow-wrap: anywhere; }
+
 .spinner { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px; color: var(--text-soft); }
 .spin { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--navy-3); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }

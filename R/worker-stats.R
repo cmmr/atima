@@ -33,8 +33,8 @@
 #'         name inside `out_dir`, the first `max_rows` rows as a data frame
 #'         with plain column names, the number of rows in all, the rbiom
 #'         call that makes the table, and what rbiom warned about. Also
-#'         `title` if the table names its model, and `rare` and `data` as
-#'         from `work_plot()`.
+#'         `title` if the table names its model, `methods` (see
+#'         `result_methods()`), and `rare` and `data` as from `work_plot()`.
 #' @noRd
 work_stats <- function (
     ctx, full, rare, out_dir, stats_fn, stats_args,
@@ -62,6 +62,7 @@ work_stats <- function (
   }
 
   biom <- read_biom(ctx, if (plot_sample_set(stats_fn) == "full") full else rare)
+  rare_depth <- if (plot_sample_set(stats_fn) == "rare") biom$depth
   biom <- subset_biom(biom, subset_args)
 
   if (biom$n_samples == 0)
@@ -110,5 +111,6 @@ work_stats <- function (
     rows_total = nrow(table),
     cmd        = paste(as.character(attr(stats, 'cmd', exact = TRUE)), collapse = "\n"),
     title      = if (!is.null(title)) as.list(title),
+    methods    = result_methods(stats, rare_depth, subset_args),
     warnings   = unique(warnings) ))
 }

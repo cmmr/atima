@@ -682,6 +682,54 @@ test_that("the line under a figure does not repeat the figure's caption", {
 })
 
 
+test_that("plot and table pages have a Methods tab, marked when it is older than the settings", {
+
+  plot  <- read_text(www("js", "pages", "plot.js"))
+  table <- read_text(www("js", "pages", "table.js"))
+
+  # Beside "R code", on both pages.
+  expect_match(plot,  "{ id: 'code',   label: 'R code',     icon: 'code',         panel: codePane },\n    { id: 'methods', label: 'Methods'", fixed = TRUE)
+  expect_match(table, "{ id: 'code',    label: 'R code',  icon: 'code',      panel: h('div.pane', codeNote, codeBody) },\n    { id: 'methods', label: 'Methods'", fixed = TRUE)
+  expect_match(plot,  "fill(methodsBody, methodsBlock(resp.methods));", fixed = TRUE)
+  expect_match(table, "fill(methodsBody, methodsBlock(resp.methods));", fixed = TRUE)
+
+  # The text and the references go in as text (h() makes text nodes), and
+  # the copy is plain text with the references after it.
+  block <- regmatches(plot, regexpr("export function methodsBlock[\\s\\S]*?\n}\n", plot, perl = TRUE))
+  expect_length(block, 1L)
+  expect_no_match(block, "serverHtml|innerHTML|hljs")
+  expect_match(block, "h('p.methods-text', methods.text)", fixed = TRUE)
+  expect_match(block, "['', 'References', ...refs]", fixed = TRUE)
+  expect_match(block, "copyText(plain, 'Methods copied.')", fixed = TRUE)
+
+  # The plot page's note is the one the statistics and the code have.
+  expect_match(plot, "statsNote.hidden = codeNote.hidden = methodsNote.hidden = !v.note;", fixed = TRUE)
+
+  # The table page is made again after every change; its note shows only
+  # when the table on screen was made from other settings and no new one
+  # is on its way.
+  expect_match(table, "const stale = !waiting && madeKey !== null && madeKey !== JSON.stringify(requestBody());", fixed = TRUE)
+  expect_match(table, "madeKey = key;\n      showTable(resp);", fixed = TRUE)
+})
+
+
+test_that("the methods text cites ATIMA in the words of the 'How to cite' page", {
+
+  src <- read_text(www("js", "pages", "cite.js"))
+  js  <- regmatches(src, regexpr("reference\\(`Smith DP \\(\\$\\{year\\}\\)\\. ATIMA: [^`]+`", src))
+  expect_length(js, 1L)
+
+  wording <- sub("^reference\\(`(.*)`$", "\\1", js)
+  wording <- gsub("${year}",        format(Sys.Date(), "%Y"),                   wording, fixed = TRUE)
+  wording <- gsub("${atima}",       as.character(utils::packageVersion("atima")), wording, fixed = TRUE)
+  wording <- gsub("${SITES.atima}", "https://github.com/cmmr/atima",               wording, fixed = TRUE)
+  expect_identical(atima_reference(), wording)
+
+  # The page points to the Methods tab.
+  expect_match(src, 'The "Methods" tab beside every figure and table', fixed = TRUE)
+})
+
+
 # `js/address.js` is pure as well: the page's address, and a figure's
 # settings in it.
 local_address_js <- function () {

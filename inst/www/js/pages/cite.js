@@ -1,5 +1,6 @@
 // How to cite: the wording for ATIMA and for rbiom, with the versions this
-// server runs, ready to copy.
+// server runs, ready to copy. The methods text beside a result cites ATIMA
+// in the same words (`atima_reference()`, R/methods-text.R).
 
 import { h, fill, button } from '../dom.js';
 import { copyText } from '../actions.js';
@@ -37,8 +38,8 @@ export function show(container) {
     h('section.card',
       h('h2', 'In your methods'),
       h('p', `Name the versions you used: ATIMA ${atima} with rbiom ${rbiom}. `,
-        'The "R code" tab beside every figure shows the rbiom call that made it, and the "Statistics" tab names the test and the p-value adjustment. ',
-        'Where a figure rests on a published method (a diversity metric, a differential abundance test), cite that method too; rbiom\'s help pages give the references.'))));
+        'The "Methods" tab beside every figure and table has a paragraph to start from: how the samples were rarefied and filtered, the metrics, tests and p-value adjustment, the software versions, and the references for the published methods it rests on. ',
+        'The "R code" tab shows the rbiom call that made the result.'))));
 
   return { onBiom() {} };
 }

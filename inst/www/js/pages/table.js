@@ -1,5 +1,5 @@
 // The table page: a table that an rbiom function makes (the most abundant
-// taxa, the taxa that groups share) and its R code in the middle, and on
+// taxa, the taxa that groups share), its R code and its methods text in the middle, and on
 // the right the function's controls from the schema and the sample filter,
 // as on the plot page.
 
@@ -8,7 +8,7 @@ import { call, abortJobs } from '../api.js';
 import { tabs, section, spinner, guideButton } from '../widgets.js';
 import { controlPanel } from '../controls.js';
 import { localTable } from '../tables.js';
-import { subsetEditor, codeBlock, depthControl } from './plot.js';
+import { subsetEditor, codeBlock, methodsBlock, depthControl } from './plot.js';
 import * as S from '../schema.js';
 import * as store from '../store.js';
 
@@ -52,18 +52,27 @@ export function show(container, fn) {
 
   let seq = 0;              // the newest request's number
   let controller = null;    // to stop the request in flight
+  let madeKey = null;       // the settings of the table on screen, as text
+  let waiting = false;      // is a table for the current settings on its way?
 
   //___________________________________________________________________________
-  // Middle: table, code
+  // Middle: table, code, methods
 
   const working   = spinner(`Making the table: ${def.label}`);
   const message   = h('div.problems', { hidden: true, role: 'alert' });
-  const tableBody = h('div'), codeBody = h('div');
+  const tableBody = h('div'), codeBody = h('div'), methodsBody = h('div');
   working.hidden  = true;
+  // The table is made again after every change. When that fails, or waits
+  // for a setting, the code and the methods are still those of the table
+  // on screen: they say so, as on the plot page.
+  const staleNote = () => h('p.stale-note', { hidden: true, role: 'status' }, icon('clock-rotate-left'),
+    'Settings changed since this was made, and the table could not be made again. See the Table tab.');
+  const codeNote = staleNote(), methodsNote = staleNote();
 
   const panes = tabs([
-    { id: 'table', label: 'Table',  icon: 'table', panel: h('div.pane', working, message, tableBody) },
-    { id: 'code',  label: 'R code', icon: 'code',  panel: h('div.pane', codeBody) },
+    { id: 'table',   label: 'Table',   icon: 'table',     panel: h('div.pane', working, message, tableBody) },
+    { id: 'code',    label: 'R code',  icon: 'code',      panel: h('div.pane', codeNote, codeBody) },
+    { id: 'methods', label: 'Methods', icon: 'book-open', panel: h('div.pane', methodsNote, methodsBody) },
   ]);
   const depth = depthControl();
   panes.bar.append(h('div.plot-tools', depth.label, depth.select, guideButton('depth')));
@@ -115,18 +124,35 @@ export function show(container, fn) {
       retry ? button('Try again', () => run(), { icon: 'rotate-right' }) : null] : null);
   }
 
+  function requestBody() {
+    const body   = { table_fn: fn, table_args: S.payload(def, args()), depth: store.get('biom').depth };
+    const subset = S.subsetPayload(store.get('subset'));
+    if (subset) body.subset_args = subset;
+    return body;
+  }
+
+  /** Say on the code and methods tabs whether they are older than the settings. */
+  function markStale() {
+    const stale = !waiting && madeKey !== null && madeKey !== JSON.stringify(requestBody());
+    codeNote.hidden = methodsNote.hidden = !stale;
+  }
+
   async function run() {
 
     schedule.cancel();
-    if (!complete()) { showMessage('Complete the settings on the right to make this table.'); return; }
+    if (!complete()) {
+      waiting = false;
+      markStale();
+      showMessage('Complete the settings on the right to make this table.');
+      return;
+    }
 
     if (controller) controller.abort();
     controller = new AbortController();
     const mine = ++seq;
 
-    const body   = { table_fn: fn, table_args: S.payload(def, args()), depth: store.get('biom').depth };
-    const subset = S.subsetPayload(store.get('subset'));
-    if (subset) body.subset_args = subset;
+    const body = requestBody();
+    const key  = JSON.stringify(body);
 
     showMessage(null);
     working.hidden = false;
@@ -134,6 +160,7 @@ export function show(container, fn) {
     try {
       const resp = await call('/api/table', body, { signal: controller.signal });
       if (mine !== seq) return;
+      madeKey = key;
       showTable(resp);
     }
     catch (err) {
@@ -145,14 +172,18 @@ export function show(container, fn) {
       else { showMessage(err.message, { retry: true, id: err.id }); console.error(err); }
     }
     finally {
-      if (mine === seq) { working.hidden = true; controller = null; }
+      if (mine === seq) { working.hidden = true; controller = null; waiting = false; markStale(); }
     }
   }
 
   const schedule = debounce(run, 400);
 
   /** A setting changed: make the table again. */
-  function changed() { schedule(); }
+  function changed() {
+    waiting = true;
+    markStale();
+    schedule();
+  }
 
   function showTable(resp) {
 
@@ -176,6 +207,8 @@ export function show(container, fn) {
       `biom <- as_rbiom("${window.location.origin}/${resp.code.file}")`,
       `data <- ${resp.code.cmd}`,
     ].join('\n')));
+
+    fill(methodsBody, methodsBlock(resp.methods));
   }
 
   buildControls();

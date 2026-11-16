@@ -714,6 +714,7 @@ test_that("run_stats runs every statistics function, at a depth and on a subset"
     result <- mcp$call("run_stats", list(project = "hmp50", `function` = fn, args = calls[[fn]]))
     expect_false(result$isError, info = paste(fn, result$content[[1]]$text))
     expect_gt(result$structuredContent$rows_total, 0)
+    expect_match(result$structuredContent$methods$text, "^Samples were rarefied|unrarefied counts", info = fn)
   }
 
   # The functions that test nothing and make a table: the most abundant
@@ -731,6 +732,7 @@ test_that("run_stats runs every statistics function, at a depth and on a subset"
     expect_identical(data$rows_returned, 4L, info = fn)
     expect_match(data$note, "Showing the first 4 rows of", info = fn)
     expect_match(data$code, paste0("stats <- ", fn, "(biom"), fixed = TRUE, info = fn)
+    expect_match(data$methods$text, "Counts were summarized at the Phylum rank", fixed = TRUE, info = fn)
     expect_identical(nrow(utils::read.csv(mcp_file(mcp, data$table_url), check.names = FALSE)), data$rows_total, info = fn)
   }
 
@@ -757,6 +759,12 @@ test_that("run_stats runs every statistics function, at a depth and on a subset"
   expect_match(data$code, 'as_rbiom("http://127.0.0.1:8080/hmp50/full.hdf5")', fixed = TRUE)
   expect_match(data$code, "rarefy(biom, depth = 500)", fixed = TRUE)
   expect_match(data$code, "`samples` filter", fixed = TRUE)
+
+  # The methods text has the call's depth and filter, which the code leaves out.
+  expect_match(data$methods$text, paste0(
+    "^Samples were rarefied to 500 reads per sample \\(random seed 0\\); samples with fewer reads were excluded\\. ",
+    "Samples were restricted to those whose Body Site was Saliva or Stool\\. " ))
+  expect_match(data$methods$text, "Alpha diversity was measured with the Shannon diversity index", fixed = TRUE)
 
   expect_identical(db_query(mcp$DB, "SELECT rare_bf_id FROM projects WHERE public_key = 'hmp50'", "TRare"), saved)
   expect_identical(db_query(mcp$DB, "SELECT COUNT(*) FROM sessions", "TSess"), 0L)
@@ -799,6 +807,14 @@ test_that("make_plot returns the figure as an image, with its statistics and cod
   # The caption as text, so that an app can say how the figure was made
   # without reading the image.
   expect_match(data$caption, "^Rarefied to 1,183 reads per sample\\.\n[A-Z][^\n]+ tests")
+
+  # A methods paragraph, so that an app can write one for a manuscript, and
+  # the references it cites.
+  expect_match(data$methods$text, "^Samples were rarefied to 1,183 reads per sample \\(random seed 0\\)")
+  expect_match(data$methods$text, "Wilcoxon rank-sum", fixed = TRUE)
+  expect_match(data$methods$text, "The analyses were run through ATIMA ", fixed = TRUE)
+  expect_true(is.list(data$methods$references) && length(data$methods$references) > 3)
+  expect_true(atima_reference() %in% unlist(data$methods$references))
 
   # The text block carries the same data, without the image.
   expect_identical(jsonlite::fromJSON(result$content[[2]]$text, simplifyVector = FALSE), data)

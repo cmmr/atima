@@ -285,7 +285,8 @@ mcp_tool_table <- function () {
           " to screen metadata fields. Functions: ", labels(stats), ".",
           " Or make a table that tests nothing: ", labels(tables), ".",
           " The result holds the first `max_rows` rows, sorted as rbiom sorts them (a test's smallest p-value first), says how",
-          " many rows there are in all, links to the whole table as a CSV file, and gives the R code that reproduces it.",
+          " many rows there are in all, links to the whole table as a CSV file, and gives the R code that reproduces it",
+          " and a methods paragraph for a manuscript with the references it cites (`methods`).",
           " Numbers in the result are rounded to four significant digits; the CSV file has them in full." ),
         permission  = "viewer",
         args        = list(
@@ -310,7 +311,9 @@ mcp_tool_table <- function () {
           " The result is the figure as a PNG image, a link to the same file, the figure's caption as text (the counts",
           " it was made from and the methods used, so that you can say how it was made without reading the image),",
           " the statistics table behind the figure when it has one (its first ", mcp_rows_default, " rows; use",
-          " run_stats for more), and the R code that reproduces the figure with rbiom and with ggplot2." ),
+          " run_stats for more), the R code that reproduces the figure with rbiom and with ggplot2, and a methods",
+          " paragraph for a manuscript with the references it cites (`methods`: how the samples were rarefied and",
+          " filtered, the metrics, tests and p-value adjustment, and the software versions)." ),
         permission  = "viewer",
         args        = list(
           project    = project,
@@ -820,7 +823,8 @@ tool_run_stats <- function (REQ, project, fn, args = list(), depth = NULL, sampl
         if (length(result[['warnings']]) > 0) list(warnings = as.list(result[['warnings']])),
         list(code = paste(c(
           code_load(REQ, plot_sample_set(fn), depth, length(samples) > 0),
-          paste0("stats <- ", result[['cmd']]) ), collapse = "\n")) ))
+          paste0("stats <- ", result[['cmd']]) ), collapse = "\n")),
+        methods_data(result[['methods']]) ))
     })
 }
 
@@ -881,7 +885,8 @@ tool_make_plot <- function (REQ, project, fn, args = list(), depth = NULL, sampl
             list(
               rbiom   = paste(c(load, paste0("p <- ", as.character(code[['rbiom']]))), collapse = "\n"),
               ggplot2 = paste(c(load, "library(ggplot2)", as.character(code[['ggplot2']])), collapse = "\n") ),
-            if (!is.null(code[['stats']])) list(stats = as.character(code[['stats']])) )) ))
+            if (!is.null(code[['stats']])) list(stats = as.character(code[['stats']])) )),
+          methods_data(result[['methods']]) ))
     })
 }
 
