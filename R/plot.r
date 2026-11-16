@@ -13,7 +13,7 @@
 #' @param attrs        Also return the statistics table and the R code?
 #'
 #' @return list(image_url, width, height, ..., BIOM (if the depth changed),
-#'         and with `attrs`: stats_table, code, stats_title)
+#'         and with `attrs`: stats_table, code, stats_title, caption)
 #' @noRd
 api_plot <- function (
     REQ, plot_fn, plot_args, depth,
@@ -63,7 +63,8 @@ api_plot <- function (
 
         resp[['stats_table']] <- result[['stats_table']]
         resp[['stats_title']] <- result[['stats_title']]
-        resp[['code']]        <- c(
+        resp[['caption']]     <- result[['caption']]
+        resp[['code']]      <- c(
           list('file' = unbox(sprintf("%s/%s.json", REQ[['SESSION']][['draft_key']], plot_sample_set(plot_fn)))),
           result[['code']] )
       }

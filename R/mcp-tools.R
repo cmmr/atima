@@ -307,9 +307,10 @@ mcp_tool_table <- function () {
         title       = "Make a figure",
         description = paste0(
           "Draw one of rbiom's plots for a project. Functions: ", labels(plots), ".",
-          " The result is the figure as a PNG image, a link to the same file, the statistics table behind the figure",
-          " when it has one (its first ", mcp_rows_default, " rows; use run_stats for more), and the R code that",
-          " reproduces the figure with rbiom and with ggplot2." ),
+          " The result is the figure as a PNG image, a link to the same file, the figure's caption as text (the counts",
+          " it was made from and the methods used, so that you can say how it was made without reading the image),",
+          " the statistics table behind the figure when it has one (its first ", mcp_rows_default, " rows; use",
+          " run_stats for more), and the R code that reproduces the figure with rbiom and with ggplot2." ),
         permission  = "viewer",
         args        = list(
           project    = project,
@@ -869,6 +870,9 @@ tool_make_plot <- function (REQ, project, fn, args = list(), depth = NULL, sampl
             figure_url = paste0(files[['url']], "/", result[['file']]),
             width      = image[['width']],
             height     = image[['height']] ),
+          # What is written under the figure: the counts it was made
+          # from and the methods used, one sentence or more per line.
+          if (!is.null(result[['caption']])) list(caption = as.character(result[['caption']])),
           if (!is.null(stats)) list(stats = c(
             if (!is.null(result[['stats_title']])) list(model = lapply(result[['stats_title']], as.character)),
             table_data(stats, mcp_rows_default, hint = hint) )),

@@ -795,6 +795,10 @@ test_that("make_plot returns the figure as an image, with its statistics and cod
   expect_match(data$code$ggplot2, "ggplot(", fixed = TRUE)
   expect_true(nzchar(data$code$stats))
 
+  # The caption as text, so that an app can say how the figure was made
+  # without reading the image.
+  expect_match(data$caption, "^Rarefied to 1,183 reads per sample\\.\n[A-Z][^\n]+ tests")
+
   # The text block carries the same data, without the image.
   expect_identical(jsonlite::fromJSON(result$content[[2]]$text, simplifyVector = FALSE), data)
 
@@ -807,6 +811,7 @@ test_that("make_plot returns the figure as an image, with its statistics and cod
   expect_null(result$structuredContent$stats)
   expect_match(result$structuredContent$code$rbiom, "/hmp50/full.json", fixed = TRUE)
   expect_identical(result$structuredContent$width, 900L)
+  expect_identical(result$structuredContent$caption, "Rarefaction depth (dashed line): 1,183 reads per sample.")
 })
 
 

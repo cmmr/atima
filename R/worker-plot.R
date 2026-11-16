@@ -24,8 +24,8 @@
 #'
 #' @return `list(file)`, the image's name inside `out_dir`. If the project
 #'         had to be rarefied to `depth` first, also `rare` and `data` (see
-#'         `work_rarefy()`). With `attrs`, also `stats_table`, `stats_title`
-#'         and `code`.
+#'         `work_rarefy()`). With `attrs`, also `stats_table`, `stats_title`,
+#'         `code` and `caption` (the figure's caption as text).
 #' @noRd
 work_plot <- function (
     ctx, full, rare, out_dir, plot_fn, plot_args, save_args,
@@ -77,6 +77,11 @@ work_plot <- function (
   plot_fun <- base::getExportedValue("rbiom", plot_fn)
 
   p <- with_user_errors("The plot could not be made.", with_cpus(ctx, plot_fun, plot_args))
+
+  # rbiom's caption says what the figure was made from and how. It is
+  # returned as text, and in the image its lines are broken to fit.
+  caption <- plot_caption(p)
+  p       <- fit_captions(p, save_args)
 
 
   #________________________________________________________
@@ -145,9 +150,115 @@ work_plot <- function (
     stats_title <- attr(stats, 'tbl_sum', exact = TRUE)
     if (!is.null(stats_title))
       result[['stats_title']] <- lapply(stats_title, unbox)
+
+    if (!is.null(caption))
+      result[['caption']] <- unbox(caption)
   }
 
   return (result)
+}
+
+
+#______________________________________________________________________________
+#' A figure's caption as text: what rbiom wrote under the figure about the
+#' counts it was made from and the methods used. One sentence or more per
+#' line. A figure of several panels (a patchwork, as `rare_multiplot()`
+#' returns) has a caption under each; they follow each other here.
+#' @return A string, or `NULL` if the figure has no caption.
+#' @noRd
+plot_caption <- function (p) {
+
+  captions <- function (p) c(
+    if (inherits(p, "patchwork")) unlist(lapply(p$patches$plots, captions)),
+    tryCatch(p$labels$caption, error = function (e) NULL) )
+
+  lines <- unlist(lapply(captions(p), function (caption) {
+    if (is_scalar_character(caption) && !is.na(caption)) strsplit(caption, "\n", fixed = TRUE)[[1]]
+  }))
+
+  lines <- unique(trimws(lines))
+  lines <- lines[nzchar(lines)]
+
+  if (length(lines) == 0) return (NULL)
+
+  paste(lines, collapse = "\n")
+}
+
+
+#______________________________________________________________________________
+#' Break the lines of a figure's caption so that they fit the image.
+#'
+#' ggplot2 draws each line of a caption as it is given, and what is wider
+#' than the image is cut off at its edge. rbiom cannot know how wide the
+#' image will be; here it is known. The text is measured in the caption's
+#' own font and broken between words.
+#'
+#' A figure of several panels is only touched when its panels are one above
+#' the other, each as wide as the image.
+#'
+#' @param p          A plot from rbiom.
+#' @param save_args  The image settings, from `check_save_args()`.
+#' @return The plot, its caption broken into more lines where it has to be.
+#'         Unchanged if anything about it is not as expected.
+#' @noRd
+fit_captions <- function (p, save_args) {
+
+  inches <- save_args[['width']] * save_args[['scale']] /
+    switch(save_args[['units']], px = save_args[['dpi']], `in` = 1, cm = 2.54, mm = 25.4)
+
+  fit <- function (p) {
+
+    if (inherits(p, "patchwork")) {
+      if (!identical(as.numeric(p$patches$layout$ncol), 1)) return (p)
+      p$patches$plots <- lapply(p$patches$plots, fit)
+    }
+
+    caption <- p$labels$caption
+    if (!is_scalar_character(caption) || is.na(caption) || !nzchar(caption)) return (p)
+
+    theme  <- ggplot2::theme_get() + p$theme
+    text   <- ggplot2::calc_element("plot.caption", theme)
+    margin <- as.numeric(ggplot2::calc_element("plot.margin", theme))
+
+    # The room for a line, in points: the image less the plot's left and
+    # right margins, and a little more, since a PDF's font is not quite
+    # the one measured here.
+    room <- (inches * 72 - sum(margin[c(2, 4)])) * 0.97
+
+    # (rbiom's captions are in plain type, which is what is measured.)
+    width <- function (x) systemfonts::string_width(x, family = text$family %||% "", size = text$size, res = 72)
+
+    lines <- unlist(lapply(strsplit(caption, "\n", fixed = TRUE)[[1]], wrap_line, room = room, width = width))
+
+    p$labels$caption <- paste(lines, collapse = "\n")
+    p
+  }
+
+  tryCatch(fit(p), error = function (e) p)
+}
+
+
+#' Break one line of text between words into lines no wider than `room`.
+#' A single word that is wider stays whole.
+#' @param width  A function that measures strings, in the units of `room`.
+#' @return A character vector of lines.
+#' @noRd
+wrap_line <- function (line, room, width) {
+
+  if (!nzchar(line) || width(line) <= room) return (line)
+
+  words <- strsplit(line, " ", fixed = TRUE)[[1]]
+  lines <- character(0)
+  now   <- words[[1]]
+
+  for (word in words[-1]) {
+    longer <- paste(now, word)
+    if (width(longer) <= room) { now <- longer; next }
+    lines <- c(lines, now)
+    now   <- word
+  }
+
+  c(lines, now)
 }
 
 

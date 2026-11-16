@@ -128,6 +128,9 @@ test_that("a plot is drawn into the session's directory and described in the res
   expect_match(body$code$rbiom, "adiv_boxplot")
   expect_match(body$code$ggplot2, "ggplot")
 
+  # So does the figure's caption, as text: the counts and the method.
+  expect_match(body$caption, "^Rarefied to 1,183 reads per sample\\.\n[A-Z][^\n]+ tests")
+
   # A depth that differs from the draft's rarefies first, and says so.
   resp <- s$post("/api/plot", list(
     plot_fn   = "taxa_stacked",
@@ -157,6 +160,78 @@ test_that("a plot is drawn into the session's directory and described in the res
     args <- c(list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1500), extra)
     expect_identical(s$post("/api/plot", args)$status, 400L, info = names(extra[[1]]))
   }
+})
+
+
+test_that("a caption's lines are broken to fit the image, and returned whole as text", {
+
+  p <- rbiom::bdiv_boxplot(rbiom::rarefy(rbiom::hmp50), stat.by = "Body Site", permutations = 9)
+
+  text <- plot_caption(p)
+  expect_match(text, "^Rarefied to 1,183 reads per sample\\.\nPERMANOVA")
+  expect_length(strsplit(text, "\n")[[1]], 2L)
+
+  save  <- function (...) check_save_args(list(...))
+  lines <- function (p) strsplit(p$labels$caption, "\n", fixed = TRUE)[[1]]
+
+  # Wide enough: as rbiom wrote it.
+  expect_identical(fit_captions(p, save(width = 1400, height = 800))$labels$caption, p$labels$caption)
+
+  # Narrower: more lines, the same words, and none wider than the image.
+  # The width does not depend on the resolution a screen asks for.
+  narrow <- lines(fit_captions(p, save(width = 400, height = 300)))
+  expect_gt(length(narrow), 2L)
+  expect_identical(paste(narrow, collapse = " "), gsub("\n", " ", p$labels$caption))
+  expect_true(all(systemfonts::string_width(narrow, size = 8.8, res = 100) < 400))
+  expect_identical(lines(fit_captions(p, save(width = 800, height = 600, dpi = 200))), narrow)
+  expect_identical(lines(fit_captions(p, save(width = 4, height = 3, units = "in"))), narrow)
+
+  # A word wider than the image stays whole; a figure without a caption is left alone.
+  width <- function (x) nchar(x)
+  expect_identical(wrap_line("one two three", 7, width), c("one two", "three"))
+  expect_identical(wrap_line("incomprehensibilities and so", 7, width), c("incomprehensibilities", "and so"))
+  expect_identical(wrap_line("", 7, width), "")
+  q <- p
+  q$labels$caption <- NULL
+  expect_null(plot_caption(q))
+  expect_null(fit_captions(q, save(width = 400, height = 300))$labels$caption)
+
+  # A figure of several panels has a caption under each. Both are fitted,
+  # and the text has both.
+  m <- rbiom::rare_multiplot(rbiom::hmp50)
+  expect_identical(plot_caption(m), paste(sep = "\n",
+    "Rarefied to 10 depths, from 5 to 3,577 reads per sample.",
+    "Rarefaction depth (dashed line): 1,183 reads per sample." ))
+  small <- fit_captions(m, save(width = 200, height = 300))
+  expect_match(small$labels$caption, "\n", fixed = TRUE)
+  expect_match(small$patches$plots[[1]]$labels$caption, "\n", fixed = TRUE)
+})
+
+
+test_that("every plot atima offers has a caption, and an NMDS states its stress", {
+
+  s <- local_open_project()
+
+  args <- list(
+    adiv_corrplot = list(x = "Age"), bdiv_corrplot = list(x = "Age"), taxa_corrplot = list(x = "Age"),
+    bdiv_boxplot  = list(stat.by = "Sex", permutations = 9),
+    bdiv_ord_plot = list(ord = "NMDS", stat.by = "Sex", permutations = 9),
+    taxa_forest   = list(stat.by = "Sex") )
+
+  captions <- list()
+
+  for (fn in schema_fns("plot")) {
+    resp <- s$post("/api/plot", list(plot_fn = fn, plot_args = args[[fn]] %||% list(), depth = 1183, attrs = TRUE))
+    expect_identical(resp$status, 200L, info = fn)
+    captions[[fn]] <- response_json(resp)$caption
+    expect_true(is_scalar_character(captions[[fn]]) && nzchar(captions[[fn]]), info = fn)
+  }
+
+  # What the line under the figure used to say is in the caption now.
+  expect_match(captions$adiv_boxplot, "Rarefied to 1,183 reads per sample.", fixed = TRUE)
+  expect_match(captions$taxa_forest,  "^Unrarefied counts \\(182 to 22,117 reads per sample\\)\\.\nLinDA")
+  expect_match(captions$bdiv_ord_plot, "\nNMDS stress = 0\\.[0-9]+\\.\n")
+  expect_match(captions$rare_stacked, "Rarefaction depth")
 })
 
 

@@ -651,3 +651,16 @@ test_that("the plot page keeps its render control reachable and labelled", {
   # between drawing and marking: only it and draw() touch the timer.
   expect_length(all_matches(src, "(?<![.\\w])schedule\\(\\)"), 1L)
 })
+
+
+test_that("the line under a figure does not repeat the figure's caption", {
+
+  src <- read_text(www("js", "pages", "plot.js"))
+
+  # rbiom's caption, in the image, says which counts the figure was made
+  # from. The page reads it to those who cannot see the image, and adds
+  # only the sample filter and which way a fold change points.
+  expect_no_match(src, "rarefied to|before rarefying")
+  expect_match(src, "img.alt = [`${def.label}.`, resp.caption]", fixed = TRUE)
+  expect_match(src, "sample filter", fixed = TRUE)
+})

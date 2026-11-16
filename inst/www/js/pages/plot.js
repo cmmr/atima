@@ -529,13 +529,13 @@ export function show(container, fn) {
     img.style.width  = css ? `${css.width}px`  : '';
     img.style.height = css ? `${css.height}px` : '';
     figureBox.classList.toggle('fitted', !!css);
-    const biom  = store.get('biom');
-    const depth = def.sample_set === 'rare'
-      ? `Made from counts rarefied to ${biom.depth.toLocaleString()} reads per sample.`
-      : 'Made from the counts before rarefying.';
+    // rbiom writes the counts and the methods into the figure, as its
+    // caption. The line under the figure adds only what that leaves out.
+    // Someone who cannot see the image is read the caption.
+    img.alt = [`${def.label}.`, resp.caption].filter(Boolean).join(' ');
     const n = filter.count();
-    const made = depth + (n ? ` ${n} sample filter${n > 1 ? 's' : ''} applied.` : '');
-    caption.textContent = [foldDirection(resp.stats_table, biom), made].filter(Boolean).join(' ');
+    const filtered = n ? `${n} sample filter${n > 1 ? 's' : ''} applied.` : '';
+    caption.textContent = [foldDirection(resp.stats_table, store.get('biom')), filtered].filter(Boolean).join(' ');
     caption.title = caption.textContent;
   }
 
