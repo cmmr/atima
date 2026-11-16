@@ -176,6 +176,30 @@ it tells you as you would a colleague's first look: check the statistics
 table and the code before you rely on a conclusion.
 
 
+## From a script
+
+The endpoint is not only for AI apps: any program that can send a POST
+can call the same tools. An example in Python, with nothing outside
+Python's standard library, lists your projects, compares Shannon
+diversity between the groups of a metadata field (`run_stats`), and
+saves an ordination with its caption and R code (`make_plot`). Download
+it from the home page of your atima ("An example script"), or from
+[GitHub](https://github.com/cmmr/atima/blob/main/inst/www/examples/atima_mcp.py),
+and run it while atima is running:
+
+```sh
+python atima_mcp.py --url http://127.0.0.1:8080/mcp
+python atima_mcp.py --url http://127.0.0.1:8080/mcp --project hmp50 --field "Body Site" --out hmp50.png
+```
+
+Each request is one JSON-RPC message, which also says in three headers
+which revision of MCP it speaks, what it asks for and which tool it
+calls; the script's `Atima` class does this, and `main()` is where to
+ask other questions. The script does not sign in, so it works with an
+atima on your own computer; a shared server lets in only apps that a
+person has approved (see "Connecting to a shared server" above).
+
+
 ## The tools that read and compute
 
 Every connected app has these six.

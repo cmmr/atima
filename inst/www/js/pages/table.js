@@ -5,7 +5,7 @@
 
 import { h, fill, icon, button, debounce } from '../dom.js';
 import { call, abortJobs } from '../api.js';
-import { tabs, section, spinner } from '../widgets.js';
+import { tabs, section, spinner, guideButton } from '../widgets.js';
 import { controlPanel } from '../controls.js';
 import { localTable } from '../tables.js';
 import { subsetEditor, codeBlock, depthControl } from './plot.js';
@@ -66,7 +66,7 @@ export function show(container, fn) {
     { id: 'code',  label: 'R code', icon: 'code',  panel: h('div.pane', codeBody) },
   ]);
   const depth = depthControl();
-  panes.bar.append(h('div.plot-tools', depth.label, depth.select));
+  panes.bar.append(h('div.plot-tools', depth.label, depth.select, guideButton('depth')));
 
   //___________________________________________________________________________
   // Right: controls

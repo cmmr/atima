@@ -4,11 +4,13 @@
 
 import { h, fill, icon, button, debounce, download, serverHtml, newId } from '../dom.js';
 import { call, abortJobs } from '../api.js';
-import { tabs, section, picker, notify, showError } from '../widgets.js';
+import { tabs, section, picker, notify, showError, guideButton } from '../widgets.js';
+import { functionGuide } from '../guides.js';
 import { controlPanel, controlRow, stepping } from '../controls.js';
 import { localTable } from '../tables.js';
 import { copyText, busy } from '../actions.js';
 import * as S from '../schema.js';
+import * as A from '../address.js';
 import * as R from '../render.js';
 import * as store from '../store.js';
 
@@ -257,7 +259,51 @@ function imageEditor(onchange) {
 //_____________________________________________________________________________
 // The page
 
-export function show(container, fn) {
+/**
+ * Take a figure's settings from its address (a reload, a bookmark, a link
+ * from a colleague) into the store. They are the whole of the figure's
+ * settings: whatever the address does not name is at its default.
+ * @return {number|null} The rarefaction depth the figure was made at, if
+ *   it is not the open project's and the project has it.
+ */
+function restore(def, text) {
+
+  const state = A.decodeState(text);
+  if (!state) return null;
+
+  const schema = store.get('schema');
+  const biom   = store.get('biom');
+  const now    = A.cleanState(state);
+
+  // What suits neither the function nor the project is dropped when the
+  // controls read the store (`S.fnArgs()`).
+  store.resetArgs(def);
+  for (const [name, value] of Object.entries(now.args))
+    if (S.param(def, name)) store.setArg(def, name, value);
+
+  store.set('subset', S.pruneSubset(now.subset, biom));
+
+  const save = {};
+  for (const p of schema.save.params) {
+    const value = now.save[p.name];
+    if (p.name === 'device' || value === undefined) continue;
+    const ok = p.type === 'choice' ? p.choices.includes(value)
+      : typeof value === 'number' && (p.min === undefined || value >= p.min) && (p.max === undefined || value <= p.max);
+    if (ok) save[p.name] = value;
+  }
+  store.set('save', save);
+  store.set('fit', now.fit);
+
+  return now.depth !== null && now.depth !== biom.depth && (biom.depth_options || []).includes(now.depth) ? now.depth : null;
+}
+
+
+/**
+ * @param {HTMLElement} container
+ * @param {string} fn              The rbiom function, from the address.
+ * @param {string|null} settings   The figure's settings, from the address, if it has any.
+ */
+export function show(container, fn, settings = null) {
 
   const schema = store.get('schema');
   const def    = schema.functions[fn];
@@ -267,12 +313,17 @@ export function show(container, fn) {
     return {};
   }
 
+  const wantDepth = settings ? restore(def, settings) : null;
+
   let seq = 0;              // the newest request's number
   let controller = null;    // to stop the request in flight
   let last = null;          // the newest figure's response
   let lastSize = '';
   let drawnKey = null;      // the settings of the figure on screen, as text
   let isBusy = false;       // is a figure being drawn?
+  let since = 0;            // when the request in flight was sent
+  let status = null;        // what the server last said of it: queued, at which place, or running
+  let gone = false;         // has the page been left?
 
   // Draw after every change, or only on request? One choice per browser,
   // for every figure type.
@@ -323,7 +374,7 @@ export function show(container, fn) {
   const depth  = depthControl();
 
   const downloadBtn = button('Download', downloadFigure, { icon: 'download', title: 'Download the figure in this format' });
-  const tools = h('div.plot-tools', depth.label, depth.select, device, downloadBtn);
+  const tools = h('div.plot-tools', depth.label, depth.select, guideButton('depth'), device, downloadBtn);
 
   const panes = tabs([
     { id: 'figure', label: 'Figure',     icon: 'chart-column', panel: h('div.pane.figure-pane', figureBox, caption) },
@@ -364,6 +415,7 @@ export function show(container, fn) {
       h('h2', { title: def.label }, def.label),
       button('', () => { store.resetArgs(def); buildControls(); changed(); }, { icon: 'rotate-left',
         title: 'Put every control of this plot back to its default. Other plots that share a setting follow.' })),
+    guideButton(functionGuide(def), { line: true }),
     problems, basicBox,
     section('Advanced', advancedBox),
     section('Samples', filter, { badge }),
@@ -428,11 +480,14 @@ export function show(container, fn) {
     }
     overlay.hidden = v.box === 'hidden';
     overlay.classList.toggle('held', v.box === 'held');
+    // While a figure is on its way: that it is being drawn, or its place
+    // in the queue when the server is busy with other people's.
+    const said = isBusy ? R.progress(def.label, status, (Date.now() - since) / 1000) : v;
     spin.hidden = !isBusy;
-    heading.textContent = isBusy ? `Drawing: ${def.label}` : v.heading;
+    heading.textContent = said.heading;
     heading.hidden = !heading.textContent;
-    hint.textContent = v.hint;
-    hint.hidden = !v.hint;
+    hint.textContent = said.hint;
+    hint.hidden = !said.hint;
 
     // One button, "Render" or "Stop". The keyboard stays on it when it changes.
     const show = v.button === 'stop' ? stopBtn : renderBtn, hide = show === stopBtn ? renderBtn : stopBtn;
@@ -465,8 +520,28 @@ export function show(container, fn) {
     else refresh();
   }
 
+  /**
+   * Keep the figure's settings in the page's address, so that a reload, a
+   * bookmark or a link comes back to this figure. With every setting at
+   * its default the address names the page alone.
+   */
+  function keepAddress() {
+    if (gone) return;
+    const biom = store.get('biom');
+    const hash = A.buildHash('plot', fn, A.encodeState({
+      a: args(),
+      s: S.subsetPayload(store.get('subset')),
+      v: store.get('save'),
+      f: store.get('fit') ? null : false,
+      // The depth is the saved project's unless the working copy has changes.
+      d: biom.is_saved ? null : biom.depth }));
+    if (window.location.hash !== hash)
+      window.history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+  }
+
   /** A setting changed: draw again, or say that the figure is now older than its settings. */
   function changed() {
+    keepAddress();
     if (R.onChange(auto) === 'draw') { schedule(); return; }
     schedule.cancel();
     if (isBusy) return;                     // the figure being drawn is compared when it arrives
@@ -495,7 +570,19 @@ export function show(container, fn) {
     lastSize = JSON.stringify(size.css);
 
     showMessage(null);
+    since  = Date.now();
+    status = null;
     setBusy(true);
+
+    // A figure that does not come at once: ask where it stands, every
+    // few seconds, and say so. A quick figure is never asked about.
+    const watch = setInterval(async () => {
+      let heard = null;
+      try { heard = await call('/api/plot/status'); } catch { /* the figure's own request says what is wrong */ }
+      if (mine !== seq || !isBusy) return;
+      status = heard;
+      refresh();
+    }, R.ASK_SECONDS * 1000);
 
     try {
       const resp = await call('/api/plot', requestBody({ save_args: size.args, attrs: true }), { signal: controller.signal });
@@ -515,6 +602,7 @@ export function show(container, fn) {
       else { showMessage(err.message, { retry: true, id: err.id }); console.error(err); }
     }
     finally {
+      clearInterval(watch);
       if (mine === seq) { setBusy(false); controller = null; }
     }
   }
@@ -599,7 +687,12 @@ export function show(container, fn) {
   // The first figure waits a moment: for the page to be laid out, so that
   // it fits, and for a required field to be chosen for the user. Drawing
   // on request, it waits for Render.
-  changed();
+  if (wantDepth === null) changed();
+  // The address is of a figure made at another depth than the project is
+  // at: go to that depth first. The project then changes, and the figure
+  // follows (`onBiom`).
+  else busy('Rarefying...', () => call('/api/project/rarefy', { depth: wantDepth }))
+    .then(done => { if (!done && !gone) changed(); });
 
   return {
     // The project changed under the page: another depth, a new field, or
@@ -614,6 +707,7 @@ export function show(container, fn) {
       if (!sameData) changed();
     },
     destroy() {
+      gone = true;
       seq++;
       schedule.cancel(); resized.cancel();
       watcher.disconnect();

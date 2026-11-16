@@ -178,6 +178,8 @@ test_that("no page of the app asks another host for anything", {
     "https://cmmr.github.io/atima/articles/ai-apps.html",
     "https://github.com/cmmr/atima",
     "https://github.com/cmmr/rbiom",
+    # rbiom's help pages, linked from the notes on choosing (js/guides.js).
+    "https://cmmr.github.io/rbiom/reference/",
     # On the administrators' Usage page: its documentation, and the credit
     # the licence of DB-IP's lookup files asks for.
     "https://cmmr.github.io/atima/articles/server.html#usage",
@@ -677,4 +679,180 @@ test_that("the line under a figure does not repeat the figure's caption", {
   expect_match(src, "const made = resp.caption ? '' : S.madeFrom(def, biom);", fixed = TRUE)
   expect_match(src, "img.alt = [`${def.label}.`, resp.caption || made]", fixed = TRUE)
   expect_match(src, "sample filter", fixed = TRUE)
+})
+
+
+# `js/address.js` is pure as well: the page's address, and a figure's
+# settings in it.
+local_address_js <- function () {
+
+  testthat::skip_if_not_installed("V8")
+
+  js  <- V8::v8()
+  src <- read_text(www("js", "address.js"))
+  expect_no_match(src, "(^|\n)import ")
+  js$eval(gsub("(^|\n)export ", "\\1", src))
+  js
+}
+
+
+test_that("a figure's settings go into the page's address and come back the same", {
+
+  js <- local_address_js()
+
+  js$eval("
+    const state = {
+      a: { x: 'Body Site', 'stat.by': 'Sex', layers: ['bar', 'dot'], colors: { Female: '#aa3377', Male: '#4477aa' }, 'facet.by': null, level: 0.9 },
+      s: { cat: { 'Body Site': ['Saliva', 'Stool'] }, num: { Age: [21, 30.5] } },
+      v: { width: 800, units: 'px' }, f: false, d: 1183 };
+    const text = encodeState(state);")
+
+  # Only letters an address may hold after #, and nothing a route splits on.
+  expect_match(js$get("text"), "^[A-Za-z0-9_-]+$")
+  expect_true(js$get("JSON.stringify(decodeState(text)) === JSON.stringify(state)"))
+
+  # R's NULL is a value ('no facets'): it is kept inside the arguments.
+  expect_true(js$get("decodeState(text).a['facet.by'] === null"))
+
+  # Any text survives: other scripts, quotes, the characters of a path.
+  js$eval("const odd = { a: { x: 'K\\u00f6rpergr\\u00f6\\u00dfe (cm) / \\u201cGr\\u00f6\\u00dfe\\u201d \\u8eab\\u9577 \\ud83d\\ude00', taxa: ['a/b', 'c?d#e'] } };")
+  expect_true(js$get("JSON.stringify(decodeState(encodeState(odd))) === JSON.stringify(odd)"))
+  expect_match(js$get("encodeState(odd)"), "^[A-Za-z0-9_-]+$")
+  for (n in 0:7)
+    expect_true(js$get(sprintf("decodeState(encodeState({ a: { t: 'x'.repeat(%i) } })).a.t.length === %i", n, n)))
+
+  # Every setting at its default: nothing to keep, and the address is the page's alone.
+  expect_identical(js$get("encodeState({ a: {}, s: null, v: {}, f: null, d: null })"), "")
+  expect_identical(js$get("buildHash('plot', 'adiv_boxplot', encodeState({ a: {} }))"), "#/plot/adiv_boxplot")
+  expect_identical(js$get("buildHash('home')"), "#/home")
+
+  # Too much to keep (a colour by hand for each of very many groups): the page alone.
+  expect_identical(js$get("encodeState({ a: { colors: Object.fromEntries(Array.from({ length: 2000 }, (_, i) => ['group ' + i, '#123456'])) } })"), "")
+
+  # The address apart and together again.
+  js$eval("const hash = buildHash('plot', 'bdiv_ord_plot', text); const back = parseHash(hash);")
+  expect_identical(js$get("hash.split('/').length"), 4L)
+  expect_identical(js$get("[back.page, back.arg]"), c("plot", "bdiv_ord_plot"))
+  expect_true(js$get("back.state === text"))
+  expect_identical(js$get("JSON.stringify(parseHash('#/plot/adiv_boxplot'))"), '{"page":"plot","arg":"adiv_boxplot","state":null}')
+  expect_identical(js$get("JSON.stringify(parseHash(''))"), '{"page":"home","arg":null,"state":null}')
+  expect_identical(js$get("parseHash('#/plot/%E0%A4%A')['arg']"), "%E0%A4%A")       # not an escape: left as it is
+})
+
+
+test_that("an address that someone cut short or wrote by hand does no harm", {
+
+  js <- local_address_js()
+
+  # Not settings at all: read as none.
+  for (text in c("", "!!!", "abc", "eyJhIjp7", "bnVsbA", "WzEsMl0", "MTIz"))
+    expect_true(js$get(sprintf("decodeState('%s') === null", text)), info = text)
+  expect_true(js$get("decodeState(null) === null"))
+  expect_true(js$get("decodeState('A'.repeat(STATE_MAX + 1)) === null"))
+
+  # Settings of the wrong shape are dropped one by one; the rest stays.
+  js$eval("
+    const c = cleanState({
+      a: { x: 'Sex' },
+      s: { cat: { Sex: ['Male'], Bad: 'Male', Empty: [], Mixed: ['a', 1] }, num: { Age: [20, 30], Up: [30, 20], One: [1], Text: ['a', 'b'] } },
+      v: { width: 800, units: 'in', height: -1, dpi: null, scale: { a: 1 } },
+      f: 'no', d: 1183.5 });")
+  expect_identical(js$get("JSON.stringify(c.args)"), '{"x":"Sex"}')
+  expect_identical(js$get("JSON.stringify(c.subset)"), '{"cat":{"Sex":["Male"]},"num":{"Age":[20,30]}}')
+  expect_identical(js$get("JSON.stringify(c.save)"), '{"width":800,"units":"in"}')
+  expect_true(js$get("c.fit"))
+  expect_true(js$get("c.depth === null"))
+
+  expect_false(js$get("cleanState({ f: false }).fit"))
+  expect_identical(js$get("cleanState({ d: 1183 }).depth"), 1183L)
+
+  # Nothing, or nonsense, is every setting at its default.
+  for (x in c("null", "undefined", "'text'", "[1, 2]", "{ a: [1], s: 'x', v: 3 }"))
+    expect_identical(
+      js$get(sprintf("JSON.stringify(cleanState(%s))", x)),
+      '{"args":{},"subset":{"cat":{},"num":{}},"save":{},"fit":true,"depth":null}', info = x )
+})
+
+
+test_that("the settings an address restores are checked against the function and the project", {
+
+  # What the address carries goes through the same door as what the user
+  # sets by hand: `fnArgs()` keeps only what suits the function and the
+  # open project.
+  js <- local_schema_js()
+
+  js$eval("
+    let shared = {};
+    const put = (fn, name, value) => { shared[shareKey(P(fn, name))] = value; };
+    put('adiv_boxplot', 'x', 'No Such Field');
+    put('adiv_boxplot', 'stat.by', 'Sex');
+    put('adiv_boxplot', 'adiv', ['nonsense']);
+    put('adiv_boxplot', 'level', 'high');
+    put('adiv_boxplot', 'layers', ['<img src=x onerror=alert(1)>']);")
+
+  expect_identical(js$get("JSON.stringify(fnArgs(F.adiv_boxplot, shared, biom))"), '{"stat.by":"Sex"}')
+
+  # The sample filter likewise.
+  expect_identical(
+    js$get("JSON.stringify(pruneSubset({ cat: { Sex: ['Male'], Nope: ['x'], 'Body Site': ['Moon'] }, num: { Age: [20, 30], Sex: [1, 2] } }, biom))"),
+    '{"cat":{"Sex":["Male"]},"num":{"Age":[20,30]}}' )
+})
+
+
+test_that("a figure that waits is told its place in the queue, and a slow one what can be done", {
+
+  js <- local_render_js()
+
+  js$eval("const P = (status, seconds) => progress('Ordination', status, seconds);")
+
+  # Being drawn, and not for long: as it always was.
+  expect_identical(js$get("P(null, 0)"), list(heading = "Drawing: Ordination", hint = ""))
+  expect_identical(js$get("P({ state: 'running' }, 3)"), list(heading = "Drawing: Ordination", hint = ""))
+  expect_identical(js$get("P({ state: 'none' }, 3)")$heading, "Drawing: Ordination")
+
+  # Waiting for a worker: the place in the queue, and that the page can be left.
+  v <- js$get("P({ state: 'queued', place: 3, waiting: 5 }, 2)")
+  expect_identical(v$heading, "Waiting: place 3 of 5 in the queue")
+  expect_match(v$hint, "drawing other figures first")
+  expect_match(v$hint, "address of this page keeps these settings")
+  expect_identical(js$get("P({ state: 'queued', place: 1, waiting: 1 }, 2)")$heading, "Waiting: place 1 of 1 in the queue")
+
+  # An answer that makes no sense says no more than that the figure is drawn.
+  expect_identical(js$get("P({ state: 'queued' }, 2)")$heading, "Drawing: Ordination")
+  expect_identical(js$get("P({ state: 'queued', place: 4, waiting: 2 }, 2)")$heading, "Waiting: place 4 of 4 in the queue")
+
+  # Slow: what the user can do meanwhile. It does not promise that the
+  # figure goes on being drawn while they are away.
+  expect_identical(js$get("P({ state: 'running' }, SLOW_SECONDS - 1)")$hint, "")
+  slow <- js$get("P({ state: 'running' }, SLOW_SECONDS)")$hint
+  expect_match(slow, "bookmark")
+  expect_match(slow, "drawn again")
+})
+
+
+test_that("the plot page keeps its settings in the address and asks where a slow figure stands", {
+
+  src  <- read_text(www("js", "pages", "plot.js"))
+  main <- read_text(www("js", "main.js"))
+
+  # Every change of a setting goes through changed(), which writes the
+  # address first. The address is replaced, not added to: the Back button
+  # leaves the page, it does not undo a setting.
+  expect_match(src, "function changed() {\n    keepAddress();", fixed = TRUE)
+  expect_match(src, "window.history.replaceState(null, '', window.location.pathname + window.location.search + hash)", fixed = TRUE)
+  expect_no_match(src, "pushState")
+
+  # The page is handed the settings in the address, and the navigation
+  # marks the page whatever settings follow its name.
+  expect_match(main, "page.show(main, route.arg, route.state)", fixed = TRUE)
+  expect_match(main, "const here = A.buildHash(page, arg);", fixed = TRUE)
+
+  # The page is shown once when the app starts, so that an address with
+  # another depth than the project's rarefies once (found in the browser).
+  expect_match(main, "projectChanged(store.get('biom'), null);\n  if (!store.get('biom')) showPage();", fixed = TRUE)
+
+  # The question is only asked while a figure is on its way, and stops with it.
+  expect_match(src, "call('/api/plot/status')", fixed = TRUE)
+  expect_match(src, "clearInterval(watch);", fixed = TRUE)
+  expect_identical(match_route("POST", "/api/plot/status")$route$lane, "fast")
 })

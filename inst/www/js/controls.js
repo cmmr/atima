@@ -11,10 +11,12 @@
 // An editor reports a JSON value to send, or UNSET when the user is back at
 // rbiom's default, in which case the argument is left out of the request.
 // Choices that depend on the data (fields, ranks, taxa, metrics that need a
-// tree) are filled in from the open project's summary.
+// tree) are filled in from the open project's summary. Which controls have
+// a note on choosing is for `guides.js` to say.
 
 import { h, fill, icon, newId } from './dom.js';
-import { picker } from './widgets.js';
+import { picker, guideButton } from './widgets.js';
+import { paramGuide } from './guides.js';
 import * as S from './schema.js';
 
 const UNSET = undefined;
@@ -57,9 +59,10 @@ const MAX_LEVELS = 40;
  *   help    text for the small help icon beside the label, if any
  *   kind    "field" marks a control that picks a metadata field
  *   reset   {title, icon, onclick} for the button at the row's edge, if any
+ *   guide   what opens a note on choosing for this control, if it has one
  * @return {{el, body, more, kids, help, reset, label}}
  */
-export function controlRow({ id, label, help = null, kind = null, reset = null }) {
+export function controlRow({ id, label, help = null, kind = null, reset = null, guide = null }) {
 
   const row = {
     label: h('label.control-label', { for: id, id: `${id}-label`, title: label }, label),
@@ -74,7 +77,7 @@ export function controlRow({ id, label, help = null, kind = null, reset = null }
     h('div.control-row',
       h('div.control-name',
         kind === 'field' ? h('i.fa-solid.fa-table-columns.control-kind', { title: 'Chooses a metadata field', 'aria-hidden': 'true' }) : null,
-        row.label, row.help),
+        row.label, row.help, guide),
       row.body, row.reset),
     row.more, row.kids);
 
@@ -651,6 +654,7 @@ export function controlPanel(def, { biom, schema, args, set, kept = () => null }
       id, label: p.label,
       help: p.desc ? S.plain([p.desc, p.note].filter(Boolean).join(' ')) : null,
       kind: p.type === 'field' || p.type === 'tracks' ? 'field' : null,
+      guide: guideButton(paramGuide(p)),
       reset: { title: 'Back to the default', icon: 'rotate-left', onclick: () => change(p.name, UNSET) } });
 
     Object.assign(row, { p, id, deps: null, shown: UNSET, parent: S.parentOf(p, def) });

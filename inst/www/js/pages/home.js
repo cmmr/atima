@@ -11,6 +11,22 @@ const examples = [
   { src: '/www/img/stacked.png', title: 'Stacked bars', text: 'The composition of every sample.' },
 ];
 
+/**
+ * AI apps and scripts: the MCP endpoint, the example script (a Python file
+ * served with the app) and the article on connecting an app. The script
+ * does not sign in, so on a shared server it is for an ATIMA of one's own.
+ */
+function scripting(local) {
+  const endpoint = h('code', `${window.location.origin}/mcp`);
+  const script   = h('a', { href: '/www/examples/atima_mcp.py', download: 'atima_mcp.py' }, 'An example script');
+  const article  = h('a', { href: 'https://cmmr.github.io/atima/articles/ai-apps.html', target: '_blank', rel: 'noopener noreferrer' }, 'Connecting an AI app');
+  return local
+    ? h('li', h('strong', 'Script it. '), 'AI apps and your own programs can list projects, run statistics and draw figures through this copy\'s MCP endpoint, ',
+        endpoint, '. ', script, ' (Python) does all three: ', h('code', `python atima_mcp.py --url ${window.location.origin}/mcp`), '. See ', article, '.')
+    : h('li', h('strong', 'Script it. '), 'AI apps can list projects, run statistics and draw figures through this server\'s MCP endpoint, ',
+        endpoint, ', once you sign in from the app (', article, '). ', script, ' (Python) does the same with an ATIMA on your own computer.');
+}
+
 export function show(container) {
 
   const local = store.get('conf').auth === 'none';
@@ -37,7 +53,8 @@ export function show(container) {
           h('li', h('strong', 'Reproduce. '), 'Each figure shows the R code that makes it, to run and adapt on your own computer.'),
           local
             ? h('li', h('strong', 'Private. '), 'This copy runs on your computer. Your data stays here.')
-            : h('li', h('strong', 'Share. '), 'Give colleagues a link, share with them by name, or publish a project for everyone.'))),
+            : h('li', h('strong', 'Share. '), 'Give colleagues a link, share with them by name, or publish a project for everyone.'),
+          scripting(local))),
       h('img.logo', { src: '/www/img/CMMR.png', alt: 'Alkek Center for Metagenomics and Microbiome Research' })),
 
     h('section',

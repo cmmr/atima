@@ -2,6 +2,7 @@
 // picker, tabs. All text is inserted as text.
 
 import { h, fill, icon, button, newId } from './dom.js';
+import { GUIDES } from './guides.js';
 
 //_____________________________________________________________________________
 // Dialogs, on the browser's own <dialog> element.
@@ -349,6 +350,33 @@ export function section(title, content, { open = false, badge = null } = {}) {
   return h('details.section', { open },
     h('summary', icon('chevron-right', 'section-arrow'), h('span.section-title', title), badge),
     h('div.section-body', content));
+}
+
+//_____________________________________________________________________________
+// Notes on choosing (`guides.js`)
+
+/** Show a note on choosing in a dialog, with the link to rbiom's documentation. */
+export function showGuide(key) {
+  const g = GUIDES[key];
+  if (!g) return;
+  dialog({ title: g.title, body: [
+    g.text.map(text => h('p', text)),
+    h('p.guide-more', icon('book'), ' ',
+      h('a', { href: g.more.href, target: '_blank', rel: 'noopener noreferrer' }, g.more.label)) ] });
+}
+
+/**
+ * What opens a note on choosing: a small light bulb beside a control's
+ * label or, with `line`, the note's question as a line that reads as a link.
+ * @return {HTMLElement|null} null when there is no note by that key.
+ */
+export function guideButton(key, { line = false } = {}) {
+  const g = GUIDES[key];
+  if (!g) return null;
+  return line
+    ? h('button.guide-link', { type: 'button', onclick: () => showGuide(key) }, icon('lightbulb'), h('span', g.title))
+    : h('button.control-guide', { type: 'button', title: `How to choose: ${g.title}`, 'aria-label': `How to choose: ${g.title}`,
+        onclick: () => showGuide(key) }, icon('lightbulb'));
 }
 
 /** A spinner with a message. */

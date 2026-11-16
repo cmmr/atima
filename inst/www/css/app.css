@@ -254,6 +254,14 @@ label.inline { display: flex; align-items: center; gap: 7px; font-weight: 400; f
 .control-kind { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--navy-3); opacity: .7; }
 .control-help { flex: none; color: #8f98a3; font-size: 11px; cursor: help; opacity: .4; border-radius: 50%; }
 .control-row:hover .control-help, .control-help:focus-visible, .control.inactive > .control-row .control-help { opacity: 1; }
+/* A note on choosing (guides.js): beside a control's label, and beside the depth. */
+.control-guide { flex: none; border: 0; background: none; padding: 0 2px; color: #b8860b; font-size: 11px; cursor: pointer; opacity: .6; border-radius: 4px; }
+.control-guide:hover, .control-guide:focus-visible, .control-row:hover .control-guide { opacity: 1; }
+.plot-tools .control-guide { align-self: center; margin: 0 8px 0 -4px; font-size: 12px; }
+.guide-link { display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px 6px 0; color: var(--navy-3); font-size: 12px; cursor: pointer; text-align: left; }
+.guide-link:hover span { text-decoration: underline; }
+.guide-link .fa-lightbulb { color: #b8860b; }
+.guide-more { font-size: 13px; }
 .control-body { min-width: 0; display: flex; align-items: center; gap: 5px; }
 .control-body > * { flex: 1 1 auto; min-width: 0; }
 .control-body > input[type="checkbox"], .control-body > .unit { flex: none; }
