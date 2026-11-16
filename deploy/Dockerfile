@@ -47,6 +47,7 @@ RUN if [ -n "$CRAN_REPO" ]; then       echo "options(repos = c(CRAN = '$CRAN_REP
 # offers. Without one of these atima quietly leaves out what needs it, so
 # this list is the place to get right:
 #   openxlsx     Excel export
+#   zip          QIIME 2 and mothur exports
 #   fillpattern  the `patterns` parameter of the plots
 #   Rtsne, uwot  tSNE and UMAP ordinations
 #   ggdensity    the density layer of ordinations
@@ -56,7 +57,9 @@ RUN if [ -n "$CRAN_REPO" ]; then       echo "options(repos = c(CRAN = '$CRAN_REP
 #   svglite      SVG figures
 #   bcrypt       importing from atima 2 (the server refuses to start with a
 #                legacy file and no bcrypt)
-ARG OPTIONAL_PACKAGES="openxlsx fillpattern Rtsne uwot ggdensity lmerTest ggbeeswarm ggrepel h5lite svglite bcrypt"
+# Not in the list: phyloseq (the phyloseq export). It is a Bioconductor
+# package, large, and this step installs from CRAN only.
+ARG OPTIONAL_PACKAGES="openxlsx zip fillpattern Rtsne uwot ggdensity lmerTest ggbeeswarm ggrepel h5lite svglite bcrypt"
 
 # (A build argument is an environment variable while a RUN step runs.)
 RUN Rscript -e 'pkgs <- strsplit(Sys.getenv("OPTIONAL_PACKAGES"), " ")[[1]]; \

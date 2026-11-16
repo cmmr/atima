@@ -204,6 +204,8 @@ you want and start atima again.
 | Package | What it switches on |
 |---------|---------------------|
 | `openxlsx` | Exporting a project as an Excel workbook. |
+| `zip` | Exporting a project as files for QIIME 2 or mothur. (`openxlsx` installs it too.) |
+| `phyloseq` | Exporting a project as a phyloseq object. It is on Bioconductor, not CRAN. |
 | `fillpattern` | Patterns (hatching) to tell groups apart in a figure. |
 | `Rtsne` | tSNE ordinations. |
 | `uwot` | UMAP ordinations. |
@@ -213,7 +215,11 @@ you want and start atima again.
 | `bcrypt` | [Importing from an older atima](legacy-import.html). |
 
 ```{r}
-install.packages(c("openxlsx", "fillpattern", "Rtsne", "uwot", "ggdensity", "lmerTest", "svglite"))
+install.packages(c("openxlsx", "zip", "fillpattern", "Rtsne", "uwot", "ggdensity", "lmerTest", "svglite"))
+
+# phyloseq, from Bioconductor
+install.packages("BiocManager")
+BiocManager::install("phyloseq")
 ```
 
 
