@@ -43,6 +43,15 @@ it to that step's list instead of fixing it now.
 | 13 | Usage monitoring | done (2026-11-15) |
 | 14 | Interactive figures (plotly): is it worth it; rendering on request | done (2026-11-15); part A closed as "not for now" |
 | 15 | Cores given to jobs by what they can use | done (2026-11-15) |
+| 15A | Upload: QIIME 2 and mothur files, errors that name the problem | not started |
+| 15B | Downloads: QIIME 2, mothur, phyloseq | not started |
+| 15C | New analyses: shared taxa (UpSet), top taxa | not started |
+| 15D | Captions and NMDS stress from rbiom | not started |
+| 15E | Job progress: place in the queue | not started |
+| 15F | "How to choose" notes; template script for the MCP endpoint | not started |
+| 15G | A colour for each group | waits on rbiom |
+| 15H | "Methods" tab | waits on rbiom |
+| 15I | Projects stored as HDF5; order of a field's levels | not started (after 15A to 15F) |
 | 16 | The lab's public server | not started |
 | 17 | Release | not started |
 
@@ -4000,6 +4009,151 @@ here.
   (Windows): 0 errors, 0 warnings, and the 1 note this machine gives every
   time (curl prints "Initiating curl with CURL_SSL_BACKEND: openssl"
   into the check of dependencies in R code).
+
+## Steps 15A to 15I: what users of similar tools ask for
+
+Added on 2026-11-15, from a review of similar websites and their issue
+trackers, done while choosing a journal. The notes are in `paper/` (not
+in git): `feature-ideas.md` is the list and the reasons,
+`issue-tracker-survey.md` the evidence, `nar-web-server-issue.md` what
+*Nucleic Acids Research* requires of a web server.
+
+How these steps differ from the others, by Daniel's word on 2026-11-15:
+
+- 15A to 15F do not depend on each other and may run at the same time,
+  each in its own git worktree on a local branch. A branch never goes to
+  GitHub. When a step is done its commits are put on `main` and the
+  branch and worktree are deleted.
+- "Proceed as you see fit": a step decides its own open questions, and
+  records them in the decision log, instead of asking first. Pushing
+  still needs Daniel's answer each time.
+- rbiom, ecodive and atima are developed together. Do not raise rbiom's
+  version, and do not make `DESCRIPTION` require a version of either
+  that is not on CRAN. These steps need rbiom at commit `d90e979` or
+  later, installed from GitHub or from the folder beside this one.
+- A step run in a worktree leaves the status table and the decision log
+  alone (every step would change the same lines) and reports its
+  decisions; they are written here when its commits reach `main`.
+
+What rbiom gained at `d90e979`: `read_biom()` and `as_rbiom()` read
+QIIME 2 artifacts (`.qza`: table, taxonomy, tree, sequences) and mothur
+`.shared` files; import errors name the file and the problem; every
+plot's caption states the input table and the method; NMDS stress is in
+the caption and in the `axes` attribute; `taxa_top()`, `taxa_shared()`
+and `taxa_upset()`, each with a schema entry; `write_biom(format =
+"hdf5")` keeps the order of factor levels and `read_biom()` restores it.
+
+### Step 15A: Upload
+
+- Accept what rbiom now reads: a QIIME 2 feature table `.qza` or a
+  mothur `.shared` file as a new project, and a taxonomy or tree `.qza`
+  where a project's taxonomy or tree is replaced. The browser and the
+  MCP upload tools both.
+- `work_import()` (`R/worker.R`) calls `with_user_errors(detail =
+  FALSE)`, so every failure reads "That file could not be read as a BIOM
+  file." rbiom's messages now say what is wrong (sample names that do not
+  match, tree tips that do not match, decimal commas, the wrong kind of
+  file). Show them. Check first that none carries a path on the server
+  or anything else a visitor should not see; the uploaded file's own
+  name is fine. The same for replacing the metadata, taxonomy or tree.
+- A tree whose tips do not match the table: say so, and say what the
+  user can do. Do not leave a project in which UniFrac fails later
+  without an explanation.
+- Template files to download beside the upload button (counts with a
+  taxonomy column, metadata), and the upload limit (`max_upload_mb`)
+  stated there.
+- The articles and the README say "BIOM file" in many places; say what
+  is accepted, once, where a reader looks for it.
+
+### Step 15B: Downloads
+
+- The project page ("Downloads" card) and the MCP tool `export` offer
+  Excel, BIOM in three formats, metadata, taxonomy and the tree. Add
+  what rbiom can already write: QIIME 2 (`write_qiime2()`), mothur
+  (`write_mothur()`), and a phyloseq object as `.rds`
+  (`convert_to_phyloseq()`).
+- phyloseq is a Bioconductor package: `Suggests`, and the download is
+  offered only where it is installed. The same test for anything else
+  a writer needs.
+- Several files in one download go in a `.zip`.
+
+### Step 15C: New analyses
+
+- `taxa_upset` is a plot: a page under "Taxa", like the others, from its
+  schema entry.
+- `taxa_top` and `taxa_shared` return tables, and atima has no page that
+  shows a table a function made (`use` is `plot`, `clusters` or `stats`,
+  and `stats` is for MCP only). Add the smallest thing that fits: a page
+  with the function's controls, the table, a download as CSV, and the R
+  code. Offer both through MCP as well.
+- Names in the navigation are 12 characters at most (a test checks).
+
+### Step 15D: Captions
+
+- rbiom now writes the input table and the method into every figure's
+  caption, and the NMDS stress. Check each plot atima offers: the
+  caption is there, is not cut off at the sizes atima draws, and does
+  not repeat the line atima writes under the figure (`plot.js`,
+  `caption.textContent`). Keep one of the two where they say the same.
+- The MCP tool `make_plot` returns the caption as text, so that an AI
+  app can say how a figure was made without reading the image.
+
+### Step 15E: Job progress
+
+- A figure that waits for a worker shows only that it is being drawn.
+  Show the job's place in the queue while it waits, and say that the
+  page can be left and come back to.
+- *Nucleic Acids Research* requires that a result which is not
+  immediate has an address the user can bookmark. Check what a reload
+  of a plot page does while its figure is being drawn, and after; fix
+  it if the figure or the settings are lost.
+
+### Step 15F: Notes on choosing; a script for the MCP endpoint
+
+- A few sentences beside the controls people ask about most: which
+  alpha diversity metric, which beta diversity metric, rarefy or not
+  and to what depth, which ordination, which test, and why
+  differential abundance here is LinDA and not LEfSe. Plain words,
+  with a link to rbiom's documentation for more. Text that describes
+  an rbiom argument belongs in rbiom (atima shows it as the control's
+  help); these notes are about choosing between options.
+- *Nucleic Acids Research* asks a web service for a script, linked
+  from the home page, that calls several services and reads the
+  results. Write one for `/mcp` (Python, standard library only if that
+  is practical; else R), against a local atima, that lists projects,
+  runs a statistic and saves a figure. Test that it runs.
+
+### Step 15G: A colour for each group (waits on rbiom)
+
+rbiom's `colors` takes a named vector (`c(Male = "blue")`); work on it
+is not committed in rbiom yet (`tests/testthat/test-colors.r`). When it
+is: a control that lets the user pick a colour for each group of the
+field a figure is coloured by, kept with the project so that every
+figure uses the same colour for the same group.
+
+### Step 15H: "Methods" tab (waits on rbiom)
+
+rbiom is gaining a description of how a result was made, in sentences,
+with citations (`R/methods.r`, not committed yet). When it is: a
+"Methods" tab beside "R code" on plot pages, with a copy button, and
+the same text from `make_plot` and `run_stats`.
+
+### Step 15I: Projects stored as HDF5; order of a field's levels
+
+Decided by Daniel on 2026-11-15: atima 6 stores projects as HDF5 BIOM
+from now on, not JSON.
+
+- `R/worker.R` writes the stored files with `write_biom(format =
+  "json")`. Write HDF5. Projects already stored as JSON must still
+  open; decide whether they are rewritten when next saved or left as
+  they are, and say which here. HDF5 needs the `h5lite` package:
+  `Imports`.
+- With HDF5 the order of a categorical field's levels survives. Add a
+  way to set it, on the "Sample metadata" page beside the control that
+  switches a field between numeric and categorical, and as an MCP tool
+  beside `set_field_type`. Every figure's axis and legend then follow.
+- Run after 15A to 15F: it changes how every project is read and
+  written.
 
 ## Step 16: The lab's public server
 
