@@ -205,6 +205,10 @@ import_stop <- function (message, error, clean, after = NULL, instead = NULL) {
 #' @noRd
 import_notes <- function (warnings, clean) {
 
+  # Rows of a table for samples or OTUs the project does not have are
+  # passed over. Nothing is lost by that, so nothing is said.
+  warnings <- warnings[!grepl("Ignoring (metadata|taxonomy)\\b.* not currently in ", gsub("[[:space:]]+", " ", warnings))]
+
   notes <- unlist(lapply(unique(warnings), function (w) {
     text <- clean(w)
     if (!is.null(text)) gsub("\n", " ", text, fixed = TRUE)

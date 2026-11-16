@@ -32,8 +32,58 @@ export async function busy(message, work) {
   finally { note.remove(); }
 }
 
+//_____________________________________________________________________________
+// Uploads. What a file may be is said in one place, `uploadHelp()`, which
+// the pages put beside their upload button.
+
+/** The largest file the server accepts, in megabytes. */
+const maxUploadMb = () => store.get('conf').max_upload_mb || 50;
+
+/** What can be uploaded as a new project, how large, and files to start from. */
+export function uploadHelp() {
+  const template = (file, text) => h('a', { href: `/www/templates/${file}`, download: file }, text);
+  return h('p.hint.upload-help',
+    'A project starts from a BIOM file, a QIIME 2 feature table (.qza), a mothur .shared file, ',
+    'or a table of counts as tab- or comma-separated text (taxa in rows, samples in columns). ',
+    `Files can be up to ${maxUploadMb()} MB. `,
+    'Sample metadata, taxonomy and a tree can be added afterwards. Templates: ',
+    template('counts-template.tsv', 'counts with a taxonomy column'), ', ',
+    template('metadata-template.csv', 'sample metadata'), '.');
+}
+
+/** Is the file more than the server accepts? Says so if it is. */
+function tooLarge(file) {
+  if (file.size <= maxUploadMb() * 1024 * 1024) return false;
+  dialog({ title: 'This file is too large', body: [
+    h('p', `"${file.name}" is ${Math.ceil(file.size / 1024 / 1024).toLocaleString()} MB. This server accepts files up to ${maxUploadMb()} MB.`),
+    h('p.hint', 'A BIOM file is smaller when it is compressed (.gz), and atima reads it as it is.') ] });
+  return true;
+}
+
 /**
- * Upload a BIOM file as a new project and open it.
+ * Show why a file was refused. The server's message says what is wrong
+ * with the file, one point to a line, and can be long: it is shown in a
+ * dialog, which stays until it is closed. Its first line says only that
+ * the file was refused, which the dialog's title does already.
+ */
+function fileRefused(title, err) {
+  if (err && err.superseded) return;
+  if (err instanceof ApiError && err.status === 413) { err = new ApiError(400, `This server accepts files up to ${maxUploadMb()} MB.`); }
+  if (!(err instanceof ApiError) || err.status !== 400) { showError(err); return; }
+  console.error(err);
+  const lines = String(err.message).split('\n').filter(Boolean);
+  dialog({ title, wide: true, body: [
+    (lines.length > 1 ? lines.slice(1) : lines).map(line => h('p', line)),
+    err.id ? h('p.hint', `Error id: ${err.id}`) : null ] });
+}
+
+/** Show what the server noted about a file it accepted, such as samples it dropped. */
+function fileNotes(title, notes, after = null) {
+  return dialog({ title, wide: true, body: [notes.map(line => h('p', line)), after ? h('p.hint', after) : null] });
+}
+
+/**
+ * Upload a file as a new project and open it.
  *
  * A file whose counts are not whole numbers is refused with the code
  * `confirm_inflate` and an explanation of what scaling them does. The user
@@ -43,7 +93,7 @@ export async function uploadProject(file = null) {
 
   // Called with a file that was dropped on the page, or from a button.
   if (!(file instanceof File)) file = await chooseFile();
-  if (!file) return;
+  if (!file || tooLarge(file)) return;
 
   const send = inflate => {
     const form = new FormData();
@@ -56,29 +106,44 @@ export async function uploadProject(file = null) {
   note.classList.add('working');
 
   try {
-    try { await send(false); }
+    let done;
+    try { done = await send(false); }
     catch (err) {
       if (!(err instanceof ApiError) || err.code !== 'confirm_inflate') throw err;
       const agreed = await confirm('These counts are not whole numbers', err.message, { ok: 'Scale the counts and import' });
       if (!agreed) return;
-      await send(true);
+      done = await send(true);
     }
-    notify(`"${store.get('biom').title}" was imported.`, 'ok');
+    const title = store.get('biom').title;
     go('#/summary');
+    if (done.notes && done.notes.length) fileNotes(`"${title}" was imported. Please note:`, done.notes);
+    else notify(`"${title}" was imported.`, 'ok');
   }
-  catch (err) { showError(err); }
+  catch (err) { fileRefused(`"${file.name}" was not imported`, err); }
   finally { note.remove(); }
 }
 
 /** Replace the working copy's metadata, taxonomy or tree with a file. */
 export async function uploadComponent(component) {
+
   const file = await chooseFile();
-  if (!file) return;
+  if (!file || tooLarge(file)) return;
+
   const form = new FormData();
   form.append('component', component);
   form.append('component_file', file, file.name);
-  const done = await busy(`Reading ${file.name}...`, () => call('/api/project/upload_component', {}, { form }));
-  if (done) notify(`The ${component} was replaced in your working copy. Save to keep it.`, 'ok');
+
+  const note = notify(`Reading ${file.name}...`, 'info', { ms: 0 });
+  note.classList.add('working');
+
+  try {
+    const done  = await call('/api/project/upload_component', {}, { form });
+    const saved = `The ${component} was replaced in your working copy. Save to keep it.`;
+    if (done.notes && done.notes.length) fileNotes(`The ${component} was replaced. Please note:`, done.notes, 'This changed your working copy only. Save to keep it.');
+    else notify(saved, 'ok');
+  }
+  catch (err) { fileRefused(`The ${component} was not replaced`, err); }
+  finally { note.remove(); }
 }
 
 /** A small rich-text box for descriptions. The server sanitizes what it is sent. */

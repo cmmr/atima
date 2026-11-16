@@ -461,6 +461,9 @@ table.data.wrap td:nth-child(2) { white-space: normal; width: 100%; }
 .hero h1 { font-size: 32px; margin-bottom: 10px; }
 .hero p { max-width: 640px; margin: 0 auto 22px; color: #cfdcf2; font-size: 15.5px; }
 .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.hero p.upload-help { max-width: 620px; margin: 18px auto 0; font-size: 12.5px; }
+.hero .upload-help a { color: #fff; }
+.page > .upload-help { margin: -6px 0 14px; max-width: 900px; }
 .hero .btn.primary { background: #fff; color: var(--navy-2); border-color: #fff; }
 .hero .btn:not(.primary) { background: transparent; color: #fff; border-color: rgb(255 255 255 / 40%); }
 .two-col { display: grid; grid-template-columns: 1fr auto; gap: 30px; align-items: center; margin-bottom: 26px; }
@@ -502,7 +505,7 @@ dialog h2 { font-size: 17px; margin-bottom: 12px; }
 
 /* A file is being dragged over the page. */
 body.dropping::after {
-  content: "Drop a BIOM file to upload it as a new project";
+  content: "Drop a file to upload it as a new project";
   position: fixed; inset: 12px; z-index: 200; pointer-events: none;
   display: flex; align-items: center; justify-content: center;
   font-size: 20px; font-weight: 650; color: var(--navy-2);

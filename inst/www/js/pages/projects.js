@@ -12,7 +12,7 @@
 import { h, fill, icon, button, serverHtml } from '../dom.js';
 import { call } from '../api.js';
 import { tabs, confirm, prompt, dialog, notify, showError } from '../widgets.js';
-import { uploadProject, openProject, reopenDefault, busy } from '../actions.js';
+import { uploadProject, uploadHelp, openProject, reopenDefault, busy } from '../actions.js';
 import * as store from '../store.js';
 
 const isCollection = node => node.id.startsWith('C');
@@ -114,7 +114,7 @@ export function show(container) {
 
     const rows = branch('#', 0);
     fill(lists[kind], rows.length ? rows : h('p.empty', kind === 'private'
-      ? 'You have no projects yet. Upload a BIOM file, or open a public project and save a copy.'
+      ? 'You have no projects yet. Upload a file, or open a public project and save a copy.'
       : 'There are no public projects.'));
   }
 
@@ -274,9 +274,10 @@ export function show(container) {
     h('div.page-head',
       h('h1', 'Projects'),
       h('div.card-actions',
-        button('Upload a BIOM file', uploadProject, { icon: 'upload', kind: 'primary' }),
+        button('Upload a file', uploadProject, { icon: 'upload', kind: 'primary' }),
         button('New collection', () => newCollection('private', '#'), { icon: 'folder-plus' }),
         arranges('public') ? button('New public collection', () => newCollection('public', '#'), { icon: 'folder-plus' }) : null)),
+    uploadHelp(),
     h('div.projects', panes, details)));
 
   // Start on the tab that holds the open project.

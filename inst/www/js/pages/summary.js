@@ -139,7 +139,7 @@ export function show(container) {
               h('div.card-actions',
                 button('Metadata', () => go('#/metadata'), { icon: 'table', title: 'See and replace the sample metadata' }),
                 button('Taxonomy', () => go('#/taxonomy'), { icon: 'sitemap', title: 'See and replace the taxonomy' }),
-                button(biom.tree ? 'Replace tree' : 'Add a tree', () => uploadComponent('tree'), { icon: 'upload', title: 'Upload a phylogenetic tree as a Newick file' }))),
+                button(biom.tree ? 'Replace tree' : 'Add a tree', () => uploadComponent('tree'), { icon: 'upload', title: 'Upload a phylogenetic tree: a Newick file or a QIIME 2 phylogeny artifact (.qza), with a tip for every OTU of this project' }))),
             h('h3', 'Metadata fields'),
             fields.length
               ? h('div.fields', fields.map(f => chip(f.name, f.class === 'numeric' ? 'numeric' : `${f.levels.length} groups`)))

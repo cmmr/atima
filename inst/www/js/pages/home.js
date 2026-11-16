@@ -1,7 +1,7 @@
 // The home page: what atima is, and the ways in.
 
 import { h, fill, button } from '../dom.js';
-import { uploadProject, go } from '../actions.js';
+import { uploadProject, uploadHelp, go } from '../actions.js';
 import * as store from '../store.js';
 
 const examples = [
@@ -18,10 +18,11 @@ export function show(container) {
   fill(container, h('div.page',
     h('section.hero',
       h('h1', 'Explore your microbiome data'),
-      h('p', 'Upload a BIOM file, or drop one anywhere on this page, to compare diversity, taxa abundance and statistics across your samples, and take the figures and the R code with you.'),
+      h('p', 'Upload your counts, or drop the file anywhere on this page, to compare diversity, taxa abundance and statistics across your samples, and take the figures and the R code with you.'),
       h('div.hero-actions',
-        button('Upload a BIOM file', uploadProject, { icon: 'upload', kind: 'primary large' }),
-        button('Browse projects', () => go('#/projects'), { icon: 'folder-open', kind: 'large' }))),
+        button('Upload a file', uploadProject, { icon: 'upload', kind: 'primary large' }),
+        button('Browse projects', () => go('#/projects'), { icon: 'folder-open', kind: 'large' })),
+      uploadHelp()),
 
     h('section.two-col',
       h('div',
@@ -31,7 +32,7 @@ export function show(container) {
             'Alkek Center for Metagenomics and Microbiome Research'),
           ' at Baylor College of Medicine.'),
         h('ul.features',
-          h('li', h('strong', 'Bring your data. '), 'BIOM files with counts, sample metadata, taxonomy and, for UniFrac, a phylogenetic tree.'),
+          h('li', h('strong', 'Bring your data. '), 'Counts from a BIOM file, QIIME 2, mothur or a plain table, with sample metadata, taxonomy and, for UniFrac, a phylogenetic tree.'),
           h('li', h('strong', 'Explore. '), 'Every figure comes with its statistics table and updates as you change a setting, or, if you prefer, when you press Render.'),
           h('li', h('strong', 'Reproduce. '), 'Each figure shows the R code that makes it, to run and adapt on your own computer.'),
           local

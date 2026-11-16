@@ -10,12 +10,13 @@ const pages = {
   metadata: {
     title: 'Sample metadata',
     hint:  'One row per sample. A column of numbers can be used as numbers (for trends and correlations) or as categories (for groups): choose under its name.',
-    file:  'A table with sample names in the first column (CSV or tab-separated).',
+    file:  'To replace it, upload a table with the sample names in the first column (CSV or tab-separated text). Samples the table does not list leave the project.',
+    template: 'metadata-template.csv',
   },
   taxonomy: {
     title: 'Taxonomy',
     hint:  'One row per OTU, with its name at each taxonomic rank.',
-    file:  'A table with OTU names in the first column and one column per rank.',
+    file:  'To replace it, upload a table with the OTU names in the first column and a column for each rank (or one column of lineages, "Bacteria; Firmicutes; ..."), or a QIIME 2 taxonomy artifact (.qza). OTUs the table does not list leave the project.',
   },
 };
 
@@ -43,8 +44,10 @@ export function show(container, what) {
     h('div.page-head',
       h('h1', page.title),
       h('div.card-actions',
-        button(`Replace the ${what}`, () => uploadComponent(what), { icon: 'upload', title: page.file }))),
+        button(`Replace the ${what}`, () => uploadComponent(what), { icon: 'upload' }))),
     h('p.hint', page.hint),
+    h('p.hint', page.file, page.template
+      ? [' ', h('a', { href: `/www/templates/${page.template}`, download: page.template }, 'A file to start from'), '.'] : null),
     unsaved,
     h('div.card', table)));
 

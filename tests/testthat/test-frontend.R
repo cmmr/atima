@@ -91,6 +91,35 @@ test_that("every file the page and its scripts refer to is shipped", {
   expect_gt(length(patterns), 20)
   expect_true(all(file.exists(www("img", "patterns", paste0(patterns, ".png")))))
   expect_true(all(file.exists(www("img", "shapes", paste0(0:18, ".png")))))
+
+  # The template files the upload buttons point to (test-import.R reads
+  # them).
+  templates <- unique(unlist(lapply(own_files("\\.js$"), function (file) {
+    all_matches(read_text(www(file)), "[a-z-]+-template\\.[a-z]+") })))
+  expect_setequal(templates, list.files(www("templates")))
+  expect_length(templates, 2)
+})
+
+
+test_that("what can be uploaded is said beside the upload buttons, with the limit", {
+
+  actions <- read_text(www("js", "actions.js"))
+
+  # One text, for the pages that have an upload button.
+  help <- sub("(?s).*export function uploadHelp\\(\\) \\{(.*?)\n\\}.*", "\\1", actions, perl = TRUE)
+  for (word in c("BIOM", "QIIME 2", ".qza", "mothur", ".shared", "tab- or comma-separated", "maxUploadMb()", "Templates"))
+    expect_match(help, word, fixed = TRUE)
+
+  for (page in c("home.js", "projects.js"))
+    expect_match(read_text(www("js", "pages", page)), "uploadHelp()", fixed = TRUE)
+
+  # The limit is the server's, and a file over it is not sent.
+  expect_match(actions, "store.get('conf').max_upload_mb", fixed = TRUE)
+  expect_match(actions, "if (!file || tooLarge(file)) return;", fixed = TRUE)
+
+  # No page still says that only BIOM files are taken.
+  for (file in own_files("\\.(js|css)$"))
+    expect_no_match(read_text(www(file)), "Upload a BIOM file|Drop a BIOM file")
 })
 
 

@@ -420,6 +420,14 @@ test_that("new metadata must name the project's samples; samples it leaves out a
   expect_identical(again$data, project$data)
   expect_identical(read_biom(im$ctx, im$stored(project$full))$n_samples, 8L)
 
+  # Rows for samples the project does not have are passed over, and
+  # nothing is said: nothing was lost.
+  more <- rbind(md, transform(md[1:2, ], .sample = c("Other1", "Other2")))
+  utils::write.csv(more, csv, row.names = FALSE)
+  out <- im$replace(project, "metadata", csv, "more.csv")
+  expect_identical(out$notes, character(0))
+  expect_identical(rbiom::as_rbiom(im$stored(out$full))$n_samples, 8L)
+
   # Five of the eight samples, with a column of decimal commas.
   part <- md[1:5, ]
   part$Dose <- c("1,5", "2,5", "0,5", "3", "4,25")
