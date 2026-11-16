@@ -272,26 +272,32 @@ work_details <- function (ctx, full, rare) {
 #______________________________________________________________________________
 #' Turn an uploaded file into a project's three stored files.
 #'
-#' @param infile   The uploaded file.
-#' @param title    A title to use instead of the one inside the file.
-#' @param inflate  What to do with counts that are not whole numbers, such
-#'                 as relative abundances. rbiom cannot rarefy those. `TRUE`
-#'                 scales each sample up to whole numbers
-#'                 (`rbiom::biom_inflate()`); `FALSE` refuses the file with
-#'                 the error code `confirm_inflate`, so that the browser can
-#'                 ask the user and send the file again.
-#' @return list(orig, full, rare, data, details)
+#' What the file may be, how it is read and what the user is told when it
+#' cannot be: see `R/import.R`.
+#'
+#' @param infile    The uploaded file.
+#' @param title     A title to use instead of the one inside the file.
+#' @param inflate   What to do with counts that are not whole numbers, such
+#'                  as relative abundances. rbiom cannot rarefy those. `TRUE`
+#'                  scales each sample up to whole numbers
+#'                  (`rbiom::biom_inflate()`); `FALSE` refuses the file with
+#'                  the error code `confirm_inflate`, so that the browser can
+#'                  ask the user and send the file again.
+#' @param filename  The name the file had on the user's computer, for
+#'                  messages about it.
+#' @return list(orig, full, rare, data, details, notes). `notes` is what
+#'         the user should know about a file that was read: columns that
+#'         were ignored, a tree that was left out.
 #' @noRd
-work_import <- function (ctx, infile, title = NULL, inflate = FALSE) {
+work_import <- function (ctx, infile, title = NULL, inflate = FALSE, filename = NULL) {
 
   worker_init(ctx)
 
-  full_biom <- with_user_errors(
-    message = "That file could not be read as a BIOM file.",
-    detail  = FALSE,
-    code    = as_rbiom(infile) )
+  read <- read_upload(infile, import_cleaner(ctx, infile, filename))
 
-  import_biom(ctx, full_biom, infile, title, inflate)
+  c(
+    import_biom(ctx, read[['biom']], infile, title, inflate),
+    list(notes = read[['notes']]) )
 }
 
 
@@ -361,24 +367,37 @@ work_seed <- function (ctx, dataset) {
 
 #______________________________________________________________________________
 #' Replace a project's metadata, taxonomy or tree with an uploaded file.
-#' @return list(full, rare, data)
+#'
+#' Samples the new metadata does not list, and OTUs the new taxonomy does
+#' not list, leave the project; the notes say which.
+#'
+#' @param filename  The name the file had on the user's computer, for
+#'                  messages about it.
+#' @return list(full, rare, data, notes)
 #' @noRd
-work_component <- function (ctx, full, rare, component, infile) {
+work_component <- function (ctx, full, rare, component, infile, filename = NULL) {
 
   worker_init(ctx)
 
-  full_biom <- read_biom(ctx, full)
+  # A copy, so that a file that is refused leaves the cached object alone.
+  full_biom <- read_biom(ctx, full)$clone()
   depth     <- read_biom(ctx, rare)$depth
 
-  with_user_errors(
-    message = paste0("That file could not be read as ", component, "."),
-    detail  = FALSE,
-    code    = full_biom[[component]] <- infile )
+  notes <- replace_component(full_biom, component, infile, import_cleaner(ctx, infile, filename))
 
-  # Re-rarefy to the previous depth.
-  rare_biom <- rarefy(full_biom, depth = depth, cpus = ctx[['cpus']])
+  # Re-rarefy to the previous depth, if what is left still reaches it.
+  rare_biom <- tryCatch(
+    expr  = rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]),
+    error = function (e) NULL )
 
-  store_pair(ctx, full_biom, rare_biom)
+  if (is.null(rare_biom) || rare_biom$n_samples == 0) {
+    rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
+    notes     <- c(notes, sprintf(
+      "No sample has %i reads any more, so the project is now rarefied to %i.",
+      as.integer(depth), as.integer(rare_biom$depth) ))
+  }
+
+  c(store_pair(ctx, full_biom, rare_biom), list(notes = notes))
 }
 
 
@@ -795,7 +814,7 @@ work_edit <- function (ctx, full, rare, what, args = list()) {
     EXPR       = what,
     clusters   = work_add_clusters(ctx, full, rare, args[['cluster_fn']], args[['cluster_args']], args[['name']], args[['checked']]),
     field_type = work_field_type(ctx, full, rare, args[['field']], args[['type']]),
-    component  = work_component(ctx, full, rare, args[['component']], args[['infile']]),
+    component  = work_component(ctx, full, rare, args[['component']], args[['infile']], args[['filename']]),
     subset     = work_subset(ctx, full, rare, args[['subset_args']], args[['checked']]),
     depth      = {
       rarefied <- rarefy_to(ctx, full, rare, args[['depth']])

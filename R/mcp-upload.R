@@ -83,6 +83,7 @@ upload_ticket <- function (REQ, what, project_id = NULL, title = NULL, inflate =
       "Nothing has been uploaded yet. Replace PATH_TO_FILE with the file's path and run the command on the",
       "computer the file is on, or give the command to the person to run. It works once. Any tool that can send",
       "a multipart form with the fields `ticket` and `file` will do in place of curl.",
+      sprintf("The file may be %i MB at most.", max_upload_mb(REQ[['CONFIG']])),
       "Then call upload_status with this upload's number." )))
 }
 
@@ -179,8 +180,10 @@ upload_find <- function (DB, ticket) {
 #'
 #' @param ticket  The ticket, wrapped in `secret()`.
 #' @param file    The uploaded file: `list(filename, value)`.
-#' @return list(project, title, message): the key and title of the project
-#'         that was made or changed, and one sentence saying what happened.
+#' @return list(project, title, message, notes): the key and title of the
+#'         project that was made or changed, one sentence saying what
+#'         happened, and what the sender should know about the file that
+#'         was read (`work_import()`, `work_component()`).
 #' @noRd
 api_upload_ticket <- function (REQ, ticket, file) {
 
@@ -230,9 +233,11 @@ api_upload_ticket <- function (REQ, ticket, file) {
       status = report[['status']] )
   }
 
-  done <- function (project_id, message) {
+  done <- function (project_id, message, notes = NULL) {
 
-    settle("done", message, project_id)
+    # `upload_status` tells the notes with the message.
+    notes <- as.character(notes)
+    settle("done", paste(c(message, notes), collapse = " "), project_id)
     record_change(DB, caller, if (up[['what']] == "project") "upload_project" else "upload_component", message, project_id)
 
     sql     <- "SELECT access_key, public_key, title FROM projects WHERE project_id = ?"
@@ -241,7 +246,8 @@ api_upload_ticket <- function (REQ, ticket, file) {
     list(
       project = unbox(if (is.na(project[['public_key']])) project[['access_key']] else project[['public_key']]),
       title   = unbox(project[['title']]),
-      message = unbox(message) )
+      message = unbox(message),
+      notes   = notes )
   }
 
   if (up[['what']] == "project") {
@@ -250,14 +256,20 @@ api_upload_ticket <- function (REQ, ticket, file) {
 
     return (job(
       fn     = "work_import",
-      args   = list(ctx = worker_ctx(CONFIG), infile = infile, title = title, inflate = isTRUE(as.logical(up[['inflate']]))),
+      args   = list(
+        ctx      = worker_ctx(CONFIG),
+        infile   = infile,
+        title    = title,
+        inflate  = isTRUE(as.logical(up[['inflate']])),
+        filename = file[['filename']] ),
       failed = failed,
       finish = function (imported) {
         project_id <- add_project(REQ, imported)
         details    <- imported[['details']]
         done(project_id, sprintf(
           "Uploaded \"%s\" as a new project: %i samples, %i taxa.",
-          details[['title']], as.integer(details[['n_samples']]), as.integer(details[['n_taxa']]) ))
+          details[['title']], as.integer(details[['n_samples']]), as.integer(details[['n_taxa']]) ),
+          imported[['notes']])
       }))
   }
 
@@ -268,13 +280,14 @@ api_upload_ticket <- function (REQ, ticket, file) {
       full = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
       rare = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
       what = "component",
-      args = list(component = up[['what']], infile = infile) ),
+      args = list(component = up[['what']], infile = infile, filename = file[['filename']]) ),
     failed = failed,
     finish = function (result) {
       project_set_files(REQ, result)
       details <- result[['details']]
       done(REQ[['SESSION']][['project_id']], sprintf(
         "Replaced the %s of \"%s\" with an uploaded file. The project now has %i samples and %i taxa.",
-        up[['what']], REQ[['SESSION']][['title']], as.integer(details[['n_samples']]), as.integer(details[['n_taxa']]) ))
+        up[['what']], REQ[['SESSION']][['title']], as.integer(details[['n_samples']]), as.integer(details[['n_taxa']]) ),
+        result[['notes']])
     })
 }

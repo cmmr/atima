@@ -145,11 +145,13 @@ test_that("a file that is refused leaves nothing, and its ticket says why", {
   started <- mcp$call("upload_project")
   resp    <- send_file(mcp$app, ticket_of(started), junk)
   expect_identical(resp$status, 400L)
-  expect_match(response_json(resp)$error$message, "could not be read as a BIOM file")
+  expect_match(response_json(resp)$error$message, "^This file could not be imported\\.\nNo abundance counts in '[^'/\\\\]+\\.biom'\\.$")
 
+  # The reason is kept for the app to read, with the file's own name.
   status <- mcp$call("upload_status", list(upload = started$structuredContent$upload))$structuredContent
   expect_identical(status$state, "failed")
-  expect_match(status$message, "could not be read as a BIOM file")
+  expect_match(status$message, "^This file could not be imported\\.\nNo abundance counts in '[^'/\\\\]+\\.biom'\\.$")
+  expect_no_server_path(status$message)
 
   # Counts that are not whole numbers: refused with the explanation, until
   # the upload is started again with `inflate`.
@@ -174,6 +176,26 @@ test_that("a file that is refused leaves nothing, and its ticket says why", {
   resp    <- send_file(mcp$app, ticket_of(started), fractions)
   expect_identical(resp$status, 200L)
   expect_identical(n(), before + 1L)
+
+  # A file whose tree does not fit its counts: imported without the tree,
+  # and the sender and `upload_status` are both told.
+  odd  <- withr::local_tempfile(fileext = ".biom")
+  json <- jsonlite::read_json(local_biom_file())
+  json$phylogeny <- "((A:1,B:2):1,C:3);"
+  jsonlite::write_json(json, odd, auto_unbox = TRUE, null = "null")
+
+  started <- mcp$call("upload_project", list(title = "Odd tree"))
+  expect_match(started$structuredContent$note, "The file may be 50 MB at most.", fixed = TRUE)
+  resp    <- send_file(mcp$app, ticket_of(started), odd)
+  expect_identical(resp$status, 200L)
+  expect_match(response_json(resp)$message, "^Uploaded \"Odd tree\" as a new project: [0-9]+ samples, [0-9]+ taxa\\.$")
+  expect_length(response_json(resp)$notes, 1)
+  expect_match(response_json(resp)$notes[[1]], "the project was made without a tree")
+
+  status <- mcp$call("upload_status", list(upload = started$structuredContent$upload))$structuredContent
+  expect_identical(status$state, "done")
+  expect_match(status$message, "^Uploaded \"Odd tree\" as a new project: [0-9]+ samples, [0-9]+ taxa\\. The phylogenetic tree in this file does not match")
+  expect_false(mcp$call("describe_project", list(project = status$project))$structuredContent$tree)
 
   # One connection may hold only so many unused tickets.
   for (i in 1:10) expect_false(mcp$call("upload_project")$isError)
@@ -206,6 +228,34 @@ test_that("upload_component replaces one part of a project the caller may edit",
   expect_true("Batch" %in% fields)
   expect_identical(utils::tail(changes(mcp$DB)$tool, 1), "upload_component")
   expect_match(db_query(mcp$DB, "SELECT meta_colnames FROM projects WHERE access_key = ?", "T1", list(project)), "Batch")
+  expect_identical(response_json(resp)$notes, list())
+
+  # A tree that does not cover the project's taxa is refused, and the app
+  # can read why and what to do.
+  tree <- withr::local_tempfile(fileext = ".nwk")
+  writeLines("((A:1,B:2):1,C:3);", tree)
+  started <- mcp$call("upload_component", list(project = project, component = "tree"))
+  before  <- snapshot(mcp$DB)
+  resp    <- send_file(mcp$app, ticket_of(started), tree)
+  expect_identical(resp$status, 400L)
+  status  <- mcp$call("upload_status", list(upload = started$structuredContent$upload))$structuredContent
+  expect_identical(status$state, "failed")
+  expect_match(status$message, "^That file could not be used as the project's tree\\.\nOTUs missing from tree")
+  expect_match(status$message, "Use the tree that was built from this project's own OTUs")
+  expect_no_server_path(status$message)
+  expect_identical(snapshot(mcp$DB)[c("projects", "biom_files", "app_changes")], before[c("projects", "biom_files", "app_changes")])
+
+  # Metadata that leaves samples out: they leave the project, and the
+  # result says which.
+  fewer <- withr::local_tempfile(fileext = ".csv")
+  utils::write.csv(md[-(1:2), ], fewer, row.names = FALSE)
+  started <- mcp$call("upload_component", list(project = project, component = "metadata"))
+  resp    <- send_file(mcp$app, ticket_of(started), fewer)
+  expect_identical(resp$status, 200L)
+  expect_length(response_json(resp)$notes, 1)
+  expect_match(response_json(resp)$notes[[1]], "^Dropping 2 samples from the project since they are not in the new metadata")
+  status  <- mcp$call("upload_status", list(upload = started$structuredContent$upload))$structuredContent
+  expect_match(status$message, sprintf("The project now has %i samples and [0-9]+ taxa\\. Dropping 2 samples from the project", n_small - 2L))
 
   # The right to edit is checked again when the file arrives.
   started <- mcp$call("upload_component", list(project = project, component = "metadata"))

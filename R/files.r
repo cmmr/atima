@@ -7,12 +7,35 @@
 
 #______________________________________________________________________________
 #' Save an uploaded file where a worker can read it.
-#' @return The path. The cleanup timer removes it if the job never does.
+#' @return The path. The handler removes the file when its job ends, and
+#'         the cleanup timer does if the server stopped before that.
 #' @noRd
 save_upload <- function (REQ, upload) {
   infile <- tempfile(pattern = "upload_", tmpdir = REQ[['SESSION']][['server_temp']])
   writeBin(object = upload[['value']], con = infile)
   infile
+}
+
+
+#______________________________________________________________________________
+#' What to do when the job that reads an upload fails: remove the file, and
+#' let the router answer as it does for any error.
+#' @return A function for `job()`'s `failed`.
+#' @noRd
+upload_failed <- function (infile) {
+  function (e) {
+    unlink(infile)
+    stop(e)
+  }
+}
+
+
+#______________________________________________________________________________
+#' The largest upload the server accepts, in megabytes (`run()`'s
+#' `max_upload_mb`).
+#' @noRd
+max_upload_mb <- function (CONFIG) {
+  as.integer(CONFIG[['max_upload_mb']] %||% 50L)
 }
 
 
@@ -24,19 +47,23 @@ save_upload <- function (REQ, upload) {
 upload_title <- function (filename) {
   title <- basename(filename)
   title <- sub("\\.(gz|bz2)$", "", title, ignore.case = TRUE)
-  title <- sub("\\.(biom|txt|tab|tsv|csv|json|hdf5|h5)$", "", title, ignore.case = TRUE)
+  title <- sub("\\.(biom|txt|tab|tsv|csv|json|hdf5|h5|qza|shared)$", "", title, ignore.case = TRUE)
   substr(title, 1, 100)
 }
 
 
 #______________________________________________________________________________
-#' Accept a new biom file from the user; switch to that project.
+#' Accept a file from the user as a new project; switch to that project.
+#'
+#' The file is a BIOM file, a QIIME 2 feature table (`.qza`), a mothur
+#' `.shared` file or a table of counts in delimited text (`R/import.R`).
 #'
 #' @param inflate  Scale counts that are not whole numbers up to whole
 #'                 numbers? Without it such a file is refused with the error
 #'                 code `confirm_inflate` and a message that explains what
 #'                 scaling does, for the browser to put to the user.
-#' @return list(BIOM, tree_node)
+#' @return list(BIOM, tree_node, notes). `notes` is what the user should
+#'         know about the file that was read; see `work_import()`.
 #' @noRd
 api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
 
@@ -47,7 +74,13 @@ api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
 
   job(
     fn     = "work_import",
-    args   = list(ctx = worker_ctx(REQ[['CONFIG']]), infile = infile, title = title, inflate = inflate),
+    args   = list(
+      ctx      = worker_ctx(REQ[['CONFIG']]),
+      infile   = infile,
+      title    = title,
+      inflate  = inflate,
+      filename = biom_file[['filename']] ),
+    failed = upload_failed(infile),
     finish = function (imported) {
 
       unlink(infile)
@@ -75,15 +108,19 @@ api_upload_biom <- function (REQ, biom_file, inflate = FALSE) {
       row <- db_query(DB, sql, "AUBiom2", list(user_id, project_id))
 
       list(
-        BIOM        = biom_reply(REQ, imported[['data']]),
-        tree_node = tree_node(row) )
+        BIOM      = biom_reply(REQ, imported[['data']]),
+        tree_node = tree_node(row),
+        notes     = as.character(imported[['notes']]) )
     })
 }
 
 
 #______________________________________________________________________________
-#' Import a metadata csv, taxonomy csv, or newick tree file
-#' @return list(BIOM)
+#' Replace the working copy's metadata, taxonomy or tree with a file: a
+#' table for the first two (the taxonomy also as a QIIME 2 artifact), a
+#' Newick tree or a QIIME 2 phylogeny artifact for the third.
+#' @return list(BIOM, notes). `notes` says what the new part made the
+#'         project lose, such as samples the new metadata does not list.
 #' @noRd
 api_upload_component <- function (REQ, component, component_file) {
 
@@ -96,11 +133,15 @@ api_upload_component <- function (REQ, component, component_file) {
       full      = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
       rare      = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
       component = component,
-      infile    = infile ),
+      infile    = infile,
+      filename  = component_file[['filename']] ),
+    failed = upload_failed(infile),
     finish = function (result) {
       unlink(infile)
       update_draft(REQ, full = result[['full']], rare = result[['rare']])
-      list(BIOM = biom_reply(REQ, result[['data']]))
+      list(
+        BIOM  = biom_reply(REQ, result[['data']]),
+        notes = as.character(result[['notes']]) )
     })
 }
 

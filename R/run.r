@@ -1,7 +1,8 @@
 #______________________________________________________________________________
 #' Run the atima server
 #'
-#' Starts a web server that lets users upload BIOM files and explore them
+#' Starts a web server that lets users upload their counts (a BIOM file,
+#' QIIME 2 or mothur output, or a plain table) and explore them
 #' with 'rbiom' plots in their browser. Projects are stored in an SQLite
 #' database and a set of files under `data_dir`.
 #'
@@ -481,6 +482,8 @@ run <- function(
     guest_ttl   = guest_days * 86400,
     signin_ttl  = signin_days * 86400,
     trash_ttl   = trash_days * 86400,
+    # The largest upload, for the app to state beside its upload buttons.
+    max_upload_mb = max_upload_mb,
     # AI apps: how long a connection lasts unused, whether the tools that
     # change data are offered, and how many changes one app may make an hour.
     app_ttl     = app_days * 86400,

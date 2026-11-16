@@ -257,16 +257,19 @@ test_that("changing a column's class and uploading a component change only the d
   expect_true("Batch" %in% field_names(body$BIOM))
   expect_identical(body$BIOM$depth, 1183L)
 
-  # A file that is not metadata is refused, without naming server paths.
+  # A file that is not a tree is refused with the reason, without naming
+  # server paths (more in test-import.R).
   form <- multipart_body(list(component = "tree", component_file = list(filename = "x.tre", value = charToRaw("not a tree ((("))))
   resp <- suppressWarnings(handle_request(fake_request("POST", "/api/project/upload_component", form$body, s$session, content_type = form$content_type), s$app))
   expect_identical(resp$status, 400L)
-  expect_identical(response_json(resp)$error$message, "That file could not be read as tree.")
+  expect_match(response_json(resp)$error$message, "^That file could not be used as the project's tree\\.\nCan't parse 'x.tre' as a Newick tree\\.")
+  expect_match(response_json(resp)$error$message, "\nThe tree was not changed\\.$")
+  expect_no_server_path(resp$body)
 
-  # The saved project is untouched; the uploads did not pile up.
+  # The saved project is untouched; no upload was left behind.
   hmp50 <- db_query(s$DB, "SELECT meta_colnames FROM projects WHERE public_key = 'hmp50'", "T1")
   expect_no_match(hmp50, "Batch")
-  expect_length(list.files(s$temp, pattern = "^upload_"), 1)
+  expect_length(list.files(s$temp, pattern = "^upload_"), 0)
 })
 
 
@@ -303,8 +306,9 @@ test_that("an upload becomes a project, and saving copies the draft into it", {
   form <- multipart_body(list(biom_file = list(filename = "junk.biom", value = charToRaw("this is not a biom file"))))
   resp <- handle_request(fake_request("POST", "/api/project/upload", form$body, s$session, content_type = form$content_type), s$app)
   expect_identical(resp$status, 400L)
-  expect_identical(response_json(resp)$error$message, "That file could not be read as a BIOM file.")
+  expect_identical(response_json(resp)$error$message, "This file could not be imported.\nNo abundance counts in 'junk.biom'.")
   expect_identical(db_query(s$DB, "SELECT COUNT(*) FROM projects", "T3"), 3L)
+  expect_length(list.files(s$temp, pattern = "^upload_"), 0)
 
   # Rarefy the draft, then save: the project takes the draft's files.
   expect_identical(s$post("/api/project/rarefy", list(depth = 1200))$status, 200L)
@@ -366,5 +370,7 @@ test_that("a project's title comes from the uploaded file's name", {
   expect_identical(upload_title("/home/me/counts.TSV"), "counts")
   expect_identical(upload_title("table.json.bz2"), "table")
   expect_identical(upload_title("v1.2 final"), "v1.2 final")
+  expect_identical(upload_title("feature-table.qza"), "feature-table")
+  expect_identical(upload_title("stability.opti_mcc.shared"), "stability.opti_mcc")
   expect_identical(nchar(upload_title(paste0(strrep("a", 150), ".biom"))), 100L)
 })

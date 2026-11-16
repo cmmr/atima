@@ -54,6 +54,7 @@ Imports:
     xml2
 Suggests:
     bcrypt,
+    h5lite,
     jsonvalidate,
     openxlsx,
     phyloseq,

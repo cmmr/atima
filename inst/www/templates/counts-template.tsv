@@ -1,0 +1,7 @@
+#OTU ID	Sample1	Sample2	Sample3	Sample4	Sample5	Sample6	taxonomy
+OTU_1	1250	980	1432	310	275	402	Bacteria; Firmicutes; Clostridia; Lachnospirales; Lachnospiraceae; Blautia
+OTU_2	830	1104	765	1520	1388	1276	Bacteria; Bacteroidota; Bacteroidia; Bacteroidales; Bacteroidaceae; Bacteroides
+OTU_3	412	388	501	96	143	120	Bacteria; Firmicutes; Clostridia; Oscillospirales; Ruminococcaceae; Faecalibacterium
+OTU_4	0	15	7	640	712	588	Bacteria; Proteobacteria; Gammaproteobacteria; Enterobacterales; Enterobacteriaceae; Escherichia
+OTU_5	96	120	88	0	12	5	Bacteria; Actinobacteriota; Actinobacteria; Bifidobacteriales; Bifidobacteriaceae; Bifidobacterium
+OTU_6	54	0	61	210	188	240	Bacteria; Verrucomicrobiota; Verrucomicrobiae; Verrucomicrobiales; Akkermansiaceae; Akkermansia

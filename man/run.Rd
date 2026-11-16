@@ -185,7 +185,8 @@ interrupted. It then cancels running jobs, stops the worker
 processes and closes the database.
 }
 \description{
-Starts a web server that lets users upload BIOM files and explore them
+Starts a web server that lets users upload their counts (a BIOM file,
+QIIME 2 or mothur output, or a plain table) and explore them
 with 'rbiom' plots in their browser. Projects are stored in an SQLite
 database and a set of files under \code{data_dir}.
 }

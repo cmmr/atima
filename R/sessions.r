@@ -288,6 +288,8 @@ get_session_data <- function (REQ) {
           legacy    = unbox(length(REQ[['CONFIG']][['legacy']]) > 0),
           # How long a deleted project can still be restored.
           trash_days = unbox(REQ[['CONFIG']][['trash_ttl']] / 86400),
+          # The largest file the server accepts, in megabytes.
+          max_upload_mb = unbox(max_upload_mb(REQ[['CONFIG']])),
           # May AI apps change data, and where do they connect?
           mcp_writes = unbox(isTRUE(REQ[['CONFIG']][['mcp_writes']])),
           mcp_url    = unbox(paste0(REQ[['CONFIG']][['base_url']], "/mcp")),
