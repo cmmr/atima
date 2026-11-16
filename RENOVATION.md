@@ -43,15 +43,15 @@ it to that step's list instead of fixing it now.
 | 13 | Usage monitoring | done (2026-11-15) |
 | 14 | Interactive figures (plotly): is it worth it; rendering on request | done (2026-11-15); part A closed as "not for now" |
 | 15 | Cores given to jobs by what they can use | done (2026-11-15) |
-| 15A | Upload: QIIME 2 and mothur files, errors that name the problem | not started |
-| 15B | Downloads: QIIME 2, mothur, phyloseq | not started |
-| 15C | New analyses: shared taxa (UpSet), top taxa | not started |
-| 15D | Captions and NMDS stress from rbiom | not started |
-| 15E | Job progress: place in the queue | not started |
-| 15F | "How to choose" notes; template script for the MCP endpoint | not started |
+| 15A | Upload: QIIME 2 and mothur files, errors that name the problem | done (2026-11-16) |
+| 15B | Downloads: QIIME 2, mothur, phyloseq | done (2026-11-16) |
+| 15C | New analyses: shared taxa (UpSet), top taxa | done (2026-11-16) |
+| 15D | Captions and NMDS stress from rbiom | done (2026-11-16) |
+| 15E | Job progress: place in the queue | done (2026-11-16) |
+| 15F | "How to choose" notes; template script for the MCP endpoint | done (2026-11-16) |
 | 15G | A colour for each group | waits on rbiom |
 | 15H | "Methods" tab | waits on rbiom |
-| 15I | Projects stored as HDF5; order of a field's levels | not started (after 15A to 15F) |
+| 15I | Projects stored as HDF5; order of a field's levels | done (2026-11-16) |
 | 16 | The lab's public server | not started |
 | 17 | Documentation site: move to Zensical or Material for MkDocs | not started |
 | 18 | Release | not started |
@@ -969,6 +969,43 @@ it to that step's list instead of fixing it now.
   The timing-sensitive pool tests the coordinator flagged
   (`test-jobs.R`) give trivial jobs a minute unless the test is about
   the time limit.
+- **Projects are stored as HDF5 BIOM (step 15I).** Daniel, 2026-11-15.
+  Files stored as JSON before are left as they are and still open:
+  stored files never change and are named by their hash, rbiom tells
+  the format from the content, and every change writes new files, which
+  are HDF5. A field name with "/" is the one thing HDF5 cannot hold;
+  such a project is stored as JSON as before (`hdf5_problem()`), and
+  its level order cannot be set. `h5lite` is in `Imports`.
+- **No git branches (from 2026-11-16).** Daniel's own instructions now
+  say: no branches, local or remote; commit only to `main`. Parallel
+  work runs in worktrees checked out at `main` with no branch, whose
+  agents do not commit; their changes are brought to `main` and
+  committed there.
+- **Step 15 lettered steps: choices not put to Daniel** ("proceed as
+  you see fit", 2026-11-15). (a) 15B: phyloseq is in `Suggests`, and
+  its download is offered only where it is installed; QIIME 2 and mothur
+  exports are a `.zip`. (b) 15C: tables an rbiom function makes have
+  their own page kind (`use = "table"`, `POST /api/table`,
+  `R/fn-table.R`, `pages/table.js`), offered to AI apps through
+  `run_stats`, counted in usage as "stats"; the page has no Render or
+  Stop button, as both tables are fast. `taxa_top(by = ".sample")` is
+  offered as "Sample name" because rbiom's note on `by` names
+  `".sample"`. (c) 15C: rbiom writes no caption under an UpSet plot, so
+  the page writes what a figure was made from when rbiom wrote no
+  caption (`madeFrom()`). (d) 15E: a plot page keeps its settings in
+  its address (`address.js`, base64url JSON after `#`), checked against
+  the function and project when read back; leaving a page still cancels
+  its job (step 4), and the page says the figure is drawn again on
+  return. (e) 15F: the notes open in a dialog from a light bulb, as the
+  control column is too narrow for paragraphs; `test-guides.R` ties
+  them to rbiom's defaults and atima's labels. The example script is
+  `inst/www/examples/atima_mcp.py`, as `.gitignore` ignores any folder
+  named `scripts`. (f) 15I: a numeric field made categorical, and
+  cluster fields, get their values in number order. The R code shown
+  beside a result loads the `.hdf5` file, which keeps level order and
+  categories made from numbers (JSON loses both), so it needs `h5lite`
+  on the user's computer. In the level-order route and tool, values
+  left out keep their old order after the ones given.
 
 ## Conventions (apply from step 2 onward)
 
@@ -4029,9 +4066,10 @@ in git): `feature-ideas.md` is the list and the reasons,
 How these steps differ from the others, by Daniel's word on 2026-11-15:
 
 - 15A to 15F do not depend on each other and may run at the same time,
-  each in its own git worktree on a local branch. A branch never goes to
-  GitHub. When a step is done its commits are put on `main` and the
-  branch and worktree are deleted.
+  each in its own git worktree. From 2026-11-16 there are no branches
+  at all (see the decision log): a worktree is checked out at `main`
+  with no branch, its agent does not commit, and its changes are
+  committed on `main`.
 - "Proceed as you see fit": a step decides its own open questions, and
   records them in the decision log, instead of asking first. Pushing
   still needs Daniel's answer each time.
@@ -4139,6 +4177,11 @@ is: a control that lets the user pick a colour for each group of the
 field a figure is coloured by, kept with the project so that every
 figure uses the same colour for the same group.
 
+- From step 15I: colours are now given by position, so reordering a
+  field's levels changes which group gets which colour. Key the
+  colours by group name, so that the order and the colours are
+  independent.
+
 ### Step 15H: "Methods" tab (waits on rbiom)
 
 rbiom is gaining a description of how a result was made, in sentences,
@@ -4162,6 +4205,55 @@ from now on, not JSON.
   beside `set_field_type`. Every figure's axis and legend then follow.
 - Run after 15A to 15F: it changes how every project is read and
   written.
+
+### Notes from steps 15A to 15I (done 2026-11-16)
+
+The four agents first started on 15A to 15F were stopped by a usage
+limit partway through, so 15A, 15B and 15D have no report beyond their
+commit messages; 15C, 15E, 15F and 15I were finished by fresh agents.
+After everything reached `main`: `devtools::test()` gives 13,833
+passes and one failure, `test-cores.R:323` ("a job's cores stop
+counting however it ends": `pool$used` was 1, not 0), which passed
+three runs out of three alone and looks like a timing flake from step
+15; `R CMD check --as-cran` gives 0 errors, 0 warnings and the usual
+curl note.
+
+- **Measurements (15I).** HDF5 files are 2 to 6 times larger than the
+  bzip2 JSON (a fixed ~80 KB overhead: hmp50 18 KB to 103 KB, gems
+  115 KB to 215 KB). A small project reads ~40 ms slower when not
+  cached; gems reads faster (0.18 s to 0.10 s) and writes ten times
+  faster (2.9 s to 0.3 s).
+- **HDF5 files are not byte-for-byte reproducible (15I).** The same
+  data written twice differs in the object timestamps, so the store no
+  longer spots a rarefied file it already has. atima remembers rarefied
+  files by full file and depth (`rare_note()` / `rare_known()` in
+  `R/worker.R`), so rarefying away and back still leaves a project
+  "saved". A track-times option in h5lite, used by rbiom's HDF5 writer,
+  would make this unnecessary.
+- **For step 16.** The example script (15F) cannot sign in to a shared
+  server: apps identify themselves with an https Client ID Metadata
+  Document, and a script has no way to get a token. *Nucleic Acids
+  Research* reviewers will try it, so the public server needs either a
+  way for scripts to get a token or token-free reading of public
+  projects. The notes link to `cmmr.github.io/rbiom/reference/`, which
+  404s until rbiom 4's site is published.
+- **Loose ends.** Table pages (15C) do not keep their settings in the
+  address as plot pages do (15E). Working-copy edits other than the
+  depth are lost on reload, as before. In the shared-taxa table, true
+  and false show as text. The MCP hint on long tables is the statistics
+  one, also for `taxa_top`. The level-order dialog lists the values of
+  the rarefied project, so a value only in samples dropped by rarefying
+  is not shown. Once, a tab whose draft was older than an MCP change
+  reported `is_saved: true` (`is_saved` compares only the rarefied file
+  ids, `R/sessions.r`); not investigated.
+- **For rbiom.** `taxa_upset()` writes no caption. Whether `".sample"`
+  is allowed for `taxa_top(by = )` is only in the argument's note;
+  something atima can read without parsing text would be better.
+  rbiom's JSON reader turns number-like strings into numbers, so a
+  categorical field made from numbers cannot survive JSON (one reason
+  for HDF5).
+- **For ecodive.** The help for `sorensen` gives the similarity
+  formula, 2J/(A+B), but the function returns the dissimilarity.
 
 ## Step 16: The lab's public server
 
