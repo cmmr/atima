@@ -167,6 +167,28 @@ export function subsetEditor(onchange) {
 
 
 //_____________________________________________________________________________
+// The rarefaction depth. It belongs to the project, not to one figure or
+// table: it is changed above them, where its effect shows, and every page
+// follows.
+
+export function depthControl() {
+  const select = h('select', {
+    id: 'depth', title: 'Rarefaction depth: reads kept per sample. Samples with fewer reads are left out of rarefied figures and tables. It applies to the whole project.',
+    onchange: async () => {
+      const done = await busy('Rarefying...', () => call('/api/project/rarefy', { depth: Number(select.value) }));
+      if (!done) select.value = String(store.get('biom').depth);
+    } });
+  const redraw = () => {
+    const biom   = store.get('biom');
+    const depths = [...new Set([...(biom.depth_options || []), biom.depth])].sort((a, b) => a - b);
+    fill(select, depths.map(d => h('option', { value: d, selected: d === biom.depth }, d.toLocaleString())));
+  };
+  redraw();
+  return { label: h('label.depth', { for: 'depth' }, 'Depth'), select, redraw };
+}
+
+
+//_____________________________________________________________________________
 // The image settings.
 
 function imageEditor(onchange) {
@@ -298,23 +320,10 @@ export function show(container, fn) {
 
   const device = h('select', { 'aria-label': 'File format', title: 'File format' },
     schema.save.params.find(p => p.name === 'device').choices.map(c => h('option', { value: c }, c.toUpperCase())));
-  // The rarefaction depth belongs to the project, not to this figure: it
-  // is changed here, where its effect shows, and every page follows.
-  const depth = h('select', {
-    id: 'depth', title: 'Rarefaction depth: reads kept per sample. Samples with fewer reads are left out of rarefied figures. It applies to the whole project.',
-    onchange: async () => {
-      const done = await busy('Rarefying...', () => call('/api/project/rarefy', { depth: Number(depth.value) }));
-      if (!done) depth.value = String(store.get('biom').depth);
-    } });
-  const showDepth = () => {
-    const biom   = store.get('biom');
-    const depths = [...new Set([...(biom.depth_options || []), biom.depth])].sort((a, b) => a - b);
-    fill(depth, depths.map(d => h('option', { value: d, selected: d === biom.depth }, d.toLocaleString())));
-  };
-  showDepth();
+  const depth  = depthControl();
 
   const downloadBtn = button('Download', downloadFigure, { icon: 'download', title: 'Download the figure in this format' });
-  const tools = h('div.plot-tools', h('label.depth', { for: 'depth' }, 'Depth'), depth, device, downloadBtn);
+  const tools = h('div.plot-tools', depth.label, depth.select, device, downloadBtn);
 
   const panes = tabs([
     { id: 'figure', label: 'Figure',     icon: 'chart-column', panel: h('div.pane.figure-pane', figureBox, caption) },
@@ -530,12 +539,15 @@ export function show(container, fn) {
     img.style.height = css ? `${css.height}px` : '';
     figureBox.classList.toggle('fitted', !!css);
     // rbiom writes the counts and the methods into the figure, as its
-    // caption. The line under the figure adds only what that leaves out.
+    // caption. The line under the figure adds only what that leaves out,
+    // and says what the figure was made from when rbiom wrote no caption.
     // Someone who cannot see the image is read the caption.
-    img.alt = [`${def.label}.`, resp.caption].filter(Boolean).join(' ');
+    const biom = store.get('biom');
+    const made = resp.caption ? '' : S.madeFrom(def, biom);
+    img.alt = [`${def.label}.`, resp.caption || made].filter(Boolean).join(' ');
     const n = filter.count();
     const filtered = n ? `${n} sample filter${n > 1 ? 's' : ''} applied.` : '';
-    caption.textContent = [foldDirection(resp.stats_table, store.get('biom')), filtered].filter(Boolean).join(' ');
+    caption.textContent = [made, foldDirection(resp.stats_table, biom), filtered].filter(Boolean).join(' ');
     caption.title = caption.textContent;
   }
 
@@ -593,7 +605,7 @@ export function show(container, fn) {
     // The project changed under the page: another depth, a new field, or
     // another project altogether.
     onBiom(biom, before) {
-      showDepth();
+      depth.redraw();
       buildControls();
       filter.redraw();
       badge.textContent = filter.count() || '';

@@ -551,6 +551,11 @@ test_that("a table function's table comes back with its file and its code", {
   expect_true(all(c("taxa", "Female", "Male", "n_groups", "set", "prev_Female", "prev_Male") %in% names(body$table[[1]])))
   expect_type(body$table[[1]]$Female, "logical")
 
+  # The top taxa of each sample, which the page offers as "Sample name".
+  body <- response_json(table("taxa_top", list(by = ".sample", n = 1)))
+  expect_identical(body$rows_total, 49L)
+  expect_named(body$table[[1]], c("rank", "sample", "top", "taxa", "abundance"))
+
   # Only the samples asked for.
   body <- response_json(table("taxa_top", list(by = "Body Site", n = 1), subset_args = list(cat = list(`Body Site` = list("Stool", "Saliva")))))
   expect_identical(vapply(body$table, function (row) row[["Body Site"]], ""), c("Stool", "Saliva"))

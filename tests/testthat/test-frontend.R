@@ -247,6 +247,17 @@ test_that("navigation labels are short, and every control's label fits its line"
     expect_match(main, sprintf("\n  %s:\\s+\\{ show: ", use), info = use)
   expect_match(main, "navLink(`#/${f.use}/${f.fn}`", fixed = TRUE)
 
+  # The table page has the plot page's depth control.
+  expect_match(read_text(www("js", "pages", "table.js")), "depthControl()", fixed = TRUE)
+
+  # The sample names are offered as groups where rbiom's note on the
+  # parameter says what ".sample" does there (schema.js, fieldChoices()):
+  # taxa_top's `by`, the top taxa of each sample.
+  by <- Filter(function (p) p$name == "by", schema$functions$taxa_top$params)[[1]]
+  expect_identical(by$class, "categorical")
+  expect_match(by$note, '".sample"', fixed = TRUE)
+  expect_match(read_text(www("js", "schema.js")), '/"\\.sample"/.test(p.note', fixed = TRUE)
+
   # Two functions under one heading never share a name.
   areas <- vapply(schema$functions, function (def) paste(def$area, def$short), character(1))
   expect_identical(anyDuplicated(areas), 0L)
@@ -659,8 +670,11 @@ test_that("the line under a figure does not repeat the figure's caption", {
 
   # rbiom's caption, in the image, says which counts the figure was made
   # from. The page reads it to those who cannot see the image, and adds
-  # only the sample filter and which way a fold change points.
+  # only the sample filter and which way a fold change points. Only where
+  # rbiom wrote no caption (taxa_upset) does the line say what the figure
+  # was made from (`madeFrom()` in schema.js, which the table page uses).
   expect_no_match(src, "rarefied to|before rarefying")
-  expect_match(src, "img.alt = [`${def.label}.`, resp.caption]", fixed = TRUE)
+  expect_match(src, "const made = resp.caption ? '' : S.madeFrom(def, biom);", fixed = TRUE)
+  expect_match(src, "img.alt = [`${def.label}.`, resp.caption || made]", fixed = TRUE)
   expect_match(src, "sample filter", fixed = TRUE)
 })

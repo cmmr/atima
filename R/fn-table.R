@@ -42,6 +42,7 @@ api_table <- function (REQ, table_fn, depth, table_args = list(), subset_args = 
       checked     = !is.null(known_summary(REQ)),
       keys        = c("table_args", "subset_args"),
       keep_depth  = TRUE ),
+    cpus   = rbiom_cpus(table_fn),
     finish = function (result) {
 
       resp <- list()

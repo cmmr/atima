@@ -8,27 +8,35 @@ import { call, abortJobs } from '../api.js';
 import { tabs, section, spinner } from '../widgets.js';
 import { controlPanel } from '../controls.js';
 import { localTable } from '../tables.js';
-import { subsetEditor, codeBlock } from './plot.js';
+import { subsetEditor, codeBlock, depthControl } from './plot.js';
 import * as S from '../schema.js';
 import * as store from '../store.js';
 
 // What the columns of rbiom's tables mean.
 const COLUMN_TOOLTIPS = {
   rank:       'Taxonomic rank.',
+  sample:     'The sample.',
   top:        "The taxon's position in its group: 1 is the most abundant.",
   taxa:       'The taxon.',
   mean:       "Mean abundance over the group's samples.",
   prevalence: "Share of the group's samples in which the taxon was observed.",
-  abundance:  'Abundance in the sample.',
+  abundance:  'Abundance of the taxon in the sample.',
   n_groups:   'How many groups the taxon belongs to.',
   set:        'The combination of groups the taxon belongs to.',
 };
 
-/** Tooltips for the columns of a table, with those rbiom names after a group. */
+/**
+ * Tooltips for the columns of a table, with those rbiom names after a group:
+ * taxa_shared has a column for each group and one, `prev_<group>`, for its
+ * prevalence there.
+ */
 function tooltips(rows) {
-  const out = { ...COLUMN_TOOLTIPS };
-  for (const column of rows.length ? Object.keys(rows[0]) : [])
+  const out     = { ...COLUMN_TOOLTIPS };
+  const columns = rows.length ? Object.keys(rows[0]) : [];
+  for (const column of columns) {
     if (column.startsWith('prev_')) out[column] = "Share of this group's samples in which the taxon is present.";
+    if (columns.includes(`prev_${column}`)) out[column] = 'Does the taxon belong to this group? See Min. prevalence.';
+  }
   return out;
 }
 
@@ -57,6 +65,8 @@ export function show(container, fn) {
     { id: 'table', label: 'Table',  icon: 'table', panel: h('div.pane', working, message, tableBody) },
     { id: 'code',  label: 'R code', icon: 'code',  panel: h('div.pane', codeBody) },
   ]);
+  const depth = depthControl();
+  panes.bar.append(h('div.plot-tools', depth.label, depth.select));
 
   //___________________________________________________________________________
   // Right: controls
@@ -149,9 +159,7 @@ export function show(container, fn) {
     const rows = resp.table || [];
     const biom = store.get('biom');
     const n    = filter.count();
-    const made = (def.sample_set === 'rare'
-      ? `Made from counts rarefied to ${biom.depth.toLocaleString()} reads per sample.`
-      : 'Made from the counts before rarefying.') + (n ? ` ${n} sample filter${n > 1 ? 's' : ''} applied.` : '');
+    const made = S.madeFrom(def, biom) + (n ? ` ${n} sample filter${n > 1 ? 's' : ''} applied.` : '');
 
     fill(tableBody,
       h('p.hint', made),
@@ -177,6 +185,7 @@ export function show(container, fn) {
     // The project changed under the page: another depth, a new field, or
     // another project altogether.
     onBiom(biom, before) {
+      depth.redraw();
       buildControls();
       filter.redraw();
       badge.textContent = filter.count() || '';

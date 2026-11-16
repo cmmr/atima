@@ -216,7 +216,12 @@ test_that("every plot atima offers has a caption, and an NMDS states its stress"
     adiv_corrplot = list(x = "Age"), bdiv_corrplot = list(x = "Age"), taxa_corrplot = list(x = "Age"),
     bdiv_boxplot  = list(stat.by = "Sex", permutations = 9),
     bdiv_ord_plot = list(ord = "NMDS", stat.by = "Sex", permutations = 9),
-    taxa_forest   = list(stat.by = "Sex") )
+    taxa_forest   = list(stat.by = "Sex"),
+    taxa_upset    = list(stat.by = "Body Site") )
+
+  # rbiom (at d90e979) writes no caption under an UpSet plot. The page then
+  # says under the figure what it was made from (`madeFrom()` in plot.js).
+  uncaptioned <- "taxa_upset"
 
   captions <- list()
 
@@ -224,6 +229,7 @@ test_that("every plot atima offers has a caption, and an NMDS states its stress"
     resp <- s$post("/api/plot", list(plot_fn = fn, plot_args = args[[fn]] %||% list(), depth = 1183, attrs = TRUE))
     expect_identical(resp$status, 200L, info = fn)
     captions[[fn]] <- response_json(resp)$caption
+    if (fn %in% uncaptioned) next
     expect_true(is_scalar_character(captions[[fn]]) && nzchar(captions[[fn]]), info = fn)
   }
 

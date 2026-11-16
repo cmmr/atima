@@ -398,7 +398,7 @@ test_that("a shared server tells the page who runs it and how long things are ke
   conf <- function (REQ)
     response_json(handle_request(fake_request("POST", "/api/session/init", list()), test_app(REQ)))$CONF
 
-  who <- c("auth", "user_id", "full_name", "is_guest", "is_admin", "legacy", "trash_days", "mcp_writes", "mcp_url", "usage")
+  who <- c("auth", "user_id", "full_name", "is_guest", "is_admin", "legacy", "trash_days", "max_upload_mb", "mcp_writes", "mcp_url", "usage")
 
   REQ <- local_test_req()
   add_test_project(REQ$DB, is_public = TRUE)

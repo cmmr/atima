@@ -29,6 +29,7 @@ valid_args <- list(
   "POST /api/metadata/change_class"    = list(col_num = 2),
   "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
+  "POST /api/table"                    = list(table_fn = "taxa_top", table_args = list(n = 3), depth = 1000),
   "POST /mcp"                          = list(body = charToRaw('{"jsonrpc":"2.0"}'), headers = c("mcp-method" = "tools/list")),
   "POST /oauth/approve"                = list(request = strrep("a", 43), csrf = strrep("b", 43), decision = "connect"),
   "POST /api/upload"                   = list(ticket = paste0("atu_", strrep("a", 40)), file = list(filename = "study.biom", value = as.raw(1:10))),
@@ -442,6 +443,14 @@ test_that("allow-lists in the route table are enforced", {
   # Each allowed plot function is one rbiom really exports.
   plot_fns <- environment(match_route("POST", "/api/plot")$route$args$plot_fn$check)$choices
   expect_true(all(plot_fns %in% getNamespaceExports("rbiom")))
+
+  # Table functions: only those whose table is the result, not a plot or a
+  # statistics function.
+  table <- valid_args[["POST /api/table"]]
+  for (table_fn in c("system", "write_biom", "taxa_upset", "taxa_stats", "taxa_table", "", "TAXA_TOP"))
+    refused("/api/table", utils::modifyList(table, list(table_fn = table_fn)), table_fn)
+  for (table_fn in c("taxa_top", "taxa_shared"))
+    expect_no_error(check("/api/table", list(table_fn = table_fn, depth = 1000)))
 
   # Upload components
   upload <- valid_args[["POST /api/project/upload_component"]]

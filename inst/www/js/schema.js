@@ -153,13 +153,17 @@ export function field(biom, name) {
 /**
  * The metadata fields a `field` parameter can take, best first: those of
  * its class, then (with `coerce`) numeric fields used as categories.
- * The sample names are only offered where any field will do.
+ * The sample names are only offered where any field will do, or where
+ * rbiom's note on the parameter says what `".sample"` does there (taxa_top's
+ * `by`: the top taxa of each sample); they come last then.
  */
 export function fieldChoices(p, biom) {
-  const cls    = p.class || 'any';
-  const fields = (biom.fields || []).filter(f => cls === 'any' || f.name !== '.sample');
+  const cls     = p.class || 'any';
+  const samples = /"\.sample"/.test(p.note || '');
+  const fields  = (biom.fields || []).filter(f => cls === 'any' || f.name !== '.sample');
   if (cls === 'any') return fields.map(f => ({ ...f, coerced: false }));
-  const own   = fields.filter(f => f.class === cls).map(f => ({ ...f, coerced: false }));
+  const named = (biom.fields || []).filter(f => f.name === '.sample' && samples);
+  const own   = [...fields.filter(f => f.class === cls), ...named].map(f => ({ ...f, coerced: false }));
   const other = cls === 'categorical' && p.coerce
     ? fields.filter(f => f.class === 'numeric').map(f => ({ ...f, coerced: true })) : [];
   return [...own, ...other];
@@ -235,6 +239,17 @@ export function numberStep(p) {
   if (typeof def === 'number' && Number.isFinite(def) && def !== 0)
     return Number(Math.pow(10, Math.floor(Math.log10(Math.abs(def))) - 1).toPrecision(1));
   return 1;
+}
+
+/**
+ * What a result was made from, as a sentence: the counts rarefied to the
+ * project's depth, or the counts before rarefying. rbiom says this in a
+ * figure's caption; this is for a figure without one, and for a table.
+ */
+export function madeFrom(def, biom) {
+  return def.sample_set === 'rare'
+    ? `Made from counts rarefied to ${biom.depth.toLocaleString()} reads per sample.`
+    : 'Made from the counts before rarefying.';
 }
 
 /** A description with rbiom's backticks removed, for tooltips. */

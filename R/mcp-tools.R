@@ -284,7 +284,7 @@ mcp_tool_table <- function () {
           " model term, with p-values, adjusted p-values and effect sizes. No figure is drawn, so this is the quick way",
           " to screen metadata fields. Functions: ", labels(stats), ".",
           " Or make a table that tests nothing: ", labels(tables), ".",
-          " The result holds the first `max_rows` rows, sorted as rbiom sorts them (smallest p-value first), says how",
+          " The result holds the first `max_rows` rows, sorted as rbiom sorts them (a test's smallest p-value first), says how",
           " many rows there are in all, links to the whole table as a CSV file, and gives the R code that reproduces it.",
           " Numbers in the result are rounded to four significant digits; the CSV file has them in full." ),
         permission  = "viewer",
