@@ -2,7 +2,7 @@
 
 Working document for bringing atima to a publishable state. Each step below is
 done in its own Claude Code session, one at a time, in order. Delete this file
-at release (step 17).
+at release (step 18).
 
 ## How each step runs
 
@@ -53,7 +53,8 @@ it to that step's list instead of fixing it now.
 | 15H | "Methods" tab | waits on rbiom |
 | 15I | Projects stored as HDF5; order of a field's levels | not started (after 15A to 15F) |
 | 16 | The lab's public server | not started |
-| 17 | Release | not started |
+| 17 | Documentation site: move to Zensical or Material for MkDocs | not started |
+| 18 | Release | not started |
 
 ## Decision log
 
@@ -87,7 +88,7 @@ it to that step's list instead of fixing it now.
   uses rbiom's `hmp50` and `gems`.
 - **rbiom and `Remotes:` (step 2).** rbiom 4 is expected on CRAN by release.
   Until then `DESCRIPTION` requires `rbiom (>= 4.0.0)` and keeps
-  `Remotes: cmmr/rbiom` so installs and CI work; step 17 removes `Remotes:`.
+  `Remotes: cmmr/rbiom` so installs and CI work; step 18 removes `Remotes:`.
   `ecodive` is on CRAN and atima never calls it directly, so it is not
   listed.
 - **Unused worker code removed (step 2, not put to Daniel).** `run()` started
@@ -544,7 +545,7 @@ it to that step's list instead of fixing it now.
   wide range of screen sizes. Two navigation links are much longer than
   the rest and are to be renamed. First added as step 13; later the
   same day Daniel moved it to step 11, before the remaining steps that
-  add pages, and release is step 17.
+  add pages, and release is step 18.
 - **Names of the versions (2026-11-14).** To avoid confusion Daniel
   settled: **atima v5** is the old version, the code in
   `cmmr/atima-old` (package version 5.0.x; elsewhere in this file
@@ -555,7 +556,7 @@ it to that step's list instead of fixing it now.
   replaces all earlier versions, which are torn down; it takes over
   `https://atima.research.bcm.edu` and has the lab's server (32 cores,
   251 GB) to itself. Installing it there is step 16, and release is
-  step 17. Nothing from the v5 installation is migrated (it held only
+  step 18. Nothing from the v5 installation is migrated (it held only
   guests and seeded examples), and the installation is to use all of
   the server's cores.
 - **Cores by what a job can use (2026-11-14).** Daniel pointed out that
@@ -563,7 +564,7 @@ it to that step's list instead of fixing it now.
   better. Recommended and accepted as step 15: the pool keeps one budget
   of cores and grants each job what its rbiom function can use (1
   without a `cpus` argument, up to a cap with one, fewer under load).
-  The lab's server is step 16 and release step 17.
+  The lab's server is step 16 and release step 18.
 - **Interactive figures and rendering on request (2026-11-15).** Daniel
   asked for a step after usage monitoring that investigates whether
   showing figures through `ggplotly()` is feasible and worthwhile
@@ -572,7 +573,14 @@ it to that step's list instead of fixing it now.
   for a "re-render automatically" checkbox on the box shown during a
   render, which when unticked turns "Stop" into a "Render"/"Stop"
   button. Both are step 14; cores are step 15, the lab's server step 16
-  and release step 17.
+  and release step 18.
+- **Documentation site (2026-11-16).** Daniel asked for a step that moves
+  the GitHub Pages site from pkgdown to Material for MkDocs or its
+  successor, Zensical, migrating what is there and writing no new
+  content. The site will mainly teach how to use the web interface and
+  the AI apps (written later, once the program is settled); installing
+  and starting atima is a small but important part. It is step 17;
+  release is step 18.
 - **No time limit on local installs (2026-11-14).** Daniel: the limit
   exists only so that one or two people do not take all the resources of
   the public server; on their own computer people may use what they
@@ -3213,7 +3221,7 @@ and other apps to the lab's server and work with their own projects.
     to get one.
 
 Decisions for Daniel: whether this ships in the first release (if not, it
-moves after step 17 and the status table says so); atima as its own
+moves after step 18 and the status table says so); atima as its own
 authorization server, or Globus; whether agents may explore public
 projects without signing in; token lifetimes; whether signing out of the
 browser also disconnects apps. For the tools that change data: whether
@@ -4403,7 +4411,97 @@ users of atima 2 are told; what old links do; the provider (Globus or ORCID) for
 server; how long the old installations' data is kept after the
 tear-down.
 
-## Step 17: Release
+## Step 17: Documentation site: move to Zensical or Material for MkDocs
+
+Added by Daniel on 2026-11-16. The site at `https://cmmr.github.io/atima/`
+is built by pkgdown from `_pkgdown.yml`, the README, the two help pages
+(`run()`, `legacy_convert()`) and six articles in `vignettes/articles/`
+(`local-install`, `server`, `sign-in`, `legacy-import`, `ai-apps`,
+`data-handling`), and deployed by `.github/workflows/pkgdown.yaml` as a
+Pages artifact (no `gh-pages` branch). This step moves the site to Material
+for MkDocs or to its successor, Zensical, **and does nothing else: it
+migrates what is there and writes no new content.**
+
+Where the site is going, so that this step lays it out for that: its main
+purpose will be teaching people to do their analyses with atima's web
+interface and its MCP interface (AI apps). Installing and starting atima
+will be a small part of it, but still a very important one. Those teaching
+pages are written later, in a step of their own, once everything else has
+been decided and built, so that they describe the final program.
+
+- Choose the generator from what is true when the step runs, not from
+  memory. Known on 2026-11-16 (check every part): the Material for MkDocs
+  team announced Zensical as its successor in late 2025 and put Material
+  for MkDocs into maintenance; Zensical reads `mkdocs.yml` and aims to
+  build Material sites unchanged, but was young and did not yet support
+  every plugin. Compare the two on: maturity and release cadence, whether
+  each is still maintained, the features this site needs (search that
+  works offline, light and dark themes, admonitions, tabs, copy buttons on
+  code, redirects, a link check), licence, and how each deploys to GitHub
+  Pages. Put a recommendation to Daniel. Prefer the one that will not need
+  a second move soon.
+- Where the sources live: a folder that is not part of the R package
+  (for example `site/` or `docs-src/`, added to `.Rbuildignore`; `docs/`
+  is already ignored and pkgdown's habit). The articles become plain
+  Markdown pages there. Their R chunks are shown, not run (check each:
+  `local-install` has eleven, the others one to four); a chunk whose
+  output is shown must keep its output as text. No R needed to build the
+  site except for the function reference.
+- The function reference: `run()`'s help is the full list of settings and
+  must stay on the site, generated from the Rd files at build time so
+  that roxygen stays the one source (for example `tools::Rd2HTML()` or a
+  small script that writes Markdown). Never a hand-kept copy.
+- Navigation laid out for the site's purpose: the sections for using the
+  web interface and the AI apps come first, "Install and run" (the
+  local-install article, short) is easy to find from the home page, and
+  running a shared server, sign-in, importing from an older atima and the
+  function reference sit in a section for people who run atima. Place the
+  six articles and the README's content where they belong. Sections that
+  have no pages yet are not published as empty stubs unless Daniel wants
+  them; record the intended layout in this step instead.
+- Old addresses keep working: every `articles/*.html` address and the
+  reference pages redirect to their new places (a redirects plugin, or
+  small pages that forward). Update the links in `README.md`,
+  `DESCRIPTION` (`URL:`), the front end (`DOCS_URL` in
+  `inst/www/js/main.js`, `pages/apps.js`, `pages/usage.js`), the links
+  between articles, `tests/testthat/test-frontend.R`, and any message that
+  points at the documentation (for example the time-limit note); search
+  for `cmmr.github.io` to find them all. Anchors linked from the program
+  (such as `server.html#usage`) must land on the same place.
+- Privacy and the look: no fonts, scripts or analytics from other
+  servers (Material fetches Google Fonts unless told not to; use system
+  fonts or vendored ones, or its privacy plugin), in keeping with atima's
+  no-CDN rule. Colours close to atima's own. Check the site at phone,
+  tablet and desktop widths.
+- CI: a workflow that builds the site on every push and pull request
+  (strict mode: a broken link or missing page fails it) and deploys from
+  `main` as a Pages artifact, as today; the tool's version pinned in a
+  requirements file; `paths-ignore` for `RENOVATION.md` as in the other
+  workflows. Remove `_pkgdown.yml`, the pkgdown workflow, the
+  `pkgdown` and `docs` lines that are then unused, and
+  `Config/Needs/website` in `DESCRIPTION`; `vignettes/` goes once its
+  articles have moved (the package has no vignettes of its own). The
+  repository's Pages source stays "GitHub Actions"; if anything in
+  GitHub's settings must change, Daniel does it.
+- How a maintainer previews the site locally: a short note (one install
+  command, one serve command) in the README's development section or in
+  the site's own contributing page.
+- Verify: build locally and in CI, compare page by page with the pkgdown
+  site so that nothing was lost (headings, tables, code, notes, links),
+  run the link check, try every old address, and run `devtools::test()`
+  and `R CMD check` for the package side (no `NOTE` from the removed
+  files).
+
+Decisions for Daniel: Zensical or Material for MkDocs; the folder for the
+sources; the navigation (shown as an outline before pages are moved);
+whether empty sections for the coming teaching pages appear now; colours
+and logo.
+
+Not in this step: the teaching pages for the web interface and the AI
+apps. Add them as their own step once the program is settled, with
+screenshots taken from the final interface.
+
+## Step 18: Release
 
 - From step 13: the Usage page credits DB-IP by a link, which its
   licence asks for where its files are used; atima ships no lookup
