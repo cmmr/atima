@@ -104,6 +104,21 @@ biom_response <- function (REQ, project, file) {
 
 
 #______________________________________________________________________________
+#' The format of the BIOM file that the R code atima shows downloads: HDF5,
+#' which keeps the order of a categorical field's levels (and keeps a field
+#' of numbers that was made categorical categorical), so that the code
+#' draws what atima drew. Reading it needs the `h5lite` package. A project
+#' with a field name HDF5 cannot hold (`hdf5_problem()`) gets JSON.
+#' @param summary  The project's summary, or `NULL` if it is not known.
+#' @return `"hdf5"` or `"json"`.
+#' @noRd
+code_biom_format <- function (summary) {
+  names <- vapply(summary[['fields']], function (f) as.character(f[['name']]), character(1))
+  if (any(grepl("/", names, fixed = TRUE))) "json" else "hdf5"
+}
+
+
+#______________________________________________________________________________
 #' The entire contents of a file as a raw vector.
 #' @return a raw vector; `raw(0)` if the file does not exist.
 #' @noRd

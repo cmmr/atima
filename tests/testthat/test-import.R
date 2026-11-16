@@ -124,8 +124,6 @@ test_that("a BIOM file is imported, as JSON and as HDF5", {
   expect_identical(out$details[c("title", "n_samples", "n_taxa", "has_tree")], list(title = "Gut", n_samples = 8L, n_taxa = 30L, has_tree = TRUE))
   expect_identical(out$notes, character(0))
 
-  skip_if_not_installed("h5lite")
-
   hdf5 <- withr::local_tempfile(fileext = ".biom")
   rbiom::write_biom(biom, hdf5, format = "hdf5")
 
@@ -136,8 +134,6 @@ test_that("a BIOM file is imported, as JSON and as HDF5", {
 
 
 test_that("a QIIME 2 feature table is imported, and its taxonomy and tree added from artifacts", {
-
-  skip_if_not_installed("h5lite")
 
   im   <- local_import()
   biom <- upload_biom()

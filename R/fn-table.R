@@ -61,7 +61,7 @@ api_table <- function (REQ, table_fn, depth, table_args = list(), subset_args = 
         'rows_total' = unbox(result[['rows_total']]),
         'file_url'   = unbox(paste0(REQ[['SESSION']][['client_temp']], "/", result[['file']])),
         'code'       = list(
-          'file' = unbox(sprintf("%s/%s.json", REQ[['SESSION']][['draft_key']], plot_sample_set(table_fn))),
+          'file' = unbox(sprintf("%s/%s.%s", REQ[['SESSION']][['draft_key']], plot_sample_set(table_fn), code_biom_format(known_summary(REQ)))),
           'cmd'  = unbox(result[['cmd']]) ),
         'warnings'   = as.character(result[['warnings']]) ))
     })

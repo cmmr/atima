@@ -27,6 +27,7 @@ valid_args <- list(
   "POST /api/legacy/list"              = list(source = "abc123", email = "ada@example.org", password = "old password"),
   "POST /api/legacy/start"             = list(source = "abc123", email = "ada@example.org", password = "old password", projects = list("11", "12")),
   "POST /api/metadata/change_class"    = list(col_num = 2),
+  "POST /api/metadata/level_order"     = list(field = "Sex", levels = list("Male", "Female")),
   "POST /api/metadata/add_clusters"    = list(cluster_fn = "taxa_clusters", name = "Taxa cluster"),
   "POST /api/plot"                     = list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1000),
   "POST /api/table"                    = list(table_fn = "taxa_top", table_args = list(n = 3), depth = 1000),
@@ -311,6 +312,10 @@ test_that("every route refuses arguments of the wrong type", {
     for (key in names(r$args)) {
       if (r$args[[key]]$type == "json") next
       for (value in wrong) {
+        # Several strings are what a list of strings is; whether these two
+        # are refused is up to its pattern (the values of a field may be
+        # any text).
+        if (r$args[[key]]$type == "strings" && is.character(value)) next
         bad <- args; bad[[key]] <- value
         err <- expect_error(validate_args(r, bad), class = "atima_http_error", info = paste(r$endpoint, key))
         expect_identical(err$status, 400L)

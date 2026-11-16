@@ -124,7 +124,7 @@ test_that("a plot is drawn into the session's directory and described in the res
 
   # Statistics and code come back with `attrs`.
   expect_true(length(body$stats_table) > 0)
-  expect_identical(body$code$file, "hmp50/rare.json")
+  expect_identical(body$code$file, "hmp50/rare.hdf5")
   expect_match(body$code$rbiom, "adiv_boxplot")
   expect_match(body$code$ggplot2, "ggplot")
 
@@ -428,6 +428,117 @@ test_that("an upload becomes a project, and saving copies the draft into it", {
   expect_setequal(
     vapply(response_json(resp)$tree$private, function (node) node$text, ""),
     c("My study, saved", "A copy", "A second copy") )
+})
+
+
+test_that("the order of a field's levels is set on the draft, kept, and followed by figures", {
+
+  s     <- local_open_project()
+  files <- function () db_query(s$DB, paste(
+    "SELECT drafts.full_bf_id AS full, drafts.rare_bf_id AS rare",
+    "FROM sessions JOIN drafts USING (draft_id) WHERE session_key = ?"), "T1", list(s$session$session_key))
+  stored <- function (id) rbiom::as_rbiom(biom_path(s$REQ, id))   # from the file, not the cache
+  levels_of <- function (BIOM, name) unlist(Filter(function (f) f$name == name, BIOM$fields)[[1]]$levels)
+  axis <- function (biom) {
+    p <- rbiom::adiv_boxplot(biom, x = "Body Site", adiv = "Shannon")
+    ggplot2::ggplot_build(p)$layout$panel_params[[1]]$x$get_labels()
+  }
+
+  alphabet <- c("Anterior nares", "Buccal mucosa", "Mid vagina", "Saliva", "Stool")
+  wanted   <- c("Stool", "Saliva", "Anterior nares", "Buccal mucosa", "Mid vagina")
+  expect_identical(levels_of(s$BIOM, "Body Site"), alphabet)
+  expect_identical(axis(stored(files()$rare)), alphabet)
+
+  # Values left out follow the ones given, in their old order.
+  resp <- s$post("/api/metadata/level_order", list(field = "Body Site", levels = list("Stool", "Saliva")))
+  expect_identical(resp$status, 200L)
+  body <- response_json(resp)
+  expect_identical(levels_of(body$BIOM, "Body Site"), wanted)
+  expect_false(body$BIOM$is_saved)
+
+  # Both files are HDF5 and have the order: the rarefied one is what most
+  # figures are drawn from, and its axis follows.
+  for (id in files()) {
+    expect_identical(readBin(biom_path(s$REQ, id), "raw", 4), as.raw(c(0x89, 0x48, 0x44, 0x46)))
+    expect_identical(levels(stored(id)$metadata$`Body Site`), wanted)
+  }
+  expect_identical(axis(stored(files()$rare)), wanted)
+
+  # The R code beside a figure downloads HDF5, which keeps the order.
+  resp <- handle_request(fake_request("GET", paste0("/unsaved/", s$session$session_key, "/rare.hdf5")), s$app)
+  expect_identical(resp$status, 200L)
+  download <- withr::local_tempfile(fileext = ".hdf5")
+  writeBin(resp$body, download)
+  expect_identical(levels(rbiom::as_rbiom(download)$metadata$`Body Site`), wanted)
+
+  # Rarefied to another depth, and saved as a copy: still in order. The
+  # summary is computed again from the files, with atima's cache emptied.
+  expect_identical(s$post("/api/project/rarefy", list(depth = 1000))$status, 200L)
+  body <- response_json(s$post("/api/project/save_as", list(title = "Ordered copy", description = "")))
+  expect_identical(levels_of(body$BIOM, "Body Site"), wanted)
+  unlink(file.path(s$REQ$CONFIG$data_dir, "cache"), recursive = TRUE)
+  copy <- db_query(s$DB, "SELECT full_bf_id, rare_bf_id FROM projects WHERE title = 'Ordered copy'", "T2")
+  data <- work_summary(worker_ctx(s$REQ$CONFIG), biom_path(s$REQ, copy$full_bf_id), biom_path(s$REQ, copy$rare_bf_id))$data
+  expect_identical(levels_of(data, "Body Site"), wanted)
+  expect_identical(as.integer(data$depth), 1000L)
+
+  # Refused: a numeric field, a value the field does not have, the order it
+  # has already, a field that does not exist.
+  refused <- function (args, message) {
+    resp <- s$post("/api/metadata/level_order", args)
+    expect_identical(resp$status, 400L)
+    expect_match(response_json(resp)$error$message, message)
+  }
+  refused(list(field = "Age", levels = list("21")), "is numeric")
+  refused(list(field = "Body Site", levels = list("Stool", "Gut")), "has no value 'Gut'")
+  refused(list(field = "Body Site", levels = as.list(wanted)), "in this order already")
+  refused(list(field = "Nope", levels = list("a")), "no metadata field called 'Nope'")
+  refused(list(field = ".sample", levels = list("HMP01")), "no metadata field called")
+
+  # A field of numbers made categorical has its values in the order of
+  # the numbers, not of the alphabet.
+  body <- response_json(s$post("/api/metadata/change_class", list(col_num = 2)))
+  ages <- levels_of(body$BIOM, "Age")
+  expect_identical(ages, as.character(sort(as.numeric(ages))))
+  expect_identical(levels(as_categories(c(10, 2, 2.5, NA, 1, 10))), c("1", "2", "2.5", "10"))
+})
+
+
+test_that("a project stored as JSON by atima 5 still opens, and is stored as HDF5 when it changes", {
+
+  s    <- local_open_project()
+  ctx  <- worker_ctx(s$REQ$CONFIG)
+  hmp  <- db_query(s$DB, "SELECT project_id, full_bf_id, rare_bf_id FROM projects WHERE public_key = 'hmp50'", "T1")
+
+  # The project's files rewritten as atima 5 wrote them.
+  as_json <- function (id) {
+    tfile <- withr::local_tempfile(fileext = ".json.bz2", .local_envir = parent.frame(2))
+    rbiom::write_biom(rbiom::as_rbiom(biom_path(s$REQ, id)), tfile, format = "json")
+    register_biom_file(s$DB, store_file(ctx$files_dir, tfile))
+  }
+  full <- as_json(hmp$full_bf_id)
+  rare <- as_json(hmp$rare_bf_id)
+  DBI::dbExecute(s$DB, "UPDATE projects SET full_bf_id = ?, rare_bf_id = ? WHERE project_id = ?", list(full, rare, hmp$project_id))
+  DBI::dbExecute(s$DB, "UPDATE drafts SET full_bf_id = ?, rare_bf_id = ? WHERE project_id = ?", list(full, rare, hmp$project_id))
+  expect_identical(rawToChar(readBin(biom_path(s$REQ, full), "raw", 3)), "BZh")
+
+  # It opens, its tables and figures work, and it downloads.
+  resp <- handle_request(fake_request("POST", "/api/session/init", list(), session = s$session), s$app)
+  expect_identical(response_json(resp)$BIOM$depth, 1183L)
+  expect_identical(s$post("/api/metadata/table")$status, 200L)
+  expect_identical(s$post("/api/plot", list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = 1183))$status, 200L)
+  expect_identical(handle_request(fake_request("GET", "/hmp50/full.hdf5"), s$app)$status, 200L)
+
+  # A change writes HDF5, and the order of levels is kept from then on.
+  resp <- s$post("/api/metadata/level_order", list(field = "Sex", levels = list("Male")))
+  expect_identical(resp$status, 200L)
+  draft <- db_query(s$DB, paste(
+    "SELECT drafts.full_bf_id, drafts.rare_bf_id",
+    "FROM sessions JOIN drafts USING (draft_id) WHERE session_key = ?"), "T2", list(s$session$session_key))
+  for (id in unlist(draft)) {
+    expect_identical(readBin(biom_path(s$REQ, id), "raw", 4), as.raw(c(0x89, 0x48, 0x44, 0x46)))
+    expect_identical(levels(rbiom::as_rbiom(biom_path(s$REQ, id))$metadata$Sex), c("Male", "Female"))
+  }
 })
 
 

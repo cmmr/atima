@@ -65,7 +65,7 @@ api_plot <- function (
         resp[['stats_title']] <- result[['stats_title']]
         resp[['caption']]     <- result[['caption']]
         resp[['code']]      <- c(
-          list('file' = unbox(sprintf("%s/%s.json", REQ[['SESSION']][['draft_key']], plot_sample_set(plot_fn)))),
+          list('file' = unbox(sprintf("%s/%s.%s", REQ[['SESSION']][['draft_key']], plot_sample_set(plot_fn), code_biom_format(known_summary(REQ))))),
           result[['code']] )
       }
 

@@ -175,6 +175,30 @@ mcp_write_tools <- function (project, fn_args, samples, clusters) {
           json        = list(type = "string", enum = list("numeric", "categorical")) ))),
 
     tool(
+      name        = "set_level_order",
+      title       = "Put a categorical field's values in order",
+      description = paste(
+        "Set the order of a categorical metadata field's values (its levels), for example a control group first or",
+        "time points in time order. Every figure follows it: the groups along an axis, in a legend, in facets.",
+        "List the values in the order wanted; values left out follow, in the order they had. describe_project",
+        "lists each field's values in their current order. A numeric field must be made categorical first",
+        "(set_field_type)." ),
+      permission  = "editor",
+      read_only   = FALSE,
+      destructive = TRUE,
+      idempotent  = TRUE,
+      args        = list(
+        project = project,
+        field   = tool_arg(
+          spec        = arg_string(min = 1L, max = 200L, trim = FALSE),
+          description = "The field's name, as describe_project spells it.",
+          json        = list(type = "string") ),
+        levels  = tool_arg(
+          spec        = arg_strings(pattern = "^(?s).{0,500}$", max_n = 1000L),
+          description = "The field's values in the order wanted, spelled as describe_project lists them.",
+          json        = list(type = "array", items = list(type = "string"), minItems = 1L, maxItems = 1000L) ))),
+
+    tool(
       name        = "copy_project",
       title       = "Save a copy of a project",
       description = paste(
@@ -468,6 +492,20 @@ tool_set_field_type <- function (REQ, project, field, type) {
 
   edit_job(REQ, "field_type", list(field = field, type = type), function (result) {
     changed(REQ, sprintf("The metadata field \"%s\" is now %s.", field, type), field = field, type = type)
+  })
+}
+
+
+#______________________________________________________________________________
+#' Set the order of a categorical field's levels.
+#' @noRd
+tool_set_level_order <- function (REQ, project, field, levels) {
+
+  edit_job(REQ, "levels", list(field = field, levels = levels), function (result) {
+    order <- as.character(result[['levels']])
+    changed(
+      REQ, sprintf("The values of the metadata field \"%s\" are now in this order: %s.", field, log_truncate(paste(order, collapse = ", "), 300L)),
+      field = field, levels = as.list(order) )
   })
 }
 

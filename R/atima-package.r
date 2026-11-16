@@ -1,6 +1,9 @@
 # Imports for the whole package. Roxygen writes NAMESPACE from these tags.
+# h5lite is imported for rbiom, which reads and writes atima's stored files
+# (HDF5) with it but only suggests it; atima does not call it itself.
 #' @noRd
 #' @importFrom DBI dbConnect dbDisconnect dbExecute dbGetQuery dbListTables
+#' @importFrom h5lite h5_exists
 #' @importFrom httpuv runServer staticPath staticPathOptions
 #' @importFrom jsonlite base64_dec base64_enc fromJSON toJSON unbox
 #' @importFrom methods formalArgs is

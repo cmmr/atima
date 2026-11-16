@@ -469,7 +469,7 @@ test_that("every exposed plot function draws through the worker path", {
     # The rarefaction plots and the differential abundance model are given
     # the counts before rarefying.
     full <- startsWith(plot_fn, "rare_") || plot_fn == "taxa_forest"
-    expect_identical(body$code$file, paste0("hmp50/", if (full) "full" else "rare", ".json"), info = plot_fn)
+    expect_identical(body$code$file, paste0("hmp50/", if (full) "full" else "rare", ".hdf5"), info = plot_fn)
   }
 
   # An image with no room for its figure is the request's fault. (Whether
@@ -525,7 +525,7 @@ test_that("a table function's table comes back with its file and its code", {
     expect_gt(body$rows_total, 0, label = table_fn)
     expect_length(body$table, body$rows_total)
     expect_match(body$code$cmd, paste0("^", table_fn, "\\(biom"), info = table_fn)
-    expect_identical(body$code$file, "hmp50/rare.json", info = table_fn)
+    expect_identical(body$code$file, "hmp50/rare.hdf5", info = table_fn)
     expect_null(body$BIOM)
 
     # The whole table is in the file, under the same column names.

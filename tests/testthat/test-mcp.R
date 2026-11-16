@@ -258,7 +258,7 @@ test_that("every tool is well formed and has a handler that takes its arguments"
   reading <- c("list_projects", "describe_project", "describe_function", "run_stats", "make_plot", "export")
   writing <- c(
     "upload_project", "upload_component", "upload_status", "edit_project", "add_clusters", "set_field_type",
-    "copy_project", "find_users", "list_access", "share_project", "new_share_link", "publish_project", "delete_project" )
+    "set_level_order", "copy_project", "find_users", "list_access", "share_project", "new_share_link", "publish_project", "delete_project" )
 
   expect_named(tools, c(reading, writing))
 
@@ -418,6 +418,7 @@ test_that("example calls satisfy the tools' input schemas", {
     edit_project      = list(project = "abcdefghijkl", title = "A better title", description = "<p>What it is.</p>", depth = 1000),
     add_clusters      = list(project = "abcdefghijkl", `function` = "bdiv_clusters", args = list(k = 3), name = "Groups"),
     set_field_type    = list(project = "abcdefghijkl", field = "Age", type = "categorical"),
+    set_level_order   = list(project = "abcdefghijkl", field = "Body Site", levels = list("Stool", "Saliva")),
     copy_project      = list(project = "hmp50", title = "Stool only", samples = list(cat = list(`Body Site` = list("Stool")))),
     find_users        = list(query = "Ada Lovelace"),
     list_access       = list(project = "abcdefghijkl"),
@@ -686,7 +687,7 @@ test_that("run_stats returns a capped table, the whole table as a file, and the 
   expect_identical(nrow(table), data$rows_total)
   expect_identical(names(table), unlist(data$columns))
 
-  expect_match(data$code, 'as_rbiom("http://127.0.0.1:8080/hmp50/rare.json")', fixed = TRUE)
+  expect_match(data$code, 'as_rbiom("http://127.0.0.1:8080/hmp50/rare.hdf5")', fixed = TRUE)
   expect_match(data$code, "stats <- taxa_stats(biom", fixed = TRUE)
 
   # A small table comes whole, with no note.
@@ -753,7 +754,7 @@ test_that("run_stats runs every statistics function, at a depth and on a subset"
   data <- result$structuredContent
   expect_false(result$isError)
   expect_identical(data$rows_total, 1L)
-  expect_match(data$code, 'as_rbiom("http://127.0.0.1:8080/hmp50/full.json")', fixed = TRUE)
+  expect_match(data$code, 'as_rbiom("http://127.0.0.1:8080/hmp50/full.hdf5")', fixed = TRUE)
   expect_match(data$code, "rarefy(biom, depth = 500)", fixed = TRUE)
   expect_match(data$code, "`samples` filter", fixed = TRUE)
 
@@ -790,7 +791,7 @@ test_that("make_plot returns the figure as an image, with its statistics and cod
   # Its statistics table, and the code.
   expect_true("p_val" %in% unlist(data$stats$columns))
   expect_identical(data$stats$rows_returned, data$stats$rows_total)
-  expect_match(data$code$rbiom, 'as_rbiom("http://127.0.0.1:8080/hmp50/rare.json")', fixed = TRUE)
+  expect_match(data$code$rbiom, 'as_rbiom("http://127.0.0.1:8080/hmp50/rare.hdf5")', fixed = TRUE)
   expect_match(data$code$rbiom, "p <- adiv_boxplot(", fixed = TRUE)
   expect_match(data$code$ggplot2, "ggplot(", fixed = TRUE)
   expect_true(nzchar(data$code$stats))
@@ -809,7 +810,7 @@ test_that("make_plot returns the figure as an image, with its statistics and cod
   result <- mcp$call("make_plot", list(project = "hmp50", `function` = "rare_stacked"))
   expect_false(result$isError)
   expect_null(result$structuredContent$stats)
-  expect_match(result$structuredContent$code$rbiom, "/hmp50/full.json", fixed = TRUE)
+  expect_match(result$structuredContent$code$rbiom, "/hmp50/full.hdf5", fixed = TRUE)
   expect_identical(result$structuredContent$width, 900L)
   expect_identical(result$structuredContent$caption, "Rarefaction depth (dashed line): 1,183 reads per sample.")
 })

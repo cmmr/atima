@@ -368,6 +368,52 @@ test_that("add_clusters and set_field_type change the saved project's metadata",
 })
 
 
+test_that("set_level_order puts a field's values in order in the saved project, and records it", {
+
+  mcp     <- local_mcp()
+  project <- own_project(mcp)
+  values  <- function (name) {
+    found <- mcp$call("describe_project", list(project = project))$structuredContent$fields
+    unlist(Filter(function (f) identical(f$name, name), found)[[1]]$values)
+  }
+
+  expect_identical(values("Body Site"), c("Anterior nares", "Buccal mucosa", "Mid vagina", "Saliva", "Stool"))
+
+  result <- mcp$call("set_level_order", list(project = project, field = "Body Site", levels = list("Stool", "Saliva")))
+  data   <- result$structuredContent
+  expect_false(result$isError)
+  expect_true(data$changed)
+  expect_identical(data$levels, list("Stool", "Saliva", "Anterior nares", "Buccal mucosa", "Mid vagina"))
+  expect_identical(
+    data$change,
+    'The values of the metadata field "Body Site" are now in this order: Stool, Saliva, Anterior nares, Buccal mucosa, Mid vagina.' )
+  expect_identical(values("Body Site"), unlist(data$levels))
+
+  # The saved project's files have the order; the record of changes has the call.
+  saved <- db_query(mcp$DB, "SELECT full_bf_id, rare_bf_id FROM projects WHERE access_key = ?", "T1", list(project))
+  REQ   <- list(DB = mcp$DB, CONFIG = mcp$REQ$CONFIG)
+  for (id in unlist(saved))
+    expect_identical(levels(rbiom::as_rbiom(biom_path(REQ, id))$metadata$`Body Site`), unlist(data$levels))
+  expect_identical(tail(changes(mcp$DB)$tool, 1), "set_level_order")
+
+  # Refused, and nothing changed.
+  before <- snapshot(mcp$DB)
+  expect_tool_error(mcp$call("set_level_order", list(project = project, field = "Body Site", levels = list("Stool"))), "in this order already")
+  expect_tool_error(mcp$call("set_level_order", list(project = project, field = "Age", levels = list("30"))), "is numeric")
+  expect_tool_error(mcp$call("set_level_order", list(project = project, field = "Sex", levels = list("Other"))), "has no value 'Other'")
+  expect_tool_error(mcp$call("set_level_order", list(project = project, field = "No such field", levels = list("a"))), "no metadata field called")
+  expect_tool_error(mcp$call("set_level_order", list(project = "hmp50", field = "Sex", levels = list("Male"))), "do not have permission to change")
+  expect_identical(snapshot(mcp$DB), before)
+
+  # A field made categorical from numbers starts in the order of the numbers.
+  expect_false(mcp$call("set_field_type", list(project = project, field = "Age", type = "categorical"))$isError)
+  ages <- values("Age")
+  expect_identical(ages, as.character(sort(as.numeric(ages))))
+  expect_false(mcp$call("set_level_order", list(project = project, field = "Age", levels = list("40")))$isError)
+  expect_identical(values("Age")[[1]], "40")
+})
+
+
 test_that("copy_project saves a copy, whole or of some samples, and leaves the original alone", {
 
   mcp    <- local_mcp()

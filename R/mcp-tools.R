@@ -627,14 +627,15 @@ table_data <- function (table, max_rows, rows_total = nrow(table), hint = NULL) 
 code_load <- function (REQ, sample_set, depth = NULL, filtered = FALSE) {
 
   base <- paste0(REQ[['CONFIG']][['base_url']], "/", REQ[['SESSION']][['project_key']])
+  ext  <- code_biom_format(known_summary(REQ))
 
   lines <- c(
     "library(rbiom)",
     if (sample_set == "rare" && !is.null(depth)) c(
-      sprintf('biom <- as_rbiom("%s/full.json")', base),
+      sprintf('biom <- as_rbiom("%s/full.%s")', base, ext),
       sprintf("biom <- rarefy(biom, depth = %i)", as.integer(depth)) )
     else
-      sprintf('biom <- as_rbiom("%s/%s.json")', base, sample_set),
+      sprintf('biom <- as_rbiom("%s/%s.%s")', base, sample_set, ext),
     if (filtered) "# The `samples` filter of the request is not part of this code." )
 
   paste(lines, collapse = "\n")

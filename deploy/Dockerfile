@@ -53,13 +53,12 @@ RUN if [ -n "$CRAN_REPO" ]; then       echo "options(repos = c(CRAN = '$CRAN_REP
 #   ggdensity    the density layer of ordinations
 #   lmerTest     `strata` in taxa_forest
 #   ggbeeswarm, ggrepel   nicer layers (rbiom has fallbacks)
-#   h5lite       HDF5 BIOM files
 #   svglite      SVG figures
 #   bcrypt       importing from atima 2 (the server refuses to start with a
 #                legacy file and no bcrypt)
 # Not in the list: phyloseq (the phyloseq export). It is a Bioconductor
 # package, large, and this step installs from CRAN only.
-ARG OPTIONAL_PACKAGES="openxlsx zip fillpattern Rtsne uwot ggdensity lmerTest ggbeeswarm ggrepel h5lite svglite bcrypt"
+ARG OPTIONAL_PACKAGES="openxlsx zip fillpattern Rtsne uwot ggdensity lmerTest ggbeeswarm ggrepel svglite bcrypt"
 
 # (A build argument is an environment variable while a RUN step runs.)
 RUN Rscript -e 'pkgs <- strsplit(Sys.getenv("OPTIONAL_PACKAGES"), " ")[[1]]; \

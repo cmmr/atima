@@ -117,20 +117,45 @@ read_biom <- function (ctx, file) {
 
 #______________________________________________________________________________
 #' Write an rbiom object into the file store.
+#'
+#' Stored files are BIOM 2.1 (HDF5), which keeps the order of a categorical
+#' field's levels; JSON has no place for it. A project whose metadata has a
+#' field name HDF5 cannot hold (see `hdf5_problem()`) is stored as
+#' bzip2-compressed JSON instead, as every project was before atima 6.
+#' `read_biom()` reads either: rbiom tells them apart by their content, so
+#' the name in the store, `<sha256>.biom`, does not say which.
+#'
+#' HDF5 files carry the time each part was written, so the same object
+#' stored twice gives two files with different hashes.
+#'
 #' @return `list(file, hash)`, as from `store_file()`.
 #' @noRd
 store_biom <- function (ctx, biom) {
 
-  tfile <- tempfile(fileext = ".json.bz2")
+  hdf5  <- is.null(hdf5_problem(biom))
+  tfile <- tempfile(fileext = if (hdf5) ".h5" else ".json.bz2")
   on.exit(unlink(tfile), add = TRUE)
 
-  write_biom(biom, file = tfile, format = "json")
+  write_biom(biom, file = tfile, format = if (hdf5) "hdf5" else "json")
   entry <- store_file(ctx[['files_dir']], tfile)
 
   # It is likely to be read again soon.
   cache_put(worker_cache(ctx), paste0("biom_", entry[['hash']]), biom)
 
   entry
+}
+
+
+#' Why a project cannot be stored as HDF5, or `NULL` if it can. The HDF5
+#' BIOM format names each metadata field in a path, so a field name may not
+#' hold a `/`; rbiom refuses to write one.
+#' @noRd
+hdf5_problem <- function (biom) {
+  bad <- grep("/", colnames(biom$metadata), fixed = TRUE, value = TRUE)
+  if (length(bad) == 0) return (NULL)
+  sprintf(paste(
+    "atima cannot keep an order of levels in this project, because the name of its metadata field '%s'",
+    "has a '/' in it. Replace the metadata with a file in which that field has another name." ), bad[[1]])
 }
 
 
@@ -237,6 +262,7 @@ cached_summary <- function (ctx, full, rare, full_biom = NULL, rare_biom = NULL)
 store_pair <- function (ctx, full_biom, rare_biom) {
   full <- store_biom(ctx, full_biom)
   rare <- store_biom(ctx, rare_biom)
+  rare_note(ctx, full[['file']], rare_biom$depth, rare)
   list(
     full = full,
     rare = rare,
@@ -417,7 +443,7 @@ work_change_class <- function (ctx, full, rare, col_num) {
     stop_user("There is no metadata column ", col_num, ".")
 
   if (is.numeric(md[[col_num]])) {
-    md[[col_num]] <- as.character(md[[col_num]])
+    md[[col_num]] <- as_categories(md[[col_num]])
   } else {
     md[[col_num]] <- as.numeric(as.character(md[[col_num]]))
   }
@@ -461,9 +487,49 @@ rarefy_to <- function (ctx, full, rare, depth) {
   if (depth > max(sample_sums(full_biom)))
     stop_user("No sample of this project has ", as.integer(depth), " reads, so it cannot be rarefied to that depth.")
 
-  rare_biom <- rarefy(full_biom, depth = as.integer(depth), cpus = ctx[['cpus']])
+  # Rarefied to this depth before: the same file, so that a project
+  # rarefied away from its saved depth and back again is as it was saved.
+  known <- rare_known(ctx, full, depth)
+  if (!is.null(known))
+    return (list(rare = known, rare_biom = read_biom(ctx, file.path(ctx[['files_dir']], known[['file']]))))
 
-  list(rare = store_biom(ctx, rare_biom), rare_biom = rare_biom)
+  rare_biom <- rarefy(full_biom, depth = as.integer(depth), cpus = ctx[['cpus']])
+  rare      <- store_biom(ctx, rare_biom)
+  rare_note(ctx, full, depth, rare)
+
+  list(rare = rare, rare_biom = rare_biom)
+}
+
+
+#' A note, in atima's cache, of the stored file that holds a full file
+#' rarefied to a depth. The store cannot find it by its content, as it
+#' could when files were JSON: an HDF5 file carries the time it was
+#' written (`store_biom()`). rbiom's `rarefy()` gives the same result each
+#' time for the same counts and depth, so the note never goes stale.
+#' @param full   The full file: its path or its name in the store.
+#' @param entry  `list(file, hash)`, as from `store_biom()`.
+#' @noRd
+rare_note <- function (ctx, full, depth, entry) {
+  cache_put(worker_cache(ctx), rare_note_key(full, depth), entry)
+}
+
+#' The noted file for a full file and a depth, if it is still in the store.
+#' Its age is refreshed, as `store_file()` does, so that cleanup does not
+#' remove it before the main process has recorded it again.
+#' @return `list(file, hash)` or `NULL`.
+#' @noRd
+rare_known <- function (ctx, full, depth) {
+  entry <- cache_get(worker_cache(ctx), rare_note_key(full, depth))
+  if (!is.list(entry) || !is_string(entry[['file']])) return (NULL)
+  path <- file.path(ctx[['files_dir']], entry[['file']])
+  if (!suppressWarnings(Sys.setFileTime(path, Sys.time()))) return (NULL)
+  entry
+}
+
+#' The cache key of a `rare_note()`.
+#' @noRd
+rare_note_key <- function (full, depth) {
+  sprintf("rare_%s_%i", sub("\\.biom$", "", basename(full)), as.integer(depth))
 }
 
 
@@ -648,13 +714,15 @@ work_add_clusters <- function (ctx, full, rare, cluster_fn, cluster_args, name, 
     fn   = base::getExportedValue("rbiom", cluster_fn),
     args = c(list(biom = rare_biom), cluster_args) ))
 
-  # Named, not numbered, so that the field stays categorical when the
-  # project is saved and read again.
+  # Named, not numbered, so that the field is categorical; in the order of
+  # the numbers, so that "Cluster 10" comes after "Cluster 9".
   labels <- paste("Cluster", as.character(clusters))
   names(labels) <- names(clusters)
 
   md <- full_biom$metadata
-  md[[name]] <- unname(labels[as.character(md[['.sample']])])
+  md[[name]] <- factor(
+    x      = unname(labels[as.character(md[['.sample']])]),
+    levels = unique(paste("Cluster", as.character(sort(unique(clusters))))) )
   full_biom$metadata <- md
 
   store_pair(ctx, full_biom, rarefy(full_biom, depth = rare_biom$depth, cpus = ctx[['cpus']]))
@@ -689,7 +757,7 @@ work_download <- function (ctx, src, dir, file, title, description) {
   # The extension tells rbiom which compression to use.
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   path <- tempfile(pattern = "download_", tmpdir = dir, fileext = sub("^[a-z]+", "", file))
-  write_biom(biom, path, format)
+  with_user_errors("The file could not be written.", write_biom(biom, path, format))
 
   list(path = path)
 }
@@ -750,12 +818,72 @@ work_field_type <- function (ctx, full, rare, field, type) {
       stop_user("The field '", field, "' has values that are not numbers, so it cannot be numeric.")
     md[[field]] <- as.numeric(text)
   } else {
-    md[[field]] <- as.character(values)
+    md[[field]] <- as_categories(values)
   }
 
   full_biom$metadata <- md
 
   store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]))
+}
+
+
+#' Numbers made categories, in the order of the numbers: "2" before "10",
+#' where the alphabet would put "10" first.
+#' @noRd
+as_categories <- function (values) {
+  factor(as.character(values), levels = unique(as.character(sort(unique(values)))))
+}
+
+
+#______________________________________________________________________________
+#' Set the order of a categorical metadata field's levels. Every figure
+#' follows it: the groups along an axis, in a legend, in facets.
+#'
+#' The order is kept because stored files are HDF5 (`store_biom()`); a new
+#' project's levels start in alphabetical order, and a field made
+#' categorical from numbers starts in the order of the numbers.
+#'
+#' @param field   The field's name.
+#' @param levels  The levels in the order wanted. Levels left out follow
+#'                the ones given, in the order they had.
+#' @return list(full, rare, data, levels): `levels` is the new order.
+#' @noRd
+work_level_order <- function (ctx, full, rare, field, levels) {
+
+  worker_init(ctx)
+
+  full_biom <- read_biom(ctx, full)
+  depth     <- read_biom(ctx, rare)$depth
+  md        <- full_biom$metadata
+
+  if (!is_one_of(field, setdiff(colnames(md), ".sample")))
+    stop_user("This project has no metadata field called '", log_truncate(field, 60L), "'.")
+
+  values <- md[[field]]
+
+  if (is.numeric(values))
+    stop_user("The field '", field, "' is numeric. Make it categorical first; then its values can be put in order.")
+
+  if (!is.null(why <- hdf5_problem(full_biom)))
+    stop_user(why)
+
+  before  <- levels(as.factor(values))
+  unknown <- setdiff(levels, before)
+
+  if (length(unknown) > 0)
+    stop_user("The field '", field, "' has no value '", log_truncate(unknown[[1]], 60L), "'.")
+
+  after <- c(levels, setdiff(before, levels))
+
+  if (identical(after, before))
+    stop_user("The values of '", field, "' are in this order already.")
+
+  md[[field]]        <- factor(as.character(values), levels = after)
+  full_biom$metadata <- md
+
+  c(
+    store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']])),
+    list(levels = after) )
 }
 
 
@@ -799,8 +927,8 @@ work_subset <- function (ctx, full, rare, subset_args, checked = TRUE) {
 #' the saved project in one go. So besides the new files this returns the
 #' values the `projects` table keeps about them.
 #'
-#' @param what  `"clusters"`, `"field_type"`, `"component"`, `"depth"` or
-#'              `"subset"`.
+#' @param what  `"clusters"`, `"field_type"`, `"levels"`, `"component"`,
+#'              `"depth"` or `"subset"`.
 #' @param args  The arguments of that change, by name.
 #' @return `list(full, rare, data, details)`; `full` is missing when only
 #'         the rarefied file changed. For `"depth"` also `kept`, the number
@@ -814,6 +942,7 @@ work_edit <- function (ctx, full, rare, what, args = list()) {
     EXPR       = what,
     clusters   = work_add_clusters(ctx, full, rare, args[['cluster_fn']], args[['cluster_args']], args[['name']], args[['checked']]),
     field_type = work_field_type(ctx, full, rare, args[['field']], args[['type']]),
+    levels     = work_level_order(ctx, full, rare, args[['field']], args[['levels']]),
     component  = work_component(ctx, full, rare, args[['component']], args[['infile']], args[['filename']]),
     subset     = work_subset(ctx, full, rare, args[['subset_args']], args[['checked']]),
     depth      = {

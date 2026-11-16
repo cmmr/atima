@@ -42,7 +42,7 @@ By default the data directory is `tools::R_user_dir("atima", "data")`; the
 |------|---------------|
 | `sqlite.db` | An SQLite database: each project's title, description, numbers of samples and taxa, metadata field names and keys; your project tree; and the browser sessions (when each started and was last heard from, and the address it came from, which is always this computer's). |
 | `sqlite.db-wal`, `sqlite.db-shm` | Part of the database while the server runs. |
-| `files/` | Your data: every uploaded BIOM file as you uploaded it, and the versions atima derives (the working version, and one rarefied to the project's depth). Each file is named by the SHA-256 hash of its contents. |
+| `files/` | Your data: every uploaded file as you uploaded it, and the versions atima derives (the working version, and one rarefied to the project's depth) as BIOM files in HDF5 format (versions written by atima 5 are JSON). Each file is named by the SHA-256 hash of its contents. |
 | `cache/` | Results kept so that they are not computed twice, such as parsed files and rbiom's intermediate results. They are derived from your data and are as sensitive as it is. Its size is limited by `cache_size_mb`. |
 | `sqlite.db.v<N>.<date>.bak` | A copy of the whole database, made before an upgrade of atima changed its structure. atima never deletes these. |
 

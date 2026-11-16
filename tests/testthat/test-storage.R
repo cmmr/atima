@@ -139,3 +139,43 @@ test_that("files stored by atima 5.0.x are adopted into the new layout", {
   # Running it again changes nothing.
   expect_identical(storage_adopt_legacy(DB, files_dir), 0L)
 })
+
+
+test_that("projects are stored as HDF5, which keeps the order of levels, and JSON files still open", {
+
+  dir <- withr::local_tempdir()
+  ctx <- list(files_dir = file.path(dir, "files"), cache_dir = file.path(dir, "cache"), cache_size = 1e8, cpus = 1L)
+  dir.create(ctx$files_dir)
+  magic <- function (entry, n) readBin(file.path(ctx$files_dir, entry$file), "raw", n)
+
+  biom <- rbiom::hmp50$clone()
+  md   <- biom$metadata
+  md$`Body Site` <- factor(md$`Body Site`, levels = rev(levels(md$`Body Site`)))
+  biom$metadata  <- md
+
+  entry <- store_biom(ctx, biom)
+  expect_identical(entry$file, paste0(entry$hash, ".biom"))
+  expect_identical(magic(entry, 4), as.raw(c(0x89, 0x48, 0x44, 0x46)))
+
+  # Read from the file, not from the cache that storing filled.
+  unlink(ctx$cache_dir, recursive = TRUE)
+  read <- read_biom(ctx, file.path(ctx$files_dir, entry$file))
+  expect_identical(levels(read$metadata$`Body Site`), rev(levels(rbiom::hmp50$metadata$`Body Site`)))
+  expect_equal(read$counts, biom$counts)
+  expect_identical(read$id, biom$id)
+  expect_setequal(read$tree$tip.label, biom$tree$tip.label)
+
+  # A file atima 5 stored: bzip2-compressed JSON, under the same kind of name.
+  json <- withr::local_tempfile(fileext = ".json.bz2")
+  rbiom::write_biom(rbiom::hmp50, json, format = "json")
+  old <- store_file(ctx$files_dir, json)
+  expect_identical(read_biom(ctx, file.path(ctx$files_dir, old$file))$n_samples, 50L)
+
+  # A field name HDF5 cannot hold: such a project is stored as JSON, and
+  # a change of order is refused with the reason.
+  md$`Weight/Height` <- 1
+  biom$metadata <- md
+  expect_match(hdf5_problem(biom), "'Weight/Height' has a '/'")
+  expect_null(hdf5_problem(rbiom::hmp50))
+  expect_identical(rawToChar(magic(store_biom(ctx, biom), 3)), "BZh")
+})

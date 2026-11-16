@@ -222,6 +222,10 @@ route_table <- function () {
     route("POST /api/metadata/change_class", "api_metadata_change_class", "viewer", "compute", usage = "manage", args = list(
       col_num = arg_int(min = 2L) )),
 
+    route("POST /api/metadata/level_order", "api_metadata_level_order", "viewer", "compute", usage = "manage", args = list(
+      field  = arg_string(min = 1L, max = 200L, trim = FALSE),
+      levels = arg_strings(pattern = "^(?s).{0,500}$", max_n = 1000L) )),
+
     route("POST /api/metadata/add_clusters", "api_add_clusters", "viewer", "compute", usage = "clusters", usage_fn = "cluster_fn", args = list(
       cluster_fn   = arg_choice(schema_fns("clusters")),
       cluster_args = arg_fn_args("cluster_fn", optional = TRUE),

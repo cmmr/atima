@@ -10,6 +10,7 @@ importFrom(DBI,
   dbListTables
 )
 importFrom(RSQLite,SQLite)
+importFrom(h5lite,h5_exists)
 importFrom(httpuv,
   runServer,
   staticPath,
