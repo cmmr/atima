@@ -237,6 +237,16 @@ test_that("navigation labels are short, and every control's label fits its line"
     expect_gte(nchar(def$label), nchar(def$short))
   }
 
+  # The functions with a page of their own kind are among them, and each
+  # kind of page is one main.js can show: the link is "#/<use>/<function>".
+  expect_true(all(c("taxa_upset", "taxa_top", "taxa_shared") %in% names(schema$functions)))
+  uses <- unique(vapply(schema$functions, function (def) def$use, character(1)))
+  expect_setequal(uses, schema_browser_uses)
+  main <- read_text(www("js", "main.js"))
+  for (use in uses)
+    expect_match(main, sprintf("\n  %s:\\s+\\{ show: ", use), info = use)
+  expect_match(main, "navLink(`#/${f.use}/${f.fn}`", fixed = TRUE)
+
   # Two functions under one heading never share a name.
   areas <- vapply(schema$functions, function (def) paste(def$area, def$short), character(1))
   expect_identical(anyDuplicated(areas), 0L)

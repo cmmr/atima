@@ -2,7 +2,7 @@
 // (metadata, taxonomy), and one that holds all its rows in the page (the
 // statistics beside a figure).
 
-import { h, fill, icon, button, serverHtml, debounce, downloadText } from './dom.js';
+import { h, fill, icon, button, serverHtml, debounce, download, downloadText } from './dom.js';
 import { call } from './api.js';
 import { showError, spinner } from './widgets.js';
 
@@ -112,9 +112,11 @@ const csvCell = value => {
  * a CSV download. Every cell is inserted as text.
  *
  * @param {Array<object>} rows   One object per row.
- * @param {object} opts          `tooltips`: {column: text}; `filename` for the CSV.
+ * @param {object} opts          `tooltips`: {column: text}; `filename` for the CSV;
+ *                               `url`: where the whole table is as a CSV file, when
+ *                               the server has one. The download is then that file.
  */
-export function localTable(rows, { tooltips = {}, filename = 'table.csv' } = {}) {
+export function localTable(rows, { tooltips = {}, filename = 'table.csv', url = null } = {}) {
 
   const columns = rows.length ? Object.keys(rows[0]) : [];
   const state   = { sort: null, dir: 1, filter: '', start: 0, length: 25 };
@@ -161,9 +163,11 @@ export function localTable(rows, { tooltips = {}, filename = 'table.csv' } = {})
   const filter = h('input', { type: 'search', placeholder: 'Search', 'aria-label': 'Search the table',
     oninput: () => { state.filter = filter.value; state.start = 0; draw(); } });
 
-  const csv = button('CSV', () => downloadText(
-    [columns.map(csvCell).join(',')].concat(visible().map(r => columns.map(c => csvCell(r[c])).join(','))).join('\n'),
-    filename), { icon: 'download', title: 'Download these rows as a CSV file' });
+  const csv = url
+    ? button('CSV', () => download(url, filename), { icon: 'download', title: 'Download the whole table as a CSV file' })
+    : button('CSV', () => downloadText(
+        [columns.map(csvCell).join(',')].concat(visible().map(r => columns.map(c => csvCell(r[c])).join(','))).join('\n'),
+        filename), { icon: 'download', title: 'Download these rows as a CSV file' });
 
   draw();
 

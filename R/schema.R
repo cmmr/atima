@@ -29,13 +29,14 @@
 
 # The rbiom functions a remote caller may run, with what atima calls them.
 # `use` says how: `plot` through /api/plot (and the MCP tool `make_plot`),
-# `clusters` through /api/metadata/add_clusters, and `stats`, a statistics
-# table without a figure, through the MCP tool `run_stats` only
-# (`R/mcp-tools.R`). `area` is for grouping them in a menu, under the
-# area's heading; `short` is the function's name there, for the functions
-# the browser has pages for. It is 12 characters at most, like every link
-# in the navigation (a test checks both); `label` is the full name, shown
-# as the link's tooltip and the page's heading.
+# `clusters` through /api/metadata/add_clusters, `table`, a table that is
+# the result itself, through /api/table (and the MCP tool `run_stats`), and
+# `stats`, a statistics table without a figure, through the MCP tool
+# `run_stats` only (`R/mcp-tools.R`). `area` is for grouping them in a
+# menu, under the area's heading; `short` is the function's name there, for
+# the functions the browser has pages for. It is 12 characters at most,
+# like every link in the navigation (a test checks both); `label` is the
+# full name, shown as the link's tooltip and the page's heading.
 schema_functions <- list(
   adiv_boxplot   = list(use = "plot",     area = "alpha",       short = "Box plot",     label = "Alpha diversity box plot"),
   adiv_corrplot  = list(use = "plot",     area = "alpha",       short = "Correlation",  label = "Alpha diversity correlation"),
@@ -51,6 +52,9 @@ schema_functions <- list(
   taxa_heatmap   = list(use = "plot",     area = "taxa",        short = "Heat map",     label = "Taxa abundance heat map"),
   taxa_stacked   = list(use = "plot",     area = "taxa",        short = "Stacked bars", label = "Taxa stacked bar plot"),
   taxa_forest    = list(use = "plot",     area = "taxa",        short = "Forest plot",  label = "Differential abundance forest plot"),
+  taxa_upset     = list(use = "plot",     area = "taxa",        short = "UpSet plot",   label = "Taxa shared between groups (UpSet plot)"),
+  taxa_top       = list(use = "table",    area = "taxa",        short = "Top taxa",     label = "Most abundant taxa"),
+  taxa_shared    = list(use = "table",    area = "taxa",        short = "Shared taxa",  label = "Taxa shared between groups"),
   taxa_clusters  = list(use = "clusters", area = "taxa",        short = "Clusters",     label = "Cluster samples by taxa abundance"),
   bdiv_clusters  = list(use = "clusters", area = "beta",        short = "Clusters",     label = "Cluster samples by beta diversity"),
   adiv_stats     = list(use = "stats",    area = "alpha",       label = "Alpha diversity statistics"),
@@ -59,16 +63,16 @@ schema_functions <- list(
   taxa_da        = list(use = "stats",    area = "taxa",        label = "Differential abundance statistics") )
 
 # The uses the browser has pages for. Its schema leaves the rest out.
-schema_browser_uses <- c("plot", "clusters")
+schema_browser_uses <- c("plot", "table", "clusters")
 
 
-# Parameters that choose what a figure shows are `basic`; those that say how
-# it is computed or styled are `advanced`. One rule, by name, the same in
-# every function.
+# Parameters that choose what a figure or table shows are `basic`; those
+# that say how it is computed or styled are `advanced`. One rule, by name,
+# the same in every function.
 schema_basic <- c(
   "x", "adiv", "bdiv", "ord", "rank", "taxa", "layers", "stat.by", "facet.by",
   "colors", "shapes", "patterns", "test", "tracks", "regr", "label.by",
-  "order.by", "rline", "k" )
+  "order.by", "rline", "k", "n", "by", "detect", "prev" )
 
 
 # A label for every parameter, 16 characters at most (a test checks): a
@@ -96,6 +100,12 @@ schema_labels <- c(
   "order.by"     = "Order samples by",
   "rline"        = "Depth line",
   "k"            = "Clusters",
+  "n"            = "Taxa per group",
+  "by"           = "Group by",
+  "detect"       = "Min. abundance",
+  "prev"         = "Min. prevalence",
+  "sets"         = "Combinations",
+  "totals"       = "Group totals",
   "within"       = "Compare within",
   "between"      = "Compare between",
   "covariates"   = "Adjust for",

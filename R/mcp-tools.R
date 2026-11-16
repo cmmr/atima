@@ -191,6 +191,7 @@ mcp_tool_table <- function () {
 
     plots    <- schema_fns("plot")
     stats    <- schema_fns("stats")
+    tables   <- schema_fns("table")
     clusters <- schema_fns("clusters")
 
     labels <- function (fns) paste0(
@@ -262,14 +263,14 @@ mcp_tool_table <- function () {
           "Give the arguments of one of the rbiom functions that run_stats and make_plot can run, as a JSON Schema:",
           " each argument's type, choices, default and meaning, and the rules about which go together.",
           " With `project`, metadata fields, ranks and diversity metrics are listed as that project has them.",
-          " Statistics: ", labels(stats), ". Plots: ", labels(plots), ".",
+          " Statistics: ", labels(stats), ". Tables: ", labels(tables), ". Plots: ", labels(plots), ".",
           " Clustering, for add_clusters where that tool is offered: ", labels(clusters), "." ),
         permission  = "session",
         args        = list(
           `function` = tool_arg(
-            spec        = arg_choice(c(stats, plots, clusters)),
+            spec        = arg_choice(c(stats, tables, plots, clusters)),
             description = "The rbiom function to describe.",
-            json        = list(type = "string", enum = as.list(c(stats, plots, clusters))) ),
+            json        = list(type = "string", enum = as.list(c(stats, tables, plots, clusters))) ),
           project    = tool_arg(
             spec        = arg_string(min = 4L, max = 40L, pattern = access_key_pattern, optional = TRUE),
             description = "A project's key, to have its fields, ranks and metrics listed in the schema.",
@@ -277,11 +278,12 @@ mcp_tool_table <- function () {
 
       tool(
         name        = "run_stats",
-        title       = "Run a statistical test",
+        title       = "Run a statistical test or make a table",
         description = paste0(
           "Run one of rbiom's statistics functions on a project and return its table: one row per comparison or",
           " model term, with p-values, adjusted p-values and effect sizes. No figure is drawn, so this is the quick way",
           " to screen metadata fields. Functions: ", labels(stats), ".",
+          " Or make a table that tests nothing: ", labels(tables), ".",
           " The result holds the first `max_rows` rows, sorted as rbiom sorts them (smallest p-value first), says how",
           " many rows there are in all, links to the whole table as a CSV file, and gives the R code that reproduces it.",
           " Numbers in the result are rounded to four significant digits; the CSV file has them in full." ),
@@ -289,9 +291,9 @@ mcp_tool_table <- function () {
         args        = list(
           project    = project,
           `function` = tool_arg(
-            spec        = arg_choice(stats),
-            description = "The rbiom statistics function to run.",
-            json        = list(type = "string", enum = as.list(stats)) ),
+            spec        = arg_choice(c(stats, tables)),
+            description = "The rbiom statistics or table function to run.",
+            json        = list(type = "string", enum = as.list(c(stats, tables))) ),
           args       = fn_args,
           depth      = depth,
           samples    = samples,
@@ -760,7 +762,7 @@ tool_describe_function <- function (REQ, fn, project = NULL) {
   describe <- function (summary = NULL) list(data = list(
     `function`  = fn,
     label       = schema_functions[[fn]][['label']],
-    tool        = switch(uses, stats = "run_stats", clusters = "add_clusters", "make_plot"),
+    tool        = switch(uses, stats = , table = "run_stats", clusters = "add_clusters", "make_plot"),
     counts      = if (plot_sample_set(fn) == "full") "all reads (not rarefied); `depth` has no effect" else "rarefied to `depth`",
     args_schema = fn_json_schema(fn, summary) ))
 

@@ -17,6 +17,7 @@ import * as summary   from './pages/summary.js';
 import * as datatable from './pages/datatable.js';
 import * as sharing   from './pages/sharing.js';
 import * as plot      from './pages/plot.js';
+import * as table     from './pages/table.js';
 import * as clusters  from './pages/clusters.js';
 import * as legacy    from './pages/legacy.js';
 import * as privacy   from './pages/privacy.js';
@@ -32,6 +33,7 @@ const pages = {
   taxonomy: { show: c => datatable.show(c, 'taxonomy') },
   sharing:  { show: sharing.show },
   plot:     { show: plot.show },
+  table:    { show: table.show },
   clusters: { show: clusters.show },
   legacy:   { show: legacy.show },
   privacy:  { show: privacy.show },
@@ -77,7 +79,8 @@ function buildNav() {
     groups.push(h('details.nav-group', { dataset: { area } },
       h('summary', icon({ alpha: 'seedling', beta: 'diagram-project', taxa: 'chart-column', rarefaction: 'chart-line' }[area] || 'chart-simple'),
         h('span', label), icon('chevron-down', 'nav-arrow')),
-      fns.map(f => navLink(`#/${f.use === 'plot' ? 'plot' : 'clusters'}/${f.fn}`, S.shortLabel(f), null, f.label))));
+      // A function's page is named after its use: plot, table or clusters.
+      fns.map(f => navLink(`#/${f.use}/${f.fn}`, S.shortLabel(f), null, f.label))));
   }
 
   fill(nav,

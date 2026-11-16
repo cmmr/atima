@@ -21,7 +21,7 @@ test_that("every exposed function and parameter is one rbiom has", {
 
   expect_true(all(names(schema_functions) %in% exported))
   expect_true(all(names(schema_functions) %in% covered))
-  expect_true(all(vapply(schema_functions, function (f) f$use, "") %in% c("plot", "clusters", "stats")))
+  expect_true(all(vapply(schema_functions, function (f) f$use, "") %in% c("plot", "clusters", "stats", "table")))
 
   exposed <- character(0)
 
@@ -48,9 +48,9 @@ test_that("every exposed function and parameter is one rbiom has", {
     }
 
     # A plot function returns a plot, a clustering function a factor, a
-    # statistics function a table.
+    # statistics or table function a table.
     returns <- rbiom::fn_schema(fn)$returns$type
-    expect_identical(returns, switch(schema_functions[[fn]]$use, plot = "plot", clusters = "factor", stats = "table"), info = fn)
+    expect_identical(returns, switch(schema_functions[[fn]]$use, plot = "plot", clusters = "factor", stats = , table = "table"), info = fn)
 
     # (Whatever the server has installed: a parameter that needs a package
     # it lacks is left out of `params`, but it still exists.)
@@ -107,7 +107,11 @@ test_that("the schema route serves every exposed function to anyone", {
   expect_identical(schema$rbiom, as.character(utils::packageVersion("rbiom")))
   # The browser is told of what it has pages for; the statistics functions
   # are for the MCP tools only.
-  expect_setequal(names(schema$functions), c(schema_fns("plot"), schema_fns("clusters")))
+  expect_setequal(names(schema$functions), c(schema_fns("plot"), schema_fns("table"), schema_fns("clusters")))
+  expect_setequal(schema_fns("table"), c("taxa_top", "taxa_shared"))
+  expect_identical(schema$functions$taxa_top[c("use", "area", "short", "sample_set")], list(use = "table", area = "taxa", short = "Top taxa", sample_set = "rare"))
+  expect_identical(schema$functions$taxa_top$returns$type, "table")
+  expect_identical(schema$functions$taxa_upset[c("use", "area", "short")], list(use = "plot", area = "taxa", short = "UpSet plot"))
   expect_length(schema_fns("stats"), 4)
   expect_false(any(schema_fns("stats") %in% names(schema$functions)))
 
@@ -446,7 +450,8 @@ test_that("every exposed plot function draws through the worker path", {
     taxa_corrplot  = list(x = "Age", rank = "Phylum", taxa = 2, lineage = TRUE),
     taxa_heatmap   = list(rank = "Genus", taxa = 10, tracks = "Body Site", rescale = "rows"),
     taxa_stacked   = list(rank = "Phylum", taxa = 5, order.by = "Body Site", unc = "grouped"),
-    taxa_forest    = list(stat.by = "Sex", rank = "Genus", lineage = FALSE, p.top = 10) )
+    taxa_forest    = list(stat.by = "Sex", rank = "Genus", lineage = FALSE, p.top = 10),
+    taxa_upset     = list(stat.by = "Body Site", rank = "Genus", prev = 0.5, sets = 10, totals = FALSE) )
 
   expect_setequal(names(requests), schema_fns("plot"))
 
@@ -483,6 +488,110 @@ test_that("every exposed plot function draws through the worker path", {
   expect_true(length(body$stats_table) > 0)
   expect_true(all(c("taxa", "lfc", "adj_p") %in% names(body$stats_table[[1]])))
   expect_match(body$code$stats, "taxa_da")
+
+  # taxa_upset's are taxa_shared()'s table: a row for each taxon, a column
+  # for each group.
+  resp <- s$post("/api/plot", list(plot_fn = "taxa_upset", plot_args = list(stat.by = "Sex", rank = "Phylum"), depth = 1183, attrs = TRUE))
+  body <- response_json(resp)
+  expect_true(all(c("taxa", "Female", "Male", "n_groups", "set", "prev_Female", "prev_Male") %in% names(body$stats_table[[1]])))
+  expect_match(body$code$ggplot2, "wrap_plots")
+
+  # It needs a field to compare by, and says so without a worker.
+  resp <- expect_no_worker(s$post("/api/plot", list(plot_fn = "taxa_upset", plot_args = list(), depth = 1183)))
+  expect_identical(resp$status, 400L)
+  expect_match(response_json(resp)$error$message, "stat.by")
+})
+
+
+test_that("a table function's table comes back with its file and its code", {
+
+  s     <- local_open_project()
+  table <- function (table_fn, table_args = NULL, depth = 1183, ...)
+    s$post("/api/table", c(list(table_fn = table_fn, depth = depth), if (!is.null(table_args)) list(table_args = table_args), list(...)))
+
+  requests <- list(
+    taxa_top    = list(rank = "Phylum", n = 2, by = "Body Site", transform = "none"),
+    taxa_shared = list(stat.by = "Body Site", rank = "Genus", detect = 0.001, prev = 0.5) )
+
+  expect_setequal(names(requests), schema_fns("table"))
+
+  for (table_fn in names(requests)) {
+
+    resp <- table(table_fn, requests[[table_fn]])
+    expect_identical(resp$status, 200L, info = paste(table_fn, resp$body))
+    if (resp$status != 200L) next
+
+    body <- response_json(resp)
+    expect_gt(body$rows_total, 0, label = table_fn)
+    expect_length(body$table, body$rows_total)
+    expect_match(body$code$cmd, paste0("^", table_fn, "\\(biom"), info = table_fn)
+    expect_identical(body$code$file, "hmp50/rare.json", info = table_fn)
+    expect_null(body$BIOM)
+
+    # The whole table is in the file, under the same column names.
+    file <- utils::read.csv(file.path(s$temp, basename(body$file_url)), check.names = FALSE)
+    expect_identical(nrow(file), body$rows_total, info = table_fn)
+    expect_identical(names(file), names(body$table[[1]]), info = table_fn)
+  }
+
+  # Two phyla for each of five body sites, most abundant first, in counts.
+  body <- response_json(table("taxa_top", requests$taxa_top))
+  expect_identical(body$rows_total, 10L)
+  expect_named(body$table[[1]], c("rank", "Body Site", "top", "taxa", "mean", "prevalence"))
+  expect_identical(vapply(body$table, function (row) row$top, integer(1)), rep(1:2, 5))
+  expect_gt(body$table[[1]]$mean, 1)
+
+  # With nothing set, rbiom's defaults: five genera of all samples.
+  body <- response_json(table("taxa_top"))
+  expect_identical(body$rows_total, 5L)
+  expect_identical(body$table[[1]]$rank, "Genus")
+
+  # A column for each group, and the share of its samples with the taxon.
+  body <- response_json(table("taxa_shared", list(stat.by = "Sex", rank = "Phylum")))
+  expect_true(all(c("taxa", "Female", "Male", "n_groups", "set", "prev_Female", "prev_Male") %in% names(body$table[[1]])))
+  expect_type(body$table[[1]]$Female, "logical")
+
+  # Only the samples asked for.
+  body <- response_json(table("taxa_top", list(by = "Body Site", n = 1), subset_args = list(cat = list(`Body Site` = list("Stool", "Saliva")))))
+  expect_identical(vapply(body$table, function (row) row[["Body Site"]], ""), c("Stool", "Saliva"))
+
+  # Another depth than the stored one: the project follows, as for a plot.
+  body <- response_json(table("taxa_top", list(n = 1), depth = 500))
+  expect_identical(body$BIOM$depth, 500L)
+  expect_match(body$code$cmd, "^taxa_top\\(biom")
+})
+
+
+test_that("bad table requests are refused before a worker is used", {
+
+  s     <- local_open_project()
+  table <- function (table_args = list(), ..., table_fn = "taxa_top")
+    s$post("/api/table", list(table_fn = table_fn, table_args = table_args, depth = 1183, ...))
+
+  local_mocked_bindings(worker_run = function (...) stop("a worker was used"))
+
+  refused <- function (resp, pattern) {
+    expect_identical(resp$status, 400L, info = pattern)
+    expect_match(response_json(resp)$error$message, pattern)
+  }
+
+  refused(table(list(bogus = 1)),                      "^Argument 'table_args' has an option 'bogus' that taxa_top\\(\\) does not take\\.$")
+  refused(table(list(biom = "/etc/passwd")),           "option 'biom'")
+  refused(table(list(n = 0)),                          "`n`")
+  refused(table(list(by = "No Such Field")),           "by")
+  refused(table(list(by = "Age")),                     "by")
+  refused(table(list(transform = "clr")),              "transform")
+  refused(table(list(prev = 2), table_fn = "taxa_shared"),     "prev")
+  refused(table(list(rank = "Species"), table_fn = "taxa_shared"), "rank")
+  refused(table(subset_args = list(cat = list(Nope = "x"))),   "^Argument 'subset_args' names a metadata field, 'Nope'")
+
+  # Only the table functions; a plot or statistics function is not one, and
+  # a table function is not a plot.
+  refused(table(table_fn = "taxa_upset"),              "^Argument 'table_fn' is not one of the allowed values")
+  refused(table(table_fn = "taxa_stats"),              "table_fn")
+  refused(table(table_fn = "taxa_table"),              "table_fn")
+  refused(s$post("/api/plot", list(plot_fn = "taxa_top", plot_args = list(), depth = 1183)), "^Argument 'plot_fn' is not one of the allowed values")
+  refused(s$post("/api/table", list(table_fn = "taxa_top")), "depth")
 })
 
 

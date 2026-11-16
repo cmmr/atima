@@ -247,6 +247,14 @@ route_table <- function () {
       subset_args = arg_subset_args(optional = TRUE),
       attrs       = arg_bool(default = FALSE) )),
 
+    # A table an rbiom function makes, where the table is the result
+    # (`R/fn-table.R`). Checked like a plot.
+    route("POST /api/table", "api_table", "viewer", "compute", usage = "stats", usage_fn = "table_fn", supersede = TRUE, args = list(
+      table_fn    = arg_choice(schema_fns("table")),
+      table_args  = arg_fn_args("table_fn", optional = TRUE),
+      depth       = arg_int(min = 1L),
+      subset_args = arg_subset_args(optional = TRUE) )),
+
 
     #__________________________________________________________________________
     # The Model Context Protocol endpoint, through which AI apps use atima

@@ -135,7 +135,7 @@ button.project-title:hover .project-title-edit, button.project-title:focus-visib
 /* ---- Main ---------------------------------------------------------------- */
 
 #main { grid-area: main; overflow: auto; min-width: 0; min-height: 0; }
-#main[data-page="plot"] { overflow: hidden; }
+#main[data-page="plot"], #main[data-page="table"] { overflow: hidden; }
 
 .page { max-width: 1180px; margin: 0 auto; padding: 22px 26px 60px; }
 .page.narrow { max-width: 760px; }
@@ -551,7 +551,7 @@ body.dropping::after {
 }
 
 @media (max-width: 759px) {
-  #main[data-page="plot"] { overflow: auto; }
+  #main[data-page="plot"], #main[data-page="table"] { overflow: auto; }
   .plot-page { display: block; height: auto; }
   .plot-main { height: min(72vh, 560px); min-height: 320px; }
   .plot-controls { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }

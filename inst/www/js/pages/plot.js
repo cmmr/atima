@@ -78,7 +78,7 @@ function figureCode(code) {
 }
 
 /** A block of highlighted R code with a copy button. highlight.js escapes the code. */
-function codeBlock(text) {
+export function codeBlock(text) {
   const code = h('code.language-r');
   serverHtml(code, window.hljs.highlight(text, { language: 'r' }).value);
   return h('div.code-block',
@@ -90,7 +90,7 @@ function codeBlock(text) {
 //_____________________________________________________________________________
 // The sample filter: which samples every figure is made from.
 
-function subsetEditor(onchange) {
+export function subsetEditor(onchange) {
 
   const root = h('div.subset');
 

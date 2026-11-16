@@ -640,6 +640,11 @@ test_that("describe_function gives an rbiom function's arguments as JSON Schema"
   expect_identical(clusters$tool, "add_clusters")
   expect_true("k" %in% names(clusters$args_schema$properties))
 
+  # So are the functions whose table is the result, for run_stats.
+  top <- mcp$call("describe_function", list(`function` = "taxa_top", project = "hmp50"))$structuredContent
+  expect_identical(top$tool, "run_stats")
+  expect_true(all(c("n", "by", "rank") %in% names(top$args_schema$properties)))
+
   # A function that is not offered is refused before anything runs.
   result <- mcp$call("describe_function", list(`function` = "biom_merge"))
   expect_true(result$isError)
@@ -709,6 +714,33 @@ test_that("run_stats runs every statistics function, at a depth and on a subset"
     expect_false(result$isError, info = paste(fn, result$content[[1]]$text))
     expect_gt(result$structuredContent$rows_total, 0)
   }
+
+  # The functions that test nothing and make a table: the most abundant
+  # taxa of each group, and the taxa groups share.
+  tables <- list(
+    taxa_top    = list(rank = "Phylum", n = 2, by = "Body Site"),
+    taxa_shared = list(stat.by = "Sex", rank = "Phylum") )
+
+  expect_setequal(names(tables), schema_fns("table"))
+
+  for (fn in names(tables)) {
+    result <- mcp$call("run_stats", list(project = "hmp50", `function` = fn, args = tables[[fn]], max_rows = 4))
+    expect_false(result$isError, info = paste(fn, result$content[[1]]$text))
+    data <- result$structuredContent
+    expect_identical(data$rows_returned, 4L, info = fn)
+    expect_match(data$note, "Showing the first 4 rows of", info = fn)
+    expect_match(data$code, paste0("stats <- ", fn, "(biom"), fixed = TRUE, info = fn)
+    expect_identical(nrow(utils::read.csv(mcp_file(mcp, data$table_url), check.names = FALSE)), data$rows_total, info = fn)
+  }
+
+  top <- mcp$call("run_stats", list(project = "hmp50", `function` = "taxa_top", args = tables$taxa_top))$structuredContent
+  expect_identical(unlist(top$columns), c("rank", "Body Site", "top", "taxa", "mean", "prevalence"))
+  expect_identical(top$rows_total, 10L)
+
+  # The UpSet plot of the same table is a figure like any other.
+  result <- mcp$call("make_plot", list(project = "hmp50", `function` = "taxa_upset", args = list(stat.by = "Body Site")))
+  expect_false(result$isError, info = result$content[[1]]$text)
+  expect_true(all(c("taxa", "n_groups", "set") %in% unlist(result$structuredContent$stats$columns)))
 
   # A depth of the call's own, and a filter. The project itself is not touched.
   saved <- db_query(mcp$DB, "SELECT rare_bf_id FROM projects WHERE public_key = 'hmp50'", "TRare")
