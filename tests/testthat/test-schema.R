@@ -103,7 +103,7 @@ test_that("the schema route serves every exposed function to anyone", {
   expect_match(resp$headers[['Content-Type']], "application/json")
 
   schema <- response_json(resp)
-  expect_named(schema, c("rbiom", "hash", "functions", "palettes", "save", "subset"))
+  expect_named(schema, c("rbiom", "hash", "functions", "palettes", "exports", "save", "subset"))
   expect_identical(schema$rbiom, as.character(utils::packageVersion("rbiom")))
   # The browser is told of what it has pages for; the statistics functions
   # are for the MCP tools only.
