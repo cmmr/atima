@@ -11,6 +11,7 @@
 #'   fn_check_data fn_schema ggsave list_palettes rarefy sample_sums
 #'   taxa_matrix taxa_means write_biom write_tree write_xlsx
 #'   %>% %<>%
+#' @importFrom rbiom convert_to_phyloseq write_mothur write_qiime2
 #' @importFrom rlang %||% exprs_auto_name
 #'   is_scalar_character is_scalar_integer is_scalar_integerish is_string
 #' @importFrom RSQLite SQLite

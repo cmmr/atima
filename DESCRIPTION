@@ -56,11 +56,13 @@ Suggests:
     bcrypt,
     jsonvalidate,
     openxlsx,
+    phyloseq,
     pkgload,
     RMariaDB,
     testthat (>= 3.0.0),
     V8,
-    withr
+    withr,
+    zip
 Remotes:
     cmmr/rbiom
 Config/roxygen2/version: 8.1.1

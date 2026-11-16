@@ -487,9 +487,97 @@ work_export <- function (ctx, src, dest, what, format, method, rank, title, desc
     alpha    = write.csv(with_cpus(ctx, adiv_matrix, list(biom)), tmp),
     beta     = write.csv(as.matrix(with_cpus(ctx, bdiv_distmat, list(biom, method))), tmp),
     taxa     = write.csv(taxa_matrix(biom, rank), tmp),
-    xlsx     = export_xlsx(annotate_biom(biom, title, description), tmp, read_biom(ctx, rare)$depth, ctx[['cpus']]) )))
+    xlsx     = export_xlsx(annotate_biom(biom, title, description), tmp, read_biom(ctx, rare)$depth, ctx[['cpus']]),
+    qiime2   = export_zip(biom, tmp, what, title),
+    mothur   = export_zip(biom, tmp, what, title),
+    phyloseq = saveRDS(convert_to_phyloseq(biom), tmp) )))
 
   NULL
+}
+
+
+#______________________________________________________________________________
+#' Write a project as the set of files QIIME 2 or mothur reads, in one zip
+#' file, with a note that says what each file is.
+#'
+#' rbiom writes text files: counts always; metadata, taxonomy, a tree and
+#' sequences where the data has them. (A stored project has no sequences:
+#' `import_biom()` does not keep them.)
+#' @param file   The zip file to write. It need not end in `.zip`.
+#' @param kind   `"qiime2"` or `"mothur"`.
+#' @param title  The project's title, for the note.
+#' @noRd
+export_zip <- function (biom, file, kind, title) {
+
+  dir <- tempfile(pattern = paste0(kind, "_"))
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+
+  prefix <- paste0(kind, "_")
+  writer <- if (kind == "qiime2") write_qiime2 else write_mothur
+  writer(biom, dir, prefix)
+
+  writeLines(
+    text     = export_readme(kind, title, prefix, list.files(dir)),
+    con      = file.path(dir, paste0(prefix, "README.txt")),
+    useBytes = TRUE )
+
+  # The files alone, without the directory they were written in.
+  zip::zip(file, list.files(dir), root = dir, mode = "cherry-pick")
+}
+
+
+#' The note that goes into an `export_zip()` file.
+#' @param files  The names of the files rbiom wrote.
+#' @return Lines of text.
+#' @noRd
+export_readme <- function (kind, title, prefix, files) {
+
+  about <- switch(
+    EXPR   = kind,
+    qiime2 = c(
+      counts.tsv   = "Counts: one row for each OTU, one column for each sample.",
+      metadata.tsv = "Sample metadata, with the '#q2:types' line that says which columns are numbers.",
+      taxonomy.tsv = "The taxonomy of each OTU ('Feature ID', 'Taxon', 'Confidence').",
+      tree.nwk     = "The phylogenetic tree, in Newick format.",
+      seqs.fna     = "The sequence of each OTU, in FASTA format." ),
+    mothur = c(
+      counts.tsv   = "A count table: one row for each OTU, its total, then one column for each sample.",
+      metadata.tsv = "Sample metadata. The first column, 'group', holds the sample names.",
+      taxonomy.tsv = "The taxonomy of each OTU ('OTU', 'Size', 'Taxonomy').",
+      tree.nwk     = "The phylogenetic tree, in Newick format.",
+      seqs.fna     = "The sequence of each OTU, in FASTA format." ))
+
+  names(about) <- paste0(prefix, names(about))
+  about        <- about[names(about) %in% files]
+
+  # QIIME 2 keeps data in artifacts (.qza), which only QIIME 2 can make.
+  steps <- c(
+    counts.tsv = paste0(
+      "  biom convert -i ", prefix, "counts.tsv -o ", prefix, "counts.biom --table-type \"OTU table\" --to-hdf5\n",
+      "  qiime tools import --type 'FeatureTable[Frequency]' --input-format BIOMV210Format",
+      " --input-path ", prefix, "counts.biom --output-path table.qza" ),
+    taxonomy.tsv = paste0(
+      "  qiime tools import --type 'FeatureData[Taxonomy]' --input-format TSVTaxonomyFormat",
+      " --input-path ", prefix, "taxonomy.tsv --output-path taxonomy.qza" ),
+    tree.nwk = paste0(
+      "  qiime tools import --type 'Phylogeny[Rooted]'",
+      " --input-path ", prefix, "tree.nwk --output-path tree.qza" ),
+    seqs.fna = paste0(
+      "  qiime tools import --type 'FeatureData[Sequence]'",
+      " --input-path ", prefix, "seqs.fna --output-path seqs.qza" ))
+  steps <- steps[paste0(prefix, names(steps)) %in% files]
+
+  enc2utf8(c(
+    paste0(title, ": files for ", if (kind == "qiime2") "QIIME 2" else "mothur"),
+    paste0("Written by atima with rbiom ", as.character(packageVersion("rbiom")), "."),
+    "",
+    paste0(format(names(about)), "  ", about),
+    if (kind == "qiime2") c(
+      "",
+      "QIIME 2 reads the metadata file as it is. The others become QIIME 2",
+      "artifacts with these commands, run where QIIME 2 is installed:",
+      "",
+      unname(steps) )))
 }
 
 

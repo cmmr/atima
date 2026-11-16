@@ -102,7 +102,7 @@ route_table <- function () {
       collection_id = arg_int(min = 1L, optional = TRUE) )),
 
     route("POST /api/project/export", "api_export", "viewer", "compute", usage = "export", args = list(
-      what       = arg_choice(c("original", "metadata", "taxonomy", "tree", "biom", "alpha", "beta", "taxa", "xlsx")),
+      what       = arg_choice(export_whats),
       sample_set = arg_choice(c("full", "rare"), default = "full"),
       format     = arg_choice(c("json", "hdf5", "tab"), default = "json"),
       method     = arg_metric("bdiv_distmat", "bdiv", default = "bray"),

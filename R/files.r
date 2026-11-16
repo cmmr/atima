@@ -106,12 +106,67 @@ api_upload_component <- function (REQ, component, component_file) {
 
 
 #______________________________________________________________________________
+# Everything `api_export()` can be asked for.
+export_whats <- c(
+  "original", "metadata", "taxonomy", "tree", "biom", "alpha", "beta", "taxa",
+  "xlsx", "qiime2", "mothur", "phyloseq" )
+
+# What the exports that need a package make, as an error message calls it.
+export_makes <- list(
+  xlsx     = "Excel files",
+  qiime2   = "zip files",
+  mothur   = "zip files",
+  phyloseq = "phyloseq files" )
+
+
+#' The packages an export needs that atima does not import.
+#' @return A character vector; empty for most exports.
+#' @noRd
+export_needs <- function (what) {
+  switch(
+    EXPR     = what,
+    xlsx     = as.character(unlist(rbiom_schema()[['write_xlsx']][['needs']])),
+    qiime2   = "zip",
+    mothur   = "zip",
+    phyloseq = "phyloseq",
+    character(0) )
+}
+
+
+#' The exports this server can make: all of them, less those that need a
+#' package it does not have. The browser and the MCP tool offer only these.
+#' @noRd
+export_choices <- function () {
+  schema_once("exports", Filter(x = export_whats, function (what) {
+    all(vapply(export_needs(what), has_package, logical(1))) }))
+}
+
+
+#' The file extension of an export.
+#' @param format  For `biom`: `json`, `hdf5` or `tab`.
+#' @noRd
+export_ext <- function (what, format = "json") {
+  switch(
+    EXPR     = what,
+    tree     = "tre",
+    biom     = format,
+    xlsx     = "xlsx",
+    qiime2   = "zip",
+    mothur   = "zip",
+    phyloseq = "rds",
+    "csv" )
+}
+
+
+#______________________________________________________________________________
 #' Write part of the open project to a file the browser can download.
 #'
 #' @param what        `original` (the file as uploaded), `metadata`,
 #'                    `taxonomy`, `tree`, `biom`, `alpha` (diversity),
-#'                    `beta` (distance matrix), `taxa` (abundances) or
-#'                    `xlsx` (an Excel workbook of all of these).
+#'                    `beta` (distance matrix), `taxa` (abundances),
+#'                    `xlsx` (an Excel workbook of all of these), `qiime2`
+#'                    or `mothur` (a zip of the files that program reads)
+#'                    or `phyloseq` (a phyloseq object, as `.rds`).
 #' @param sample_set  `full` or `rare` (rarefied). `beta` is always
 #'                    rarefied, `original` never is, and `xlsx` holds both.
 #' @param format      For `biom`: `json`, `hdf5` or `tab`.
@@ -129,9 +184,13 @@ api_export <- function (REQ, what, sample_set = "full", format = "json", method 
   sql     <- "SELECT * FROM projects WHERE project_id = ?"
   project <- db_query(DB, sql, "AExpo1", list(project_id), req1 = TRUE)
 
-  # rbiom writes workbooks with a package it only suggests.
-  if (what == "xlsx" && !has_package(rbiom_schema()[['write_xlsx']][['needs']]))
-    stop_user("This server cannot make Excel files: the openxlsx package is not installed.")
+  # Some exports are written with a package that is only suggested.
+  needs   <- export_needs(what)
+  missing <- needs[!vapply(needs, has_package, logical(1))]
+  if (length(missing) > 0)
+    stop_user(
+      "This server cannot make ", export_makes[[what]], ": the ", missing[[1]],
+      " package is not installed.")
 
   if (what == "beta")     sample_set <- "rare"
   if (what == "xlsx")     sample_set <- "full"
@@ -142,7 +201,7 @@ api_export <- function (REQ, what, sample_set = "full", format = "json", method 
 
   # A file name that says what is inside. A rank is the user's own word, so
   # only its letters, digits and hyphens go into the name.
-  file_ext <- switch(what, original = "biom", tree = "tre", biom = format, xlsx = "xlsx", "csv")
+  file_ext <- if (what == "original") "biom" else export_ext(what, format)
 
   rank_term <- rank
   if (!grepl("^[A-Za-z0-9\\-]+$", rank))
