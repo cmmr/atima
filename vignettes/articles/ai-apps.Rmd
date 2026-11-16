@@ -187,7 +187,7 @@ Every connected app has these six.
 | `describe_function` | The arguments of an rbiom statistics, plot or clustering function, as a JSON Schema, so that the app knows what it may ask for. |
 | `run_stats` | Runs `adiv_stats()`, `bdiv_stats()`, `taxa_stats()` or `taxa_da()` and returns the table. |
 | `make_plot` | Draws any of the plots the web interface offers and returns the image, its statistics table and the R code. |
-| `export` | Writes a file and returns a link to it: the BIOM file, an Excel workbook, or a table of the metadata, taxonomy, alpha diversity, beta diversity or taxa abundances, or the tree. |
+| `export` | Writes a file and returns a link to it: the BIOM file, an Excel workbook, or a table of the metadata, taxonomy, alpha diversity, beta diversity or taxa abundances, or the tree; or the project as files for QIIME 2 or mothur, or as a phyloseq object. |
 
 `run_stats` and `make_plot` can rarefy to another depth, or use only some
 of the samples, for that one call. Nothing in the project changes.

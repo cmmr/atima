@@ -228,9 +228,10 @@ mcp_tool_table <- function () {
         "describe_function gives the arguments a function takes. Anything left out takes rbiom's default." ),
       json        = list(type = "object") )
 
-    exports <- c("biom", "xlsx", "metadata", "taxonomy", "tree", "alpha", "beta", "taxa")
-    if (!has_package(rbiom_schema()[['write_xlsx']][['needs']]))
-      exports <- setdiff(exports, "xlsx")
+    # Only what this server can make (`export_choices()`), and not the file
+    # as it was uploaded.
+    exports <- c("biom", "xlsx", "metadata", "taxonomy", "tree", "alpha", "beta", "taxa", "qiime2", "mothur", "phyloseq")
+    exports <- intersect(exports, export_choices())
 
     tools <- list(
 
@@ -335,7 +336,9 @@ mcp_tool_table <- function () {
           "Write part of a project to a file and return a link to download it: `biom` (the whole dataset as a BIOM",
           "file), `xlsx` (an Excel workbook of counts, metadata, taxonomy and diversity), `metadata` or `taxonomy`",
           "(CSV), `tree` (Newick), `alpha` (alpha diversity of every sample, CSV), `beta` (a distance matrix between",
-          "samples, CSV; always rarefied) or `taxa` (abundances at one rank, CSV). The link works for a day." ),
+          "samples, CSV; always rarefied), `taxa` (abundances at one rank, CSV), `qiime2` or `mothur` (a zip of the",
+          "text files that program reads: counts, and metadata, taxonomy and tree where the project has them) or `phyloseq` (a phyloseq object for R, as an .rds file). `what` lists the ones this server can make.",
+          "The link works for a day." ),
         permission  = "viewer",
         args        = list(
           project  = project,
@@ -892,7 +895,7 @@ tool_export <- function (REQ, project, what, rarefied = FALSE, format = "json", 
     "%s_%s.%s",
     if (what == "beta") paste0("beta_", metric) else what,
     if (what == "xlsx") "all" else sample_set,
-    switch(what, tree = "tre", biom = format, xlsx = "xlsx", "csv") )
+    export_ext(what, format) )
 
   job(
     fn   = "work_export",
