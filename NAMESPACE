@@ -10,7 +10,16 @@ importFrom(DBI,
   dbListTables
 )
 importFrom(RSQLite,SQLite)
-importFrom(h5lite,h5_exists)
+importFrom(grDevices,
+  col2rgb,
+  colors
+)
+importFrom(h5lite,
+  h5_attr_names,
+  h5_exists,
+  h5_read,
+  h5_write
+)
 importFrom(httpuv,
   runServer,
   staticPath,

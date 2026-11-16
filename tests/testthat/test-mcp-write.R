@@ -414,6 +414,51 @@ test_that("set_level_order puts a field's values in order in the saved project, 
 })
 
 
+test_that("set_group_colors gives a field's groups colors in the saved project, used by make_plot, and records it", {
+
+  mcp     <- local_mcp()
+  project <- own_project(mcp)
+  colors  <- function (name) {
+    found <- mcp$call("describe_project", list(project = project))$structuredContent$fields
+    unlist(Filter(function (f) identical(f$name, name), found)[[1]]$colors)
+  }
+
+  expect_null(colors("Sex"))
+
+  result <- mcp$call("set_group_colors", list(project = project, field = "Sex", colors = list(Male = "steelblue", Female = "#D95F02")))
+  data   <- result$structuredContent
+  expect_false(result$isError)
+  expect_true(data$changed)
+  expect_identical(data$colors, list(Female = "#D95F02", Male = "#4682B4"))
+  expect_identical(data$change, 'The groups of the metadata field "Sex" now have these colors: Female #D95F02, Male #4682B4.')
+  expect_identical(colors("Sex"), c(Female = "#D95F02", Male = "#4682B4"))
+  expect_identical(tail(changes(mcp$DB)$tool, 1), "set_group_colors")
+
+  # The saved project's files have them, and figures use them.
+  saved <- db_query(mcp$DB, "SELECT full_bf_id, rare_bf_id FROM projects WHERE access_key = ?", "T1", list(project))
+  REQ   <- list(DB = mcp$DB, CONFIG = mcp$REQ$CONFIG)
+  for (id in unlist(saved))
+    expect_identical(read_colors(biom_path(REQ, id))$Sex, c(Female = "#D95F02", Male = "#4682B4"))
+  plot <- mcp$call("make_plot", list(project = project, `function` = "adiv_boxplot", args = list(x = "Sex")))
+  expect_false(plot$isError)
+  expect_match(plot$structuredContent$code$rbiom, "colors = c('Female' = \"#D95F02\", 'Male' = \"#4682B4\")", fixed = TRUE)
+
+  # Refused, and nothing changed.
+  before <- snapshot(mcp$DB)
+  expect_tool_error(mcp$call("set_group_colors", list(project = project, field = "Sex", colors = list(Male = "#4682B4"))), "have these colors already")
+  expect_tool_error(mcp$call("set_group_colors", list(project = project, field = "Sex", colors = list(Male = "blurple"))), "neither a hex code")
+  expect_tool_error(mcp$call("set_group_colors", list(project = project, field = "Sex", colors = list(Other = "red"))), "has no value 'Other'")
+  expect_tool_error(mcp$call("set_group_colors", list(project = project, field = "Age", colors = list(`30` = "red"))), "is numeric")
+  expect_tool_error(mcp$call("set_group_colors", list(project = "hmp50", field = "Sex", colors = list(Male = "red"))), "do not have permission to change")
+  expect_identical(snapshot(mcp$DB), before)
+
+  # Reset.
+  result <- mcp$call("set_group_colors", list(project = project, field = "Sex", reset = TRUE))
+  expect_identical(result$structuredContent$change, 'The groups of the metadata field "Sex" now have the default colors.')
+  expect_null(colors("Sex"))
+})
+
+
 test_that("copy_project saves a copy, whole or of some samples, and leaves the original alone", {
 
   mcp    <- local_mcp()

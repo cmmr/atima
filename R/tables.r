@@ -113,6 +113,31 @@ api_metadata_level_order <- function (REQ, field, levels) {
 
 
 #______________________________________________________________________________
+#' User wants colours of their own for the groups of a categorical field.
+#' @param field   The field's name.
+#' @param colors  Group name to colour; see `work_group_colors()`.
+#' @param reset   Remove the field's colours first.
+#' @return list(BIOM)
+#' @noRd
+api_metadata_colors <- function (REQ, field, colors = character(0), reset = FALSE) {
+
+  job(
+    fn   = "work_group_colors",
+    args = list(
+      ctx    = worker_ctx(REQ[['CONFIG']]),
+      full   = biom_path(REQ, REQ[['SESSION']][['full_bf_id']]),
+      rare   = biom_path(REQ, REQ[['SESSION']][['rare_bf_id']]),
+      field  = field,
+      colors = colors,
+      reset  = reset ),
+    finish = function (result) {
+      update_draft(REQ, full = result[['full']], rare = result[['rare']])
+      list(BIOM = biom_reply(REQ, result[['data']]))
+    })
+}
+
+
+#______________________________________________________________________________
 #' Group the samples into clusters and add them to the working copy's
 #' metadata as a new categorical field, which plots can then color, facet
 #' or test by.

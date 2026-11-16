@@ -153,7 +153,7 @@ test_that("projects are stored as HDF5, which keeps the order of levels, and JSO
   md$`Body Site` <- factor(md$`Body Site`, levels = rev(levels(md$`Body Site`)))
   biom$metadata  <- md
 
-  entry <- store_biom(ctx, biom)
+  entry <- store_biom(ctx, biom, list())
   expect_identical(entry$file, paste0(entry$hash, ".biom"))
   expect_identical(magic(entry, 4), as.raw(c(0x89, 0x48, 0x44, 0x46)))
 
@@ -177,5 +177,5 @@ test_that("projects are stored as HDF5, which keeps the order of levels, and JSO
   biom$metadata <- md
   expect_match(hdf5_problem(biom), "'Weight/Height' has a '/'")
   expect_null(hdf5_problem(rbiom::hmp50))
-  expect_identical(rawToChar(magic(store_biom(ctx, biom), 3)), "BZh")
+  expect_identical(rawToChar(magic(store_biom(ctx, biom, list()), 3)), "BZh")
 })

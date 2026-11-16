@@ -199,6 +199,37 @@ mcp_write_tools <- function (project, fn_args, samples, clusters) {
           json        = list(type = "array", items = list(type = "string"), minItems = 1L, maxItems = 1000L) ))),
 
     tool(
+      name        = "set_group_colors",
+      title       = "Give the groups of a categorical field their colors",
+      description = paste(
+        "Give the groups (values) of a categorical metadata field colors of their own, kept with the project, for",
+        "example Control gray and Treated red. Every figure colored by that field uses them, unless the figure's own",
+        "`colors` argument is given; the R code make_plot returns has them too. Groups left out keep the color they",
+        "have; groups with none get the color-blind-friendly defaults. `reset: true` removes the field's colors first",
+        "(alone, it puts every group back to the defaults). describe_project lists the colors set. A numeric field",
+        "must be made categorical first (set_field_type)." ),
+      permission  = "editor",
+      read_only   = FALSE,
+      destructive = TRUE,
+      idempotent  = TRUE,
+      args        = list(
+        project = project,
+        field   = tool_arg(
+          spec        = arg_string(min = 1L, max = 200L, trim = FALSE),
+          description = "The field's name, as describe_project spells it.",
+          json        = list(type = "string") ),
+        colors  = tool_arg(
+          spec        = arg_colors(optional = TRUE),
+          description = paste(
+            "The colors, by group: each group spelled as describe_project lists it, each color a hex code",
+            "(\"#1B9E77\") or one of R's color names (\"steelblue\")." ),
+          json        = list(type = "object", additionalProperties = list(type = "string"), maxProperties = colors_max_n) ),
+        reset   = tool_arg(
+          spec        = arg_bool(default = FALSE),
+          description = "Remove the colors the field's groups have before giving the ones in `colors`.",
+          json        = list(type = "boolean", default = FALSE) ))),
+
+    tool(
       name        = "copy_project",
       title       = "Save a copy of a project",
       description = paste(
@@ -506,6 +537,24 @@ tool_set_level_order <- function (REQ, project, field, levels) {
     changed(
       REQ, sprintf("The values of the metadata field \"%s\" are now in this order: %s.", field, log_truncate(paste(order, collapse = ", "), 300L)),
       field = field, levels = as.list(order) )
+  })
+}
+
+
+#______________________________________________________________________________
+#' Give the groups of a categorical field colors of their own.
+#' @noRd
+tool_set_group_colors <- function (REQ, project, field, colors = character(0), reset = FALSE) {
+
+  edit_job(REQ, "colors", list(field = field, colors = colors, reset = reset), function (result) {
+
+    now <- result[['colors']]
+    said <- if (length(now) == 0) "now have the default colors"
+            else paste("now have these colors:", log_truncate(paste(names(now), now, sep = " ", collapse = ", "), 300L))
+
+    changed(
+      REQ, sprintf("The groups of the metadata field \"%s\" %s.", field, said),
+      field = field, colors = as.list(now) )
   })
 }
 

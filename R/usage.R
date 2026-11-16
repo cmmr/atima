@@ -60,9 +60,9 @@ usage_tool_kinds <- c(
   run_stats        = "stats",    make_plot        = "plot",     export            = "export",
   upload_project   = "upload",   upload_component = "upload",   upload_status     = "describe",
   edit_project     = "save",     add_clusters     = "clusters", set_field_type    = "manage",
-  set_level_order  = "manage",   copy_project     = "save",     find_users        = "describe",
-  list_access      = "describe", share_project    = "share",    new_share_link    = "share",
-  publish_project  = "publish",  delete_project   = "manage" )
+  set_level_order  = "manage",   set_group_colors = "manage",   copy_project      = "save",
+  find_users       = "describe", list_access      = "describe", share_project     = "share",
+  new_share_link   = "share",    publish_project  = "publish",  delete_project    = "manage" )
 
 # The day's secret for hashing visitors without a cookie. In memory only.
 usage_env <- new.env(parent = emptyenv())

@@ -197,12 +197,32 @@ export function metricChoices(p, biom) {
  * are then pairs such as "Female vs Male", which only rbiom works out.
  */
 export function aestheticLevels(p, eff, biom, def) {
+  if (def && p.by && (param(def, p.by) || {}).ops) return null;
+  const f = aestheticField(p, eff, biom);
+  return f ? f.levels : null;
+}
+
+/**
+ * The categorical field an aesthetic is given to, or null. Where its values
+ * are compared in pairs ("==Sex"), the field itself.
+ */
+export function aestheticField(p, eff, biom) {
   if (!p.by) return null;
-  if (def && (param(def, p.by) || {}).ops) return null;
   const by = eff[p.by];
   if (isNull(by) || Array.isArray(by) && by.length !== 1) return null;
   const f = field(biom, String([].concat(by)[0]).replace(/^(==|!=)/, ''));
-  return f && f.class === 'categorical' ? f.levels : null;
+  return f && f.class === 'categorical' ? f : null;
+}
+
+/**
+ * The colors rbiom gives n groups when it is not told any: a palette
+ * designed for color vision deficiencies while there are few groups, then
+ * larger ones, repeated if need be (rbiom's `get_n_colors()`).
+ */
+export function defaultColors(n, schema) {
+  const name = n <= 8 ? 'okabe' : n <= 12 ? 'tol' : n <= 20 ? 'tableau20' : 'alphabet';
+  const pal  = ((schema.palettes || []).find(x => x.name === name) || {}).colors || [];
+  return Array.from({ length: n }, (_, i) => (pal.length ? pal[i % pal.length] : '#999999'));
 }
 
 

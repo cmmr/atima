@@ -718,7 +718,8 @@ tool_describe_project <- function (REQ, project) {
           class    = as.character(field[['class']]),
           n_values = length(levels),
           values   = as.list(utils::head(levels, mcp_levels_max)) ),
-        if (length(levels) > mcp_levels_max) list(note = sprintf("Only the first %i values are listed.", mcp_levels_max)) )
+        if (length(levels) > mcp_levels_max) list(note = sprintf("Only the first %i values are listed.", mcp_levels_max)),
+        if (length(field[['colors']]) > 0) list(colors = lapply(field[['colors']], as.character)) )
     })
 
     ranks <- as.character(unlist(summary[['ranks']]))

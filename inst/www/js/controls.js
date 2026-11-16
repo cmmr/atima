@@ -496,8 +496,14 @@ const editors = {
     const canCustom = levels ? levels.length <= MAX_LEVELS : forms.includes('values');
     const CUSTOM = { custom: true };
 
+    // Colors the project keeps for the field's groups ("Sample metadata"
+    // page) are what "auto" draws, and what "Choose each" starts from.
+    const own  = p.aes === 'color' ? (S.aestheticField(p, env.eff, env.biom) || {}).colors || null : null;
+    const auto = own ? 'The project’s colors for its groups (set on the Sample metadata page); defaults for any others'
+      : 'Chosen automatically';
+
     const options = [
-      { value: def === true  ? UNSET : true,  label: AUTO, title: 'Chosen automatically' },
+      { value: def === true  ? UNSET : true,  label: AUTO, title: auto },
       { value: def === false ? UNSET : false, label: 'None' } ];
     if (forms.includes('palette'))
       options.push(...paletteOptions(env.schema, p.palettes).map(o => ({ ...o, group: `Palette: ${o.group}` })));
@@ -511,7 +517,7 @@ const editors = {
 
     const shown  = isCustom ? CUSTOM : isPalette ? value.replace(/^-/, '') : value;
     const select = chooser(options, shown, v => {
-      if (v === CUSTOM)                { fill(extra); emit(startingLook(p, levels, env.schema)); }
+      if (v === CUSTOM)                { fill(extra); emit(startingLook(p, levels, env.schema, own)); }
       else if (typeof v === 'string')  { drawPalette(v); emit(v); }
       else                             { fill(extra); emit(v); }
     }, id);
@@ -548,9 +554,12 @@ function starter(p, i, schema) {
   return p.aes === 'shape' ? [16, 17, 15, 3, 7, 8, 0, 1, 2][i % 9] : PATTERNS[i % PATTERNS.length];
 }
 
-/** What "Choose each" starts from: a value per level, or a short list where the levels are not known. */
-function startingLook(p, levels, schema) {
-  if (levels) return Object.fromEntries(levels.map((lv, i) => [lv, starter(p, i, schema)]));
+/**
+ * What "Choose each" starts from: a value per level (the project's color
+ * for a group that has one), or a short list where the levels are not known.
+ */
+function startingLook(p, levels, schema, own = null) {
+  if (levels) return Object.fromEntries(levels.map((lv, i) => [lv, (own && own[lv] ? own[lv].slice(0, 7) : null) || starter(p, i, schema)]));
   return Array.from({ length: p.max_n || 3 }, (_, i) => starter(p, i, schema));
 }
 

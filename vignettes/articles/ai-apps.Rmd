@@ -236,6 +236,7 @@ project only if you can edit it, and can copy any project you can open.
 | `add_clusters` | Groups the samples into clusters (`bdiv_clusters()` or `taxa_clusters()`) and adds the result to the metadata as a new field. |
 | `set_field_type` | Makes a metadata field numeric or categorical. |
 | `set_level_order` | Puts a categorical field's values in an order, which every figure then follows. |
+| `set_group_colors` | Gives the groups of a categorical field colors of their own, which every figure colored by that field then uses; or puts them back to the defaults. |
 | `copy_project` | Saves a copy as a new private project of yours, of all samples or of some. |
 | `find_users` | Shared servers only. Searches the people who have signed in, to find the one to share with: up to six closest matches, with name, affiliation, and a partly hidden email address or an ORCID iD. |
 | `list_access` | Shared servers only. Lists who a project is shared with. |
@@ -249,8 +250,8 @@ Each tool's result says in one sentence exactly what changed, for example
 
 **The tools work on saved projects.** In the browser you change a working
 copy and save it later. A tool has no working copy: `edit_project`,
-`add_clusters`, `set_field_type`, `set_level_order` and
-`upload_component` change the saved project at once. A browser tab that has the project open keeps showing
+`add_clusters`, `set_field_type`, `set_level_order`,
+`set_group_colors` and `upload_component` change the saved project at once. A browser tab that has the project open keeps showing
 its own working copy until it is reloaded.
 
 ### Uploading a file

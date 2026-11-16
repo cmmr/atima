@@ -265,6 +265,14 @@ arg_choice <- function (choices, ...) {
   })
 }
 
+#' A colour for each of a field's groups: a JSON object of group name to
+#' colour (a hex code or one of R's colour names). What the handler gets is
+#' a named character vector of hex codes; see `check_group_colors()`.
+#' @noRd
+arg_colors <- function (...) {
+  arg_spec("colors", ..., check = function (x) check_group_colors(x))
+}
+
 #' Structured JSON (an object or array) whose contents the handler is
 #' responsible for. Only for what DataTables sends with a page request.
 #' @noRd

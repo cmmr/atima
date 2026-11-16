@@ -258,7 +258,7 @@ test_that("every tool is well formed and has a handler that takes its arguments"
   reading <- c("list_projects", "describe_project", "describe_function", "run_stats", "make_plot", "export")
   writing <- c(
     "upload_project", "upload_component", "upload_status", "edit_project", "add_clusters", "set_field_type",
-    "set_level_order", "copy_project", "find_users", "list_access", "share_project", "new_share_link", "publish_project", "delete_project" )
+    "set_level_order", "set_group_colors", "copy_project", "find_users", "list_access", "share_project", "new_share_link", "publish_project", "delete_project" )
 
   expect_named(tools, c(reading, writing))
 
@@ -419,6 +419,7 @@ test_that("example calls satisfy the tools' input schemas", {
     add_clusters      = list(project = "abcdefghijkl", `function` = "bdiv_clusters", args = list(k = 3), name = "Groups"),
     set_field_type    = list(project = "abcdefghijkl", field = "Age", type = "categorical"),
     set_level_order   = list(project = "abcdefghijkl", field = "Body Site", levels = list("Stool", "Saliva")),
+    set_group_colors  = list(project = "abcdefghijkl", field = "Body Site", colors = list(Stool = "#8B4513", Saliva = "pink"), reset = FALSE),
     copy_project      = list(project = "hmp50", title = "Stool only", samples = list(cat = list(`Body Site` = list("Stool")))),
     find_users        = list(query = "Ada Lovelace"),
     list_access       = list(project = "abcdefghijkl"),

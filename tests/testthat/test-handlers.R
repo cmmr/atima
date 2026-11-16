@@ -607,6 +607,88 @@ test_that("the order of a field's levels is set on the draft, kept, and followed
 })
 
 
+test_that("the groups of a field get colors, kept with the project and used by every figure", {
+
+  s     <- local_open_project()
+  ctx   <- worker_ctx(s$REQ$CONFIG)
+  files <- function () db_query(s$DB, paste(
+    "SELECT drafts.full_bf_id AS full, drafts.rare_bf_id AS rare",
+    "FROM sessions JOIN drafts USING (draft_id) WHERE session_key = ?"), "T1", list(s$session$session_key))
+  colors_of <- function (BIOM, name) unlist(Filter(function (f) f$name == name, BIOM$fields)[[1]]$colors)
+  plot_code <- function (fn, args) {
+    resp <- s$post("/api/plot", list(plot_fn = fn, plot_args = args, depth = 1183, attrs = TRUE))
+    expect_identical(resp$status, 200L)
+    response_json(resp)$code$rbiom
+  }
+
+  # Nothing chosen: rbiom's defaults, and the summary has no colors.
+  expect_null(colors_of(s$BIOM, "Sex"))
+  expect_false(grepl("colors", plot_code("adiv_boxplot", list(x = "Sex"))))
+
+  resp <- s$post("/api/metadata/colors", list(field = "Sex", colors = list(Male = "steelblue", Female = "#d95f02")))
+  expect_identical(resp$status, 200L)
+  body <- response_json(resp)
+  expect_identical(colors_of(body$BIOM, "Sex"), c(Female = "#D95F02", Male = "#4682B4"))
+  expect_false(body$BIOM$is_saved)
+
+  # Both files of the draft keep them.
+  for (id in files()) expect_identical(read_colors(biom_path(s$REQ, id))$Sex, c(Female = "#D95F02", Male = "#4682B4"))
+
+  # Figures colored by the field use them, and their R code has them; a
+  # figure's own choice comes first.
+  sex <- "colors = c('Female' = \"#D95F02\", 'Male' = \"#4682B4\")"
+  expect_match(plot_code("adiv_boxplot", list(x = "Sex")), sex, fixed = TRUE)
+  expect_match(plot_code("bdiv_ord_plot", list(stat.by = "Sex")), sex, fixed = TRUE)
+  expect_match(plot_code("bdiv_boxplot", list(x = "Sex")), sex, fixed = TRUE)
+  expect_match(plot_code("taxa_heatmap", list(tracks = list("Sex", "Age"))), "tracks = list(Sex = c(", fixed = TRUE)
+  expect_match(plot_code("adiv_boxplot", list(x = "Sex", colors = "bright")), 'colors = "bright"', fixed = TRUE)
+  expect_false(grepl("4682B4", plot_code("adiv_boxplot", list(x = "Body Site"))))
+
+  # Groups left out keep their colors; another order of the levels keeps
+  # each group's color; so do rarefying and saving a copy.
+  body <- response_json(s$post("/api/metadata/colors", list(field = "Sex", colors = list(Male = "black"))))
+  expect_identical(colors_of(body$BIOM, "Sex"), c(Female = "#D95F02", Male = "#000000"))
+  body <- response_json(s$post("/api/metadata/level_order", list(field = "Sex", levels = list("Male"))))
+  expect_identical(colors_of(body$BIOM, "Sex"), c(Male = "#000000", Female = "#D95F02"))
+  expect_match(plot_code("adiv_boxplot", list(x = "Sex")), "colors = c('Male' = \"#000000\", 'Female' = \"#D95F02\")", fixed = TRUE)
+  body <- response_json(s$post("/api/project/rarefy", list(depth = 1000)))
+  expect_identical(colors_of(body$BIOM, "Sex"), c(Male = "#000000", Female = "#D95F02"))
+  body <- response_json(s$post("/api/metadata/change_class", list(col_num = 3)))
+  expect_identical(colors_of(body$BIOM, "Sex"), c(Male = "#000000", Female = "#D95F02"))
+  body <- response_json(s$post("/api/project/save_as", list(title = "Colored copy", description = "")))
+  expect_identical(colors_of(body$BIOM, "Sex"), c(Male = "#000000", Female = "#D95F02"))
+  unlink(file.path(s$REQ$CONFIG$data_dir, "cache"), recursive = TRUE)
+  copy <- db_query(s$DB, "SELECT full_bf_id, rare_bf_id FROM projects WHERE title = 'Colored copy'", "T2")
+  data <- work_summary(ctx, biom_path(s$REQ, copy$full_bf_id), biom_path(s$REQ, copy$rare_bf_id))$data
+  expect_identical(colors_of(data, "Sex"), c(Male = "#000000", Female = "#D95F02"))
+
+  # An HDF5 download has them, and a new project uploaded from it.
+  resp <- handle_request(fake_request("GET", paste0("/unsaved/", s$session$session_key, "/full.hdf5")), s$app)
+  download <- withr::local_tempfile(fileext = ".hdf5")
+  writeBin(resp$body, download)
+  expect_identical(read_colors(download)$Sex[c("Male", "Female")], c(Male = "#000000", Female = "#D95F02"))
+  imported <- work_import(ctx, download)
+  expect_identical(colors_of(imported$data, "Sex"), c(Male = "#000000", Female = "#D95F02"))
+
+  # Reset: back to rbiom's defaults.
+  body <- response_json(s$post("/api/metadata/colors", list(field = "Sex", reset = TRUE)))
+  expect_null(colors_of(body$BIOM, "Sex"))
+  expect_false(grepl("colors", plot_code("adiv_boxplot", list(x = "Sex"))))
+
+  refused <- function (args, message) {
+    resp <- s$post("/api/metadata/colors", args)
+    expect_identical(resp$status, 400L)
+    expect_match(response_json(resp)$error$message, message)
+  }
+  refused(list(field = "Sex", reset = TRUE), "no colors of their own to remove")
+  refused(list(field = "Sex"), "Give a color for at least one group")
+  refused(list(field = "Sex", colors = list(Male = "nope")), "neither a hex code")
+  refused(list(field = "Sex", colors = list(Other = "red")), "has no value 'Other'")
+  refused(list(field = "Age", colors = list(`30` = "red")), "is numeric")
+  refused(list(field = "Nope", colors = list(a = "red")), "no metadata field called 'Nope'")
+})
+
+
 test_that("a project stored as JSON by atima 5 still opens, and is stored as HDF5 when it changes", {
 
   s    <- local_open_project()

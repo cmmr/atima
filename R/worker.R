@@ -128,15 +128,20 @@ read_biom <- function (ctx, file) {
 #' HDF5 files carry the time each part was written, so the same object
 #' stored twice gives two files with different hashes.
 #'
+#' @param colors  The project's group colours, as from `read_colors()`,
+#'                which go into the file with the data (`R/colors.R`). Every
+#'                job that writes a new file from an old one passes on the
+#'                old file's colours.
 #' @return `list(file, hash)`, as from `store_file()`.
 #' @noRd
-store_biom <- function (ctx, biom) {
+store_biom <- function (ctx, biom, colors) {
 
   hdf5  <- is.null(hdf5_problem(biom))
   tfile <- tempfile(fileext = if (hdf5) ".h5" else ".json.bz2")
   on.exit(unlink(tfile), add = TRUE)
 
   write_biom(biom, file = tfile, format = if (hdf5) "hdf5" else "json")
+  write_colors(tfile, colors)
   entry <- store_file(ctx[['files_dir']], tfile)
 
   # It is likely to be read again soon.
@@ -154,7 +159,7 @@ hdf5_problem <- function (biom) {
   bad <- grep("/", colnames(biom$metadata), fixed = TRUE, value = TRUE)
   if (length(bad) == 0) return (NULL)
   sprintf(paste(
-    "atima cannot keep an order of levels in this project, because the name of its metadata field '%s'",
+    "atima cannot keep an order of levels or colors in this project, because the name of its metadata field '%s'",
     "has a '/' in it. Replace the metadata with a file in which that field has another name." ), bad[[1]])
 }
 
@@ -194,12 +199,14 @@ biom_to_details <- function (biom) {
 #'   \item{`fields`}{The metadata fields in column order, each
 #'     `list(name, class = "categorical", levels)` or
 #'     `list(name, class = "numeric", min, max)`. The classes are rbiom's
-#'     (`rbiom::fn_check_data()`).}
+#'     (`rbiom::fn_check_data()`). A categorical field whose groups have
+#'     colours of their own also has `colors`, group name to colour, for
+#'     the groups among `levels` (`R/colors.R`).}
 #'   \item{`ranks`}{The taxonomic ranks.}
 #'   \item{`taxa`}{For each rank, its taxa, most abundant first.}
 #' }
 #' @noRd
-biom_summary <- function (full_biom, rare_biom) {
+biom_summary <- function (full_biom, rare_biom, colors = list()) {
 
   D <- list()
 
@@ -227,10 +234,14 @@ biom_summary <- function (full_biom, rare_biom) {
         max   = unbox(if (length(values) > 0) max(values) else NA) ))
     }
 
-    list(
-      name   = unbox(name),
-      class  = unbox(kind),
-      levels = if (is.factor(values)) levels(values) else sort(unique(as.character(values))) )
+    cols <- field_colors(colors, name, values)
+
+    c(
+      list(
+        name   = unbox(name),
+        class  = unbox(kind),
+        levels = if (is.factor(values)) levels(values) else sort(unique(as.character(values))) ),
+      if (!is.null(cols)) list(colors = lapply(as.list(cols), unbox)) )
   })
 
   # taxa = list(Phylum = c(...), .otu = c(...), ...)
@@ -245,28 +256,38 @@ biom_summary <- function (full_biom, rare_biom) {
 
 #' The cached summary for a pair of stored files. The number in the key is
 #' the version of the summary's layout; change it when `biom_summary()`
-#' returns something different.
+#' returns something different. The group colours are the full file's.
+#' @param full,rare  The stored files: their paths or their names in the store.
 #' @noRd
-cached_summary <- function (ctx, full, rare, full_biom = NULL, rare_biom = NULL) {
-  key <- sprintf("data2_%s_%s", sub("\\.biom$", "", basename(full)), sub("\\.biom$", "", basename(rare)))
+cached_summary <- function (ctx, full, rare, full_biom = NULL, rare_biom = NULL, colors = NULL) {
+  key <- sprintf("data3_%s_%s", sub("\\.biom$", "", basename(full)), sub("\\.biom$", "", basename(rare)))
   with_cache(worker_cache(ctx), key, biom_summary(
-    full_biom = full_biom %||% read_biom(ctx, full),
-    rare_biom = rare_biom %||% read_biom(ctx, rare) ))
+    full_biom = full_biom %||% read_biom(ctx, stored_path(ctx, full)),
+    rare_biom = rare_biom %||% read_biom(ctx, stored_path(ctx, rare)),
+    colors    = colors %||% read_colors(stored_path(ctx, full)) ))
+}
+
+
+#' The path of a stored file, given its path or its name in the store.
+#' @noRd
+stored_path <- function (ctx, file) {
+  if (file.exists(file)) file else file.path(ctx[['files_dir']], basename(file))
 }
 
 
 #' Store a full and a rarefied object and summarise them: the common ending
 #' of every job that changes a project's data.
+#' @param colors  The group colours both files keep; see `store_biom()`.
 #' @return list(full, rare, data)
 #' @noRd
-store_pair <- function (ctx, full_biom, rare_biom) {
-  full <- store_biom(ctx, full_biom)
-  rare <- store_biom(ctx, rare_biom)
+store_pair <- function (ctx, full_biom, rare_biom, colors) {
+  full <- store_biom(ctx, full_biom, colors)
+  rare <- store_biom(ctx, rare_biom, colors)
   rare_note(ctx, full[['file']], rare_biom$depth, rare)
   list(
     full = full,
     rare = rare,
-    data = cached_summary(ctx, full[['file']], rare[['file']], full_biom, rare_biom) )
+    data = cached_summary(ctx, full[['file']], rare[['file']], full_biom, rare_biom, colors) )
 }
 
 
@@ -370,9 +391,13 @@ import_biom <- function (ctx, full_biom, orig, title = NULL, inflate = FALSE, de
   if (is.null(rare_biom) || rare_biom$n_samples == 0)
     rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
 
+  # An HDF5 file that atima wrote keeps the colours it had there.
+  colors <- read_colors(orig)
+  colors <- colors[intersect(names(colors), full_biom$fields)]
+
   c(
     list(orig = store_file(ctx[['files_dir']], orig)),
-    store_pair(ctx, full_biom, rare_biom),
+    store_pair(ctx, full_biom, rare_biom, colors),
     list(details = biom_to_details(full_biom)) )
 }
 
@@ -423,7 +448,7 @@ work_component <- function (ctx, full, rare, component, infile, filename = NULL)
       as.integer(depth), as.integer(rare_biom$depth) ))
   }
 
-  c(store_pair(ctx, full_biom, rare_biom), list(notes = notes))
+  c(store_pair(ctx, full_biom, rare_biom, read_colors(full)), list(notes = notes))
 }
 
 
@@ -451,7 +476,7 @@ work_change_class <- function (ctx, full, rare, col_num) {
   full_biom$metadata <- md
   rare_biom <- rarefy(biom = full_biom, depth = depth, cpus = ctx[['cpus']])
 
-  store_pair(ctx, full_biom, rare_biom)
+  store_pair(ctx, full_biom, rare_biom, read_colors(full))
 }
 
 
@@ -494,7 +519,7 @@ rarefy_to <- function (ctx, full, rare, depth) {
     return (list(rare = known, rare_biom = read_biom(ctx, file.path(ctx[['files_dir']], known[['file']]))))
 
   rare_biom <- rarefy(full_biom, depth = as.integer(depth), cpus = ctx[['cpus']])
-  rare      <- store_biom(ctx, rare_biom)
+  rare      <- store_biom(ctx, rare_biom, read_colors(full))
   rare_note(ctx, full, depth, rare)
 
   list(rare = rare, rare_biom = rare_biom)
@@ -568,8 +593,8 @@ work_export <- function (ctx, src, dest, what, format, method, rank, title, desc
     metadata = write.csv(biom$metadata, tmp, row.names = FALSE),
     taxonomy = write.csv(biom$taxonomy, tmp, row.names = FALSE),
     tree     = write_tree(biom$tree, tmp),
-    biom     = write_biom(annotate_biom(biom, title, description), tmp, format = format),
-    alpha    = write.csv(with_cpus(ctx, adiv_matrix, list(biom)), tmp),
+    biom     = write_biom_colors(annotate_biom(biom, title, description), tmp, format, read_colors(src)),
+    alpha   = write.csv(with_cpus(ctx, adiv_matrix, list(biom)), tmp),
     beta     = write.csv(as.matrix(with_cpus(ctx, bdiv_distmat, list(biom, method))), tmp),
     taxa     = write.csv(taxa_matrix(biom, rank), tmp),
     xlsx     = export_xlsx(annotate_biom(biom, title, description), tmp, read_biom(ctx, rare)$depth, ctx[['cpus']]),
@@ -725,7 +750,7 @@ work_add_clusters <- function (ctx, full, rare, cluster_fn, cluster_args, name, 
     levels = unique(paste("Cluster", as.character(sort(unique(clusters))))) )
   full_biom$metadata <- md
 
-  store_pair(ctx, full_biom, rarefy(full_biom, depth = rare_biom$depth, cpus = ctx[['cpus']]))
+  store_pair(ctx, full_biom, rarefy(full_biom, depth = rare_biom$depth, cpus = ctx[['cpus']]), read_colors(full))
 }
 
 
@@ -757,9 +782,20 @@ work_download <- function (ctx, src, dir, file, title, description) {
   # The extension tells rbiom which compression to use.
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   path <- tempfile(pattern = "download_", tmpdir = dir, fileext = sub("^[a-z]+", "", file))
-  with_user_errors("The file could not be written.", write_biom(biom, path, format))
+  with_user_errors("The file could not be written.", write_biom_colors(biom, path, format, read_colors(src)))
 
   list(path = path)
+}
+
+
+#' Write a BIOM file for the user, with the project's group colours if it
+#' is HDF5 and not compressed: atima reads them again when the file is
+#' uploaded as a new project (`import_biom()`).
+#' @param colors  As from `read_colors()`.
+#' @noRd
+write_biom_colors <- function (biom, path, format, colors) {
+  write_biom(biom, path, format = format)
+  write_colors(path, colors)
 }
 
 
@@ -823,7 +859,7 @@ work_field_type <- function (ctx, full, rare, field, type) {
 
   full_biom$metadata <- md
 
-  store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]))
+  store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]), read_colors(full))
 }
 
 
@@ -882,8 +918,73 @@ work_level_order <- function (ctx, full, rare, field, levels) {
   full_biom$metadata <- md
 
   c(
-    store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']])),
+    store_pair(ctx, full_biom, rarefy(full_biom, depth = depth, cpus = ctx[['cpus']]), read_colors(full)),
     list(levels = after) )
+}
+
+
+#______________________________________________________________________________
+#' Give the groups of a categorical metadata field colours of their own,
+#' which every figure coloured by that field then uses (`project_colors()`).
+#' They are keyed by the group's name, so the order of the levels does not
+#' matter; see `R/colors.R` for where they are kept.
+#'
+#' Only the colours change: both files are written again with the same data.
+#'
+#' @param field   The field's name.
+#' @param colors  Group name to colour, as from `check_group_colors()`.
+#'                Groups left out keep the colour they had, if any.
+#' @param reset   Remove the field's colours first, so that the groups not
+#'                in `colors` get rbiom's colour-blind-friendly defaults.
+#' @return list(full, rare, data, colors): `colors` is what the field's
+#'         groups now have, in the order of its levels.
+#' @noRd
+work_group_colors <- function (ctx, full, rare, field, colors = character(0), reset = FALSE) {
+
+  worker_init(ctx)
+
+  full_biom <- read_biom(ctx, full)
+  md        <- full_biom$metadata
+
+  if (!is_one_of(field, setdiff(colnames(md), ".sample")))
+    stop_user("This project has no metadata field called '", log_truncate(field, 60L), "'.")
+
+  values <- md[[field]]
+
+  if (is.numeric(values))
+    stop_user("The field '", field, "' is numeric. Make it categorical first; then its groups can be given colors.")
+
+  if (!is.null(why <- hdf5_problem(full_biom)))
+    stop_user(why)
+
+  groups  <- if (is.factor(values)) levels(values) else sort(unique(as.character(values[!is.na(values)])))
+  unknown <- setdiff(names(colors), groups)
+
+  if (length(unknown) > 0)
+    stop_user("The field '", field, "' has no value '", log_truncate(unknown[[1]], 60L), "'.")
+
+  if (length(colors) == 0 && !isTRUE(reset))
+    stop_user("Give a color for at least one group of '", field, "', or reset its colors.")
+
+  all_colors <- read_colors(full)
+  before     <- all_colors[[field]] %||% character(0)
+  after      <- if (isTRUE(reset)) character(0) else before
+  after[names(colors)] <- unname(colors)
+  after      <- after[c(intersect(groups, names(after)), setdiff(names(after), groups))]
+
+  same <- length(after) == length(before) && all(names(after) %in% names(before)) &&
+    identical(unname(after), unname(before[names(after)]))
+
+  if (same)
+    stop_user(
+      if (length(after) == 0) paste0("The groups of '", field, "' have no colors of their own to remove.")
+      else paste0("The groups of '", field, "' have these colors already.") )
+
+  all_colors[[field]] <- if (length(after) > 0) after
+
+  c(
+    store_pair(ctx, full_biom, read_biom(ctx, rare), all_colors),
+    list(colors = after) )
 }
 
 
@@ -916,7 +1017,7 @@ work_subset <- function (ctx, full, rare, subset_args, checked = TRUE) {
   if (is.null(rare_biom) || rare_biom$n_samples == 0)
     rare_biom <- rarefy(full_biom, cpus = ctx[['cpus']])
 
-  store_pair(ctx, full_biom, rare_biom)
+  store_pair(ctx, full_biom, rare_biom, read_colors(full))
 }
 
 
@@ -927,8 +1028,8 @@ work_subset <- function (ctx, full, rare, subset_args, checked = TRUE) {
 #' the saved project in one go. So besides the new files this returns the
 #' values the `projects` table keeps about them.
 #'
-#' @param what  `"clusters"`, `"field_type"`, `"levels"`, `"component"`,
-#'              `"depth"` or `"subset"`.
+#' @param what  `"clusters"`, `"field_type"`, `"levels"`, `"colors"`,
+#'              `"component"`, `"depth"` or `"subset"`.
 #' @param args  The arguments of that change, by name.
 #' @return `list(full, rare, data, details)`; `full` is missing when only
 #'         the rarefied file changed. For `"depth"` also `kept`, the number
@@ -943,6 +1044,7 @@ work_edit <- function (ctx, full, rare, what, args = list()) {
     clusters   = work_add_clusters(ctx, full, rare, args[['cluster_fn']], args[['cluster_args']], args[['name']], args[['checked']]),
     field_type = work_field_type(ctx, full, rare, args[['field']], args[['type']]),
     levels     = work_level_order(ctx, full, rare, args[['field']], args[['levels']]),
+    colors     = work_group_colors(ctx, full, rare, args[['field']], args[['colors']], args[['reset']]),
     component  = work_component(ctx, full, rare, args[['component']], args[['infile']], args[['filename']]),
     subset     = work_subset(ctx, full, rare, args[['subset_args']], args[['checked']]),
     depth      = {

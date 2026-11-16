@@ -69,6 +69,7 @@ work_plot <- function (
   rare_depth <- if (plot_sample_set(plot_fn) == "rare") biom$depth
   biom <- subset_biom(biom, subset_args)
 
+  plot_args           <- project_colors(plot_fn, plot_args, biom, read_colors(full))
   plot_args           <- present_looks(plot_fn, plot_args, biom)
   plot_args[['biom']] <- biom
 
@@ -368,15 +369,10 @@ present_looks <- function (plot_fn, plot_args, biom) {
 
     if (!identical(p[['type']], "aesthetic") || is.null(p[['by']])) next
     if (is.null(names(value)) || !all(nzchar(names(value))))         next
+    if (!is.null(params[[p[['by']]]][['ops']]))                      next
 
-    # The field the values belong to: what the request says, else the
-    # parameter it follows by default (`stat.by` is the same as `x`).
-    by <- params[[p[['by']]]]
-    if (is.null(by) || !identical(by[['type']], "field") || !is.null(by[['ops']])) next
-
-    field <- if (by[['name']] %in% names(plot_args)) plot_args[[by[['name']]]]
-             else if (!is.null(by[['default_expr']])) plot_args[[by[['default_expr']]]]
-    if (!is_scalar_character(field) || !(field %in% colnames(biom$metadata))) next
+    field <- aes_field(params, p, plot_args)
+    if (is.null(field) || !(field %in% colnames(biom$metadata))) next
 
     present <- unique(as.character(biom$metadata[[field]]))
     value   <- value[names(value) %in% present]
@@ -385,4 +381,126 @@ present_looks <- function (plot_fn, plot_args, biom) {
   }
 
   plot_args
+}
+
+
+#' The metadata field whose groups an aesthetic (`colors`, `shapes`,
+#' `patterns`) is given to: what the request says for its `by` parameter,
+#' else the parameter that one follows by default (`stat.by` is the same as
+#' `x`). Where the field's values are compared in pairs (`"==Sex"`,
+#' `"!=Sex"`, in the beta diversity plots), the field itself.
+#' @param params  The function's parameters, from `schema_params()`.
+#' @param p       The aesthetic's parameter.
+#' @return The field's name, or `NULL` if it is not a field.
+#' @noRd
+aes_field <- function (params, p, plot_args) {
+
+  by <- if (is_scalar_character(p[['by']])) params[[p[['by']]]]
+  if (is.null(by) || !identical(by[['type']], "field")) return (NULL)
+
+  field <- if (by[['name']] %in% names(plot_args)) plot_args[[by[['name']]]]
+           else if (!is.null(by[['default_expr']])) plot_args[[by[['default_expr']]]]
+  if (!is_scalar_character(field) || is.na(field)) return (NULL)
+
+  sub("^(==|!=)", "", field)
+}
+
+
+
+#______________________________________________________________________________
+#' Give a figure the project's colours for the groups it is coloured by.
+#'
+#' The colours are the ones kept with the project (`R/colors.R`), chosen on
+#' the "Sample metadata" page or with the MCP tool `set_group_colors`. They
+#' go to rbiom as a named vector (`colors = c(Female = "#D55E00", Male =
+#' "#0072B2")`), so the R code beside the figure has them too, and rbiom
+#' gives any group without one its colour-blind-friendly default.
+#'
+#' What the figure's own controls say comes first: the project's colours
+#' are used only where `colors` is left at its default (automatic). A
+#' palette, colours chosen by hand or "none" on the figure is the figure's
+#' alone. On a heat map, a metadata track named by its field gets the
+#' field's colours; a track given as a list with colours of its own keeps
+#' them.
+#'
+#' Only the groups the figure's data has are given (the sample filter and
+#' rarefying can leave some out), so rbiom never has to guess what a name
+#' it does not see means.
+#'
+#' @param plot_fn    The name of an exposed rbiom plot function.
+#' @param plot_args  Its arguments, checked.
+#' @param biom       The data the plot is made from, after the sample filter.
+#' @param colors     The project's colours, as from `read_colors()`.
+#' @return `plot_args`, with the colours added.
+#' @noRd
+project_colors <- function (plot_fn, plot_args, biom, colors) {
+
+  if (length(colors) == 0) return (plot_args)
+
+  params <- schema_params(plot_fn)
+  md     <- biom$metadata
+
+  for (p in params) {
+
+    name <- p[['name']]
+
+    if (identical(p[['type']], "aesthetic") && identical(p[['aes']], "color")) {
+
+      value <- plot_args[[name]]
+      if (!is.null(value) && !isTRUE(value)) next
+
+      field <- aes_field(params, p, plot_args)
+      if (is.null(field) || !(field %in% colnames(md))) next
+
+      cols <- field_colors(colors, field, md[[field]])
+      if (!is.null(cols)) plot_args[[name]] <- cols
+    }
+
+    if (identical(p[['type']], "tracks") && !is.null(plot_args[[name]]))
+      plot_args[[name]] <- track_colors(plot_args[[name]], md, colors)
+  }
+
+  plot_args
+}
+
+
+#' A heat map's metadata tracks, each categorical one named by its field
+#' given the field's colours: `c("Sex", "Age")` becomes `list(Sex =
+#' c(Female = "#D55E00", Male = "#0072B2"), "Age")`. A track given as a list
+#' gets them as its `colors` unless it has some. Unchanged when no track
+#' has colours to get.
+#' @noRd
+track_colors <- function (tracks, md, colors) {
+
+  given <- tracks
+  if (is.character(tracks)) tracks <- as.list(tracks)
+  if (!is.list(tracks) || length(tracks) == 0) return (given)
+
+  keys    <- names(tracks) %||% rep("", length(tracks))
+  changed <- FALSE
+
+  for (i in seq_along(tracks)) {
+
+    val   <- tracks[[i]]
+    bare  <- (is.na(keys[[i]]) || !nzchar(keys[[i]])) && is_scalar_character(val)
+    field <- if (bare) val else keys[[i]]
+    if (!is_scalar_character(field) || !(field %in% colnames(md))) next
+
+    cols <- field_colors(colors, field, md[[field]])
+    if (is.null(cols)) next
+
+    if (bare) {
+      tracks[[i]] <- cols
+      keys[[i]]   <- field
+      changed     <- TRUE
+    } else if (is.list(val) && is.null(val[['colors']])) {
+      tracks[[i]][['colors']] <- cols
+      changed                 <- TRUE
+    }
+  }
+
+  if (!changed) return (given)
+
+  names(tracks) <- keys
+  tracks
 }

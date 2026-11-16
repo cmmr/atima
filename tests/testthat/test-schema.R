@@ -897,7 +897,9 @@ test_that("colors named for groups the sample filter removed are dropped, not re
   expect_identical(names(kept$shapes), sites[3:5])
   expect_identical(kept[c("x", "layers", "flip")], args[c("x", "layers", "flip")])
   expect_no_error(do.call(rbiom::adiv_boxplot, c(list(biom = some), kept)))
-  expect_error(do.call(rbiom::adiv_boxplot, c(list(biom = some), args)), "Invalid")
+  # rbiom has ignored such names itself since it made named colors
+  # tolerant (e3b49e3c); atima still drops them, so the R code is shorter.
+  expect_no_error(do.call(rbiom::adiv_boxplot, c(list(biom = some), args)))
 
   # The field may be `stat.by` itself, or another field's filter may empty a group.
   by_sex <- list(x = "Body Site", stat.by = "Sex", colors = c(Female = "#aa3377", Male = "#4477aa"))

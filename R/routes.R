@@ -226,6 +226,11 @@ route_table <- function () {
       field  = arg_string(min = 1L, max = 200L, trim = FALSE),
       levels = arg_strings(pattern = "^(?s).{0,500}$", max_n = 1000L) )),
 
+    route("POST /api/metadata/colors", "api_metadata_colors", "viewer", "compute", usage = "manage", args = list(
+      field  = arg_string(min = 1L, max = 200L, trim = FALSE),
+      colors = arg_colors(optional = TRUE),
+      reset  = arg_bool(default = FALSE) )),
+
     route("POST /api/metadata/add_clusters", "api_add_clusters", "viewer", "compute", usage = "clusters", usage_fn = "cluster_fn", args = list(
       cluster_fn   = arg_choice(schema_fns("clusters")),
       cluster_args = arg_fn_args("cluster_fn", optional = TRUE),
