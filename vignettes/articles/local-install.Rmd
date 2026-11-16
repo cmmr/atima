@@ -203,6 +203,8 @@ you want and start atima again.
 
 | Package | What it switches on |
 |---------|---------------------|
+| `h5lite` | Uploading BIOM files in HDF5 format, and QIIME 2 feature tables (`.qza`). |
+| `readxl` | Uploading sample metadata as an Excel workbook. |
 | `openxlsx` | Exporting a project as an Excel workbook. |
 | `zip` | Exporting a project as files for QIIME 2 or mothur. (`openxlsx` installs it too.) |
 | `phyloseq` | Exporting a project as a phyloseq object. It is on Bioconductor, not CRAN. |
@@ -215,7 +217,7 @@ you want and start atima again.
 | `bcrypt` | [Importing from an older atima](legacy-import.html). |
 
 ```{r}
-install.packages(c("openxlsx", "zip", "fillpattern", "Rtsne", "uwot", "ggdensity", "lmerTest", "svglite"))
+install.packages(c("h5lite", "readxl", "openxlsx", "zip", "fillpattern", "Rtsne", "uwot", "ggdensity", "lmerTest", "svglite"))
 
 # phyloseq, from Bioconductor
 install.packages("BiocManager")

@@ -7,9 +7,10 @@
 <!-- badges: end -->
 
 atima is an R package that serves a web interface for the
-[rbiom](https://github.com/cmmr/rbiom) microbiome package. Users upload BIOM
-files and explore alpha diversity, beta diversity and taxa abundance plots in
-their browser. Projects are stored in an SQLite database on the machine
+[rbiom](https://github.com/cmmr/rbiom) microbiome package. Users upload their
+counts (a BIOM file, QIIME 2 or mothur output, or a plain table; see
+[What you can upload](#what-you-can-upload)) and explore alpha diversity,
+beta diversity and taxa abundance plots in their browser. Projects are stored in an SQLite database on the machine
 running the server.
 
 > atima 5 is a pre-release: it has not been released yet, and details may
@@ -51,6 +52,37 @@ This starts the server on <http://127.0.0.1:8080>, opens it in a browser when
 R is interactive, and blocks the R session until it is interrupted. On first
 start it creates the data directory and loads two example projects from rbiom
 (`hmp50` and `gems`).
+
+
+## What you can upload
+
+A project starts from one file of counts. The rest can be in that file or
+be added afterwards, one part at a time. rbiom reads the files and tells
+them apart by their content, so the file's name does not matter, and a file
+compressed with gzip or bzip2 is read as it is.
+
+| Part | Files |
+|------|-------|
+| A new project (counts) | A BIOM file, version 1.0 (JSON) or 2.1 (HDF5), with whatever metadata, taxonomy and tree it holds. A QIIME 2 feature table (`.qza`). A mothur `.shared` file with one label. A table as tab- or comma-separated text: taxa in rows, samples in columns, and optionally a `taxonomy` column of lineages (`Bacteria; Firmicutes; ...`). |
+| Sample metadata | A table as CSV or tab-separated text (or Excel, where the `readxl` package is installed), with the sample names in the first column. QIIME 2's metadata files are such tables. |
+| Taxonomy | A table with the taxon names in the first column, and a column for each rank or one column of lineages. A QIIME 2 taxonomy artifact (`.qza`). A mothur `.cons.taxonomy` file. |
+| Phylogenetic tree | A Newick file, or a QIIME 2 phylogeny artifact (`.qza`). It needs a tip for every taxon of the project; other tips are left out. |
+
+BIOM files in HDF5 format, and QIIME 2 feature tables, which hold one, need
+the `h5lite` package on the server.
+
+Samples that new metadata does not list, and taxa that a new taxonomy does
+not list, leave the project; atima says which. Counts that are not whole
+numbers (relative abundances) can be scaled up to whole numbers, after a
+warning about what that costs. A file that cannot be read is refused with
+the reason: sample names that do not match, tree tips that do not match,
+decimal commas, an Excel workbook where text is needed, a QIIME 2 artifact
+of another kind. A BIOM file whose tree does not match its counts becomes a
+project without a tree.
+
+The largest file accepted is 50 MB unless `max_upload_mb` says otherwise.
+The app has two small files to start from, counts and metadata, beside its
+upload button.
 
 
 ## Configuration

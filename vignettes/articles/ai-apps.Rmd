@@ -202,9 +202,9 @@ project only if you can edit it, and can copy any project you can open.
 
 | Tool | What it does |
 |------|--------------|
-| `upload_project` | Starts the upload of a BIOM file as a new private project of yours. See "Uploading a file". |
+| `upload_project` | Starts the upload of a file as a new private project of yours. See "Uploading a file". |
 | `upload_component` | Starts the upload of a file that replaces a project's metadata, taxonomy or tree. |
-| `upload_status` | Says what became of an upload: the new project's key, or why the file was refused. |
+| `upload_status` | Says what became of an upload: the new project's key and anything the file lost on the way in, or why the file was refused. |
 | `edit_project` | Changes a project's title, description, or the rarefaction depth it is saved with. |
 | `add_clusters` | Groups the samples into clusters (`bdiv_clusters()` or `taxa_clusters()`) and adds the result to the metadata as a new field. |
 | `set_field_type` | Makes a metadata field numeric or categorical. |
@@ -243,7 +243,10 @@ curl. Then the app calls `upload_status` to learn the new project's key.
 
 The ticket works once and for 15 minutes, and only for what it was made
 for: a new project of yours, or one part of one project. The file is held
-to the server's upload limit (`max_upload_mb`, 50 MB by default).
+to the server's upload limit (`max_upload_mb`, 50 MB by default). The
+files that are accepted are the ones the browser takes; the README lists
+them under
+["What you can upload"](https://cmmr.github.io/atima/#what-you-can-upload).
 atima never fetches a file from a web address: a server that did could be
 made to call computers inside its own network.
 
