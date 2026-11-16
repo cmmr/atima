@@ -49,20 +49,33 @@ export function show(container) {
       .map(c => ({ value: c.id, label: c.name }));
     let metric = 'bray', rank = ranks[ranks.length - 1] || '.otu', format = 'json';
 
+    // Some downloads need a package the server may not have. The schema
+    // lists the ones it can make.
+    const can = what => (schema.exports || []).includes(what);
+    const programs = [
+      { what: 'qiime2',   label: 'QIIME 2 (zip)' },
+      { what: 'mothur',   label: 'mothur (zip)' },
+      { what: 'phyloseq', label: 'phyloseq (rds)' }].filter(p => can(p.what));
+    let program = programs.length ? programs[0].what : null;
+
     const pair = (label, body) => h('span.button-pair',
       button(`${label}`, () => exportFile({ ...body(), sample_set: 'rare' }), { icon: 'download', title: 'At the rarefaction depth' }),
       button('unrarefied', () => exportFile({ ...body(), sample_set: 'full' }), { title: 'Before rarefying' }));
 
     const downloads = h('div.downloads',
       h('p.hint', 'Downloads are made from the saved project', biom.is_saved ? '.' : ', not from the unsaved changes in your working copy.'),
-      h('div.download-row', h('span.download-name', 'Everything, as an Excel workbook'),
-        button('Excel', () => exportFile({ what: 'xlsx' }), { icon: 'file-excel' })),
+      can('xlsx') ? h('div.download-row', h('span.download-name', 'Everything, as an Excel workbook'),
+        button('Excel', () => exportFile({ what: 'xlsx' }), { icon: 'file-excel' })) : null,
       h('div.download-row', h('span.download-name', 'The file as it was uploaded'),
         button('Original', () => exportFile({ what: 'original' }), { icon: 'download' })),
       h('div.download-row', h('span.download-name', 'BIOM file'),
         h('select', { 'aria-label': 'BIOM format', onchange: e => { format = e.target.value; } },
           h('option', { value: 'json' }, 'JSON (BIOM 1.0)'), h('option', { value: 'hdf5' }, 'HDF5 (BIOM 2.1)'), h('option', { value: 'tab' }, 'Tab-separated')),
         pair('Rarefied', () => ({ what: 'biom', format }))),
+      programs.length ? h('div.download-row', h('span.download-name', { title: 'Counts, metadata, taxonomy and tree, as that program reads them' }, 'For another program'),
+        h('select', { 'aria-label': 'Program', onchange: e => { program = e.target.value; } },
+          programs.map(p => h('option', { value: p.what }, p.label))),
+        pair('Rarefied', () => ({ what: program }))) : null,
       h('div.download-row', h('span.download-name', 'Sample metadata'),
         button('CSV', () => exportFile({ what: 'metadata' }), { icon: 'download' })),
       h('div.download-row', h('span.download-name', 'Taxonomy'),

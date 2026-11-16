@@ -350,6 +350,7 @@ browser_schema_json <- function () {
       hash      = rbiom_schema_hash(),
       functions = functions,
       palettes  = palettes,
+      exports   = as.list(export_choices()),
       save      = list(
         params = unname(save_params()),
         pixels = list(min = save_pixels[[1]], max = save_pixels[[2]]) ),
