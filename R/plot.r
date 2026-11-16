@@ -74,6 +74,24 @@ api_plot <- function (
 }
 
 
+#______________________________________________________________________________
+#' Where the session's plot stands, for the browser to show while it waits
+#' for the answer of `/api/plot`.
+#'
+#' @return `list(state)`: `"queued"` with `place` (1 is next) and `waiting`
+#'         (jobs in the queue), `"running"`, or `"none"` when no plot of
+#'         this session is waiting or being drawn.
+#' @noRd
+api_plot_status <- function (REQ) {
+
+  pool <- REQ[['POOL']]
+
+  if (is.null(pool)) return (list(state = unbox("none")))
+
+  lapply(pool_place(pool, job_key(REQ[['SESSION']][['session_id']], "/api/plot")), unbox)
+}
+
+
 #' Which of a project's two BIOM files an rbiom function is given. rbiom says
 #' which counts each function wants: the rarefaction plots need the depths
 #' before rarefying, and the differential abundance model accounts for depth

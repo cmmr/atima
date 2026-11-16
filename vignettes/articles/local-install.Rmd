@@ -188,6 +188,14 @@ can click it. It is back with the next change of a setting, and ticking
 it then draws the figure at once. The browser remembers the choice for
 every kind of figure.
 
+A figure's page keeps the figure's settings in its address, after the
+`#`: the controls, the sample filter, the image settings and, if it is
+not the one the project was saved with, the rarefaction depth. A reload,
+a bookmark or a link brings back the same settings and draws the figure
+again; the link opens only for someone who can open the project. When
+every worker is busy, the box says where the figure is in the queue.
+Leaving the page stops the figure; the address brings it back.
+
 An example for a laptop with little memory and a large dataset:
 
 ```{r}

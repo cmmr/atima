@@ -166,6 +166,59 @@ test_that("/api/session/abort cancels the session's jobs", {
 })
 
 
+test_that("a session can ask where its plot stands: its place in the queue, or being drawn", {
+
+  s <- local_async_app()
+
+  local_handlers(list(
+    "/api/plot" = function (REQ, args) eval_job(
+      expr   = if (args$depth == 1) quote(Sys.sleep(30)) else quote("drawn"),
+      finish = function (result) list(result = unbox(result)) )))
+
+  session <- function () add_test_session(s$DB, s$user, s$project)
+  plot    <- function (session, depth) handle_request(
+    fake_request("POST", "/api/plot", list(plot_fn = "adiv_boxplot", plot_args = list(x = "Sex"), depth = depth), session), s$app )
+  status  <- function (session, app = s$app) {
+    resp <- handle_request(fake_request("POST", "/api/plot/status", list(), session), app)
+    expect_s3_class(resp, "response")          # answered at once, never through a worker
+    expect_identical(resp$status, 200L)
+    response_json(resp)
+  }
+
+  # Nothing asked for yet.
+  expect_identical(status(s$session), list(state = "none"))
+
+  # Two slow plots take the two workers; two more sessions wait.
+  slow   <- list(session(), session())
+  first  <- session()
+  second <- session()
+  busy   <- lapply(slow, plot, depth = 1)
+  expect_true(wait_until(function () pool$busy == 2L))
+  queued <- list(plot(first, 2), plot(second, 2))
+
+  expect_identical(status(slow[[1]]), list(state = "running"))
+  expect_identical(status(first),  list(state = "queued", place = 1L, waiting = 2L))
+  expect_identical(status(second), list(state = "queued", place = 2L, waiting = 2L))
+
+  # Another session is told nothing of them, and no session, nothing at all.
+  expect_identical(status(s$session), list(state = "none"))
+  expect_identical(handle_request(fake_request("POST", "/api/plot/status", list()), s$app)$status, 401L)
+
+  # A worker comes free: the queue moves up, and the answer follows.
+  handle_request(fake_request("POST", "/api/session/abort", list(), slow[[1]]), s$app)
+  expect_identical(response_json(response_of(queued[[1]]))$result, "drawn")
+  expect_identical(response_json(response_of(queued[[2]]))$result, "drawn")
+  expect_identical(status(first), list(state = "none"))
+
+  handle_request(fake_request("POST", "/api/session/abort", list(), slow[[2]]), s$app)
+  for (b in busy) expect_identical(response_of(b)$status, 409L)
+  expect_true(pool_idle())
+
+  # A server that runs its jobs in its own process has no queue.
+  expect_identical(status(s$session, test_app(s$REQ)), list(state = "none"))
+})
+
+
 test_that("a request over the time limit is answered 504, a crashed worker 500", {
 
   s        <- local_async_app()

@@ -194,6 +194,42 @@ test_that("a queued job that is superseded never starts", {
 })
 
 
+test_that("a job's place in the queue can be read, and reading it changes nothing", {
+
+  expect_identical(pool_place(pool, "s1 /api/plot"), list(state = "none"))
+
+  # Two jobs fill the two workers; three more wait, in the order they came.
+  busy  <- list(submit(sleep_30, session_id = 60L, key = "run"), submit(sleep_30, session_id = 60L))
+  first <- submit(quote("first"),  session_id = 6L, key = "s1 /api/plot")
+  mid   <- submit(quote("middle"), session_id = 6L)
+  last  <- submit(quote("last"),   session_id = 6L, key = "s2 /api/plot")
+
+  expect_identical(pool_place(pool, "run"), list(state = "running"))
+  expect_identical(pool_place(pool, "s1 /api/plot"), list(state = "queued", place = 1L, waiting = 3L))
+  expect_identical(pool_place(pool, "s2 /api/plot"), list(state = "queued", place = 3L, waiting = 3L))
+  expect_identical(pool_place(pool, "s3 /api/plot"), list(state = "none"))
+
+  # Asking leaves the queue as it was.
+  queue <- pool$queue
+  for (i in 1:5) pool_place(pool, "s2 /api/plot")
+  expect_identical(pool$queue, queue)
+  expect_identical(pool$busy, 2L)
+
+  # A job ahead goes: the ones behind move up.
+  newer <- submit(quote("newer"), session_id = 6L, key = "s1 /api/plot")
+  expect_identical(error_of(first)$status, 409L)
+  expect_identical(pool_place(pool, "s2 /api/plot"), list(state = "queued", place = 2L, waiting = 3L))
+  expect_identical(pool_place(pool, "s1 /api/plot"), list(state = "queued", place = 3L, waiting = 3L))
+
+  # The workers come free: every waiting job runs, and is then forgotten.
+  expect_identical(pool_cancel_session(pool, 60L), 2L)
+  for (j in busy) expect_identical(error_of(j)$status, 409L)
+  expect_identical(c(value_of(mid), value_of(last), value_of(newer)), c("middle", "last", "newer"))
+  expect_true(pool_idle())
+  expect_identical(pool_place(pool, "s2 /api/plot"), list(state = "none"))
+})
+
+
 test_that("all of a session's jobs can be cancelled at once", {
 
   mine   <- list(submit(sleep_30, session_id = 7L), submit(sleep_30, session_id = 7L), submit(sleep_30, session_id = 7L))

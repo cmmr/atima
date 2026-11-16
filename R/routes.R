@@ -255,6 +255,10 @@ route_table <- function () {
       depth       = arg_int(min = 1L),
       subset_args = arg_subset_args(optional = TRUE) )),
 
+    # Where the session's plot stands while the browser waits for it: its
+    # place in the queue, or that it is being drawn.
+    route("POST /api/plot/status", "api_plot_status", "session", "fast"),
+
 
     #__________________________________________________________________________
     # The Model Context Protocol endpoint, through which AI apps use atima

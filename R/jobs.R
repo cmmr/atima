@@ -386,6 +386,33 @@ pool_user_jobs <- function (pool, user_id) {
 
 
 #______________________________________________________________________________
+#' Where the job with a key stands, for telling its owner. It only reads:
+#' nothing about when a job starts depends on it.
+#'
+#' @param key  The key the job was submitted with; see `pool_submit()`.
+#' @return `list(state)`: `"queued"`, `"running"`, or `"none"` if there is
+#'         no such job (it is done, or was never there). For a queued job
+#'         also `place`, its place in the queue (1 is next), and `waiting`,
+#'         how many jobs are waiting in all.
+#' @noRd
+pool_place <- function (pool, key) {
+
+  for (j in pool$jobs) {
+
+    if (!identical(j$key, key) || !is.null(j$reason)) next
+
+    if (identical(j$state, "queued"))
+      return (list(state = "queued", place = match(j$id, pool$queue), waiting = length(pool$queue)))
+
+    if (identical(j$state, "running"))
+      return (list(state = "running"))
+  }
+
+  list(state = "none")
+}
+
+
+#______________________________________________________________________________
 #' Cancel every job that belongs to a session.
 #' @return The number of jobs cancelled.
 #' @noRd

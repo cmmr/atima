@@ -3,12 +3,15 @@
 //
 // The address is "/<project key>#/<page>/<argument>": the path says which
 // project is open and the part after # which page, e.g. "/hmp50#/plot/adiv_boxplot".
+// A figure's page adds its settings as a third part (`address.js`), so that
+// a reload or a bookmark comes back to the same figure.
 
 import { h, fill, icon, button } from './dom.js';
 import { startSession, loadSchema, startHeartbeat, call } from './api.js';
 import { showError, menu } from './widgets.js';
 import { uploadProject, saveProject, signIn, signOut } from './actions.js';
 import * as S from './schema.js';
+import * as A from './address.js';
 import * as store from './store.js';
 
 import * as home      from './pages/home.js';
@@ -144,7 +147,9 @@ function startNav() {
 }
 
 function markNav() {
-  const here = window.location.hash || '#/home';
+  // The page, whatever settings the address carries after it.
+  const { page, arg } = A.parseHash(window.location.hash);
+  const here = A.buildHash(page, arg);
   for (const a of nav.querySelectorAll('a.nav-link')) {
     const on = a.dataset.hash === here;
     a.classList.toggle('active', on);
@@ -244,20 +249,15 @@ function buildTopbar() {
 //_____________________________________________________________________________
 // Showing pages
 
-function parseHash() {
-  const [, page = 'home', arg = null] = (window.location.hash || '#/home').split('/');
-  return { page: page || 'home', arg: arg ? decodeURIComponent(arg) : null };
-}
-
 function showPage() {
-  const route = parseHash();
+  const route = A.parseHash(window.location.hash);
   const page  = pages[route.page] || pages.home;
   if (current && current.destroy) current.destroy();
-  store.set('route', route);
+  store.set('route', { page: route.page, arg: route.arg });
   main.scrollTop = 0;
   fill(main);
   main.dataset.page = route.page;
-  try { current = page.show(main, route.arg) || {}; }
+  try { current = page.show(main, route.arg, route.state) || {}; }
   catch (err) { current = {}; fill(main, h('p.empty', 'This page could not be shown.')); showError(err); }
   markNav();
 }
@@ -307,8 +307,10 @@ async function start() {
   buildNav();
   startNav();
   current = {};
+  // With a project open, this shows the page as well; showing it twice
+  // would send a figure's address's requests twice (`pages/plot.js`).
   projectChanged(store.get('biom'), null);
-  showPage();
+  if (!store.get('biom')) showPage();
 
   window.addEventListener('hashchange', showPage);
   startHeartbeat();

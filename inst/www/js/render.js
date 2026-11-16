@@ -26,6 +26,36 @@ export function onChange(auto) { return auto ? 'draw' : 'mark'; }
  */
 export function isStale(drawn, current) { return drawn !== null && drawn !== current; }
 
+/** While a figure is on its way the server is asked where it stands, this often. */
+export const ASK_SECONDS = 2;
+
+/** After this many seconds a figure is slow, and the render box says what the user can do meanwhile. */
+export const SLOW_SECONDS = 8;
+
+const LEAVE = 'The address of this page keeps these settings. You can leave, or bookmark it, and come back: the figure is then drawn again.';
+
+/**
+ * What the render box says while a figure is on its way: that it is being
+ * drawn or, when every worker of the server is busy, its place in the queue.
+ *
+ * @param {string} label         the figure's name
+ * @param {object|null} status   the server's word on the request (/api/plot/status):
+ *                               {state: 'queued', place, waiting}, {state: 'running'}
+ *                               or {state: 'none'}; null before it was asked
+ * @param {number} seconds       how long the figure has been waited for
+ * @return {{heading, hint}}
+ */
+export function progress(label, status, seconds) {
+  const queued = !!status && status.state === 'queued' && Number.isInteger(status.place) && status.place >= 1;
+  if (queued) {
+    const of = Math.max(status.place, Number.isInteger(status.waiting) ? status.waiting : 0);
+    return {
+      heading: `Waiting: place ${status.place} of ${of} in the queue`,
+      hint: `The server is drawing other figures first. ${LEAVE}` };
+  }
+  return { heading: `Drawing: ${label}`, hint: seconds >= SLOW_SECONDS ? LEAVE : '' };
+}
+
 /**
  * What the plot page shows.
  *

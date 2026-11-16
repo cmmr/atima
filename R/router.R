@@ -688,7 +688,7 @@ handle_request <- function (request, app) {
 
   key <- NULL
   if (isTRUE(REQ[['ROUTE']][['supersede']]) && !is.null(session[['session_id']]))
-    key <- paste(session[['session_id']], REQ[['ROUTE']][['path']])
+    key <- job_key(session[['session_id']], REQ[['ROUTE']][['path']])
 
   promises::then(
     promise     = pool_submit(
@@ -696,6 +696,16 @@ handle_request <- function (request, app) {
       cpus = out[['cpus']] %||% 1L ),
     onFulfilled = function (value) finish(function () value),
     onRejected  = function (error) finish(function () stop(error)) )
+}
+
+
+#______________________________________________________________________________
+#' The key of a session's job for a route where a new request replaces the
+#' one before it (`supersede`): the pool keeps one job per key.
+#' @param path  The route's path, e.g. `"/api/plot"`.
+#' @noRd
+job_key <- function (session_id, path) {
+  paste(session_id, path)
 }
 
 
